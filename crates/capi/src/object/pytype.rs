@@ -156,10 +156,9 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
                         PySlotType::TypeSlot(TpMethods, pfunc) => {
                             for def in PyMethodDef::iter(pfunc.cast()) {
                                 let name = unsafe { def.ml_name.try_as_str(vm)? };
-                                let is_static = PyMethodFlags::from_bits_retain(def.ml_flags as _)
-                                    .contains(PyMethodFlags::STATIC);
+                                let flags = PyMethodFlags::from_bits_retain(def.ml_flags as _);
                                 let method = def.build_method_def(vm)?;
-                                methods.push((name, is_static, method));
+                                methods.push((name, flags, method));
                             }
                         }
                         PySlotType::TypeSlot(TpNew, pfunc) => {
@@ -200,8 +199,13 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
 
         let attrs = &class.attributes;
         let class_static = unsafe { &*((&*class) as *const _) };
-        for (name, is_static, method) in methods {
-            let method = if is_static {
+        for (name, flags, method) in methods {
+            let method = if flags.contains(PyMethodFlags::CLASS) {
+                if flags.contains(PyMethodFlags::STATIC) {
+                    return Err(vm.new_value_error("method cannot be both class and static"));
+                }
+                method.build_classmethod(class_static, vm).into()
+            } else if flags.contains(PyMethodFlags::STATIC) {
                 // Static functions bind the defining class for metadata, not as
                 // a Python argument. They must not use a method descriptor,
                 // whose call protocol consumes its first argument as self.

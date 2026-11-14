@@ -516,6 +516,20 @@ impl Py<HeapMethodDef> {
             None,
         )
     }
+
+    pub fn build_classmethod(
+        &self,
+        class: &'static Py<PyType>,
+        vm: &VirtualMachine,
+    ) -> PyRef<PyClassMethodDescriptor> {
+        let mut function = PyClassMethodDescriptor::new(unsafe { self.method() }, class, &vm.ctx);
+        function._method_def_owner = Some(self.to_owned().into());
+        PyRef::new_ref(
+            function,
+            vm.ctx.types.classmethod_descriptor_type.to_owned(),
+            None,
+        )
+    }
 }
 
 #[pyclass]
