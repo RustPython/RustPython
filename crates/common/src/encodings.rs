@@ -425,7 +425,7 @@ pub mod errors {
             let mut out = String::with_capacity(num_chars * 4);
             for c in err_str.code_points() {
                 let c_u32 = c.to_u32();
-                if let Some(c_name) = c.to_char().and_then(rustpython_unicode::character_name) {
+                if let Some(c_name) = rustpython_unicode::data::name_for_namereplace(c_u32) {
                     write!(out, "\\N{{{c_name}}}").unwrap();
                 } else if c_u32 >= 0x10000 {
                     write!(out, "\\U{c_u32:08x}").unwrap();
