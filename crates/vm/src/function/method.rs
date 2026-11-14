@@ -71,10 +71,10 @@ impl PyMethodFlags {
 #[macro_export]
 macro_rules! define_methods {
     (@function $func:ident, METHOD) => {
-        $crate::function::static_func($crate::function::MethodFunction($func))
+        $crate::function::static_func($crate::function::ReceiverFunction::<_, true>($func))
     };
     (@function $func:ident, CLASS) => {
-        $crate::function::static_func($crate::function::MethodFunction($func))
+        $crate::function::static_func($crate::function::ReceiverFunction::<_, true>($func))
     };
     (@function $func:ident, $flags:ident) => {
         $crate::function::static_func($func)
@@ -170,9 +170,9 @@ impl PyMethodDef {
         doc: super::ItemDoc,
     ) -> Self
     where
-        super::MethodFunction<F>: IntoPyNativeFn<Kind>,
+        super::ReceiverFunction<F, true>: IntoPyNativeFn<Kind>,
     {
-        Self::new_const(name, super::MethodFunction(func), flags, doc)
+        Self::new_const(name, super::ReceiverFunction::<_, true>(func), flags, doc)
     }
 
     #[inline]
@@ -578,13 +578,13 @@ mod tests {
     }
     #[test]
     fn bound_native_call_does_not_clone_or_prepend_the_receiver() {
-        use crate::{builtins::PyList, function::MethodFunction};
+        use crate::{builtins::PyList, function::ReceiverFunction};
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let receiver = vm.ctx.new_list(vec![]);
             let count_when_bound = receiver.as_object().strong_count() + 1;
             let definition = vm.ctx.new_method_def(
                 "borrowed",
-                MethodFunction(move |zelf: &Py<PyList>, args: FuncArgs| {
+                ReceiverFunction::<_, true>(move |zelf: &Py<PyList>, args: FuncArgs| {
                     assert_eq!(zelf.as_object().strong_count(), count_when_bound);
                     assert_eq!(args.args.len(), 1);
                     assert_eq!(args.kwargs.len(), 1);

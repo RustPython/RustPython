@@ -372,7 +372,7 @@ pub fn set_tp_new(vm: &VirtualMachine, ty: &Py<PyType>, tp_new: newfunc) -> PyRe
     // `update_slot` does not read it back as a definition of `__new__`.
     let def = vm.ctx.new_method_def(
         "__new__",
-        rustpython_vm::function::MethodFunction(PyType::__new__),
+        rustpython_vm::function::ReceiverFunction::<_, true>(PyType::__new__),
         PyMethodFlags::METHOD,
         ItemDoc::NONE,
     );

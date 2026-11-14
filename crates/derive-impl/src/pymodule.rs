@@ -571,7 +571,7 @@ impl ToTokens for ValidatedFunctionNursery {
             let cfgs = &item.cfgs;
             let cfgs = quote!(#(#cfgs)*);
             let function = if item.binds_module {
-                quote!(rustpython_vm::function::ModuleFunction(#ident))
+                quote!(rustpython_vm::function::ReceiverFunction::<_, false>(#ident))
             } else {
                 quote!(#ident)
             };

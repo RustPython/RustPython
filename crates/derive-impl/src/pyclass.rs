@@ -1688,7 +1688,7 @@ impl ToTokens for MethodNursery {
                 quote!(new_const)
             };
             let function = if !item.raw && !matches!(item.attr_name, AttrName::StaticMethod) {
-                quote!(rustpython_vm::function::MethodFunction(Self::#ident))
+                quote!(rustpython_vm::function::ReceiverFunction::<_, true>(Self::#ident))
             } else {
                 quote!(Self::#ident)
             };
