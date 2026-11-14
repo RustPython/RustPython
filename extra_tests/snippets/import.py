@@ -76,3 +76,33 @@ from testutils import assert_raises
 
 with assert_raises(SyntaxError):
     exec("import")
+
+# Reading __spec__ can replace an already cached module without starting an
+# import. Check both direct __import__ and the IMPORT_NAME cache fast path.
+import sys
+import types
+
+
+class ReplacingSpec:
+    @property
+    def _initializing(self):
+        sys.modules[replacement.__name__] = replacement
+        return False
+
+
+for use_statement in (False, True):
+    name = "_replaced_import_cache"
+    cached = types.ModuleType(name)
+    replacement = types.ModuleType(name)
+    cached.__spec__ = ReplacingSpec()
+    sys.modules[name] = cached
+    try:
+        if use_statement:
+            namespace = {}
+            exec("import _replaced_import_cache", namespace)
+            result = namespace[name]
+        else:
+            result = __import__(name)
+        assert result is replacement
+    finally:
+        del sys.modules[name]

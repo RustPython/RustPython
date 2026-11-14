@@ -3554,6 +3554,9 @@ impl VirtualMachine {
         if self.is_none(&found) || import::is_module_initializing(&found, self)? {
             return Ok(None);
         }
+        if !import::is_cached_module(&sys_modules, module, &found, self)? {
+            return Ok(None);
+        }
         crate::lazy_import::clear_submodule(module, true, self)?;
 
         let Some(dot) = name_str.find('.') else {

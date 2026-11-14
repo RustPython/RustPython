@@ -260,7 +260,6 @@ class ThreadedImportTests(unittest.TestCase):
                           'partial', 'pool_in_threads.py')
         script_helper.assert_python_ok(fn)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_import_failure_race_condition(self):
         # Regression test for race condition where a thread could receive
         # a partially-initialized module when another thread's import fails.
