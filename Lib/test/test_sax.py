@@ -978,7 +978,6 @@ class ExpatReaderTest(XmlTestBase):
             source.setSystemId(systemId)
             return source
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_dtdhandler(self):
         parser = create_parser()
         handler = self.TestDTDHandler()
@@ -1482,7 +1481,6 @@ class LexicalHandlerTest(unittest.TestCase):
         self.end_of_dtd = False
         self.comments = []
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_handlers(self):
         class TestLexicalHandler(LexicalHandler):
             def __init__(self, test_harness, *args, **kwargs):

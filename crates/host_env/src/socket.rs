@@ -1219,8 +1219,11 @@ pub fn pack_ancillary_messages(
     Ok(control_buf)
 }
 
-#[cfg(test)]
-#[cfg(all(unix, not(target_os = "redox")))]
+#[cfg(all(test, unix, not(target_os = "redox")))]
+#[allow(
+    clippy::tests_outside_test_module,
+    reason = "the platform-gated module is compiled only for tests"
+)]
 mod ancillary_parse_tests {
     use super::{
         AncillaryDataStatus, ControlBuffer, checked_cmsg_len, pack_ancillary_messages,
