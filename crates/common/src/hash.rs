@@ -43,7 +43,10 @@ impl HashSecret {
     #[must_use]
     pub fn new(seed: u32) -> Self {
         let mut buf = [0u8; 16];
-        lcg_urandom(seed, &mut buf);
+        // CPython disables hash randomization with an all-zero secret.
+        if seed != 0 {
+            lcg_urandom(seed, &mut buf);
+        }
         let (left, right) = buf.split_at(8);
         let k0 = u64::from_le_bytes(left.try_into().unwrap());
         let k1 = u64::from_le_bytes(right.try_into().unwrap());
@@ -81,11 +84,10 @@ impl HashSecret {
             0
         } else {
             let mut hasher = self.build_hasher();
-            // Keep the slice length prefix consistent with the 64-bit hash
-            // representation, including on 32-bit targets.
-            hasher.write_u64(value.len() as u64);
+            // Py_HashBuffer hashes the buffer directly, without Rust's slice
+            // length prefix or the modulus used for numeric hashes.
             hasher.write(value);
-            fix_sentinel(mod_int(hasher.finish() as PyHash))
+            fix_sentinel(hasher.finish() as PyHash)
         }
     }
 
@@ -341,7 +343,7 @@ mod tests {
     fn from_keys_is_stable_and_seed_independent() {
         const K0: u64 = 0x0706_0504_0302_0100;
         const K1: u64 = 0x0f0e_0d0c_0b0a_0908;
-        const LOCKED_DIGEST: PyHash = -1862661396243998188;
+        const LOCKED_DIGEST: PyHash = 424532722944612153;
 
         // Two secrets built from the same explicit keys hash identically, and
         // the digest does not depend on the seed-derivation path.
