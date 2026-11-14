@@ -3532,7 +3532,7 @@ dependencies = [
 [[package]]
 name = "ruff_unicode_names2"
 version = "0.0.22"
-source = "git+https://github.com/RustPython/ruff.git?rev=b5960a1a15cd7a758c8e7df1b3b9d93f00288a16#b5960a1a15cd7a758c8e7df1b3b9d93f00288a16"
+source = "git+https://github.com/RustPython/ruff.git?rev=043bd2bc4898a5348f66332c5cdd19de4fbecbe1#043bd2bc4898a5348f66332c5cdd19de4fbecbe1"
 dependencies = [
  "phf 0.14.0",
  "ruff_unicode_names2_generator",
@@ -3541,7 +3541,7 @@ dependencies = [
 [[package]]
 name = "ruff_unicode_names2_generator"
 version = "0.0.22"
-source = "git+https://github.com/RustPython/ruff.git?rev=b5960a1a15cd7a758c8e7df1b3b9d93f00288a16#b5960a1a15cd7a758c8e7df1b3b9d93f00288a16"
+source = "git+https://github.com/RustPython/ruff.git?rev=043bd2bc4898a5348f66332c5cdd19de4fbecbe1#043bd2bc4898a5348f66332c5cdd19de4fbecbe1"
 dependencies = [
  "phf_codegen 0.14.0",
  "rand 0.10.3",
@@ -3938,7 +3938,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_python_ast"
 version = "0.17.5"
-source = "git+https://github.com/RustPython/ruff.git?rev=b5960a1a15cd7a758c8e7df1b3b9d93f00288a16#b5960a1a15cd7a758c8e7df1b3b9d93f00288a16"
+source = "git+https://github.com/RustPython/ruff.git?rev=043bd2bc4898a5348f66332c5cdd19de4fbecbe1#043bd2bc4898a5348f66332c5cdd19de4fbecbe1"
 dependencies = [
  "aho-corasick",
  "arrayvec",
@@ -3959,7 +3959,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_python_parser"
 version = "0.17.5"
-source = "git+https://github.com/RustPython/ruff.git?rev=b5960a1a15cd7a758c8e7df1b3b9d93f00288a16#b5960a1a15cd7a758c8e7df1b3b9d93f00288a16"
+source = "git+https://github.com/RustPython/ruff.git?rev=043bd2bc4898a5348f66332c5cdd19de4fbecbe1#043bd2bc4898a5348f66332c5cdd19de4fbecbe1"
 dependencies = [
  "bitflags 2.13.2",
  "bstr",
@@ -3983,7 +3983,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_python_trivia"
 version = "0.17.5"
-source = "git+https://github.com/RustPython/ruff.git?rev=b5960a1a15cd7a758c8e7df1b3b9d93f00288a16#b5960a1a15cd7a758c8e7df1b3b9d93f00288a16"
+source = "git+https://github.com/RustPython/ruff.git?rev=043bd2bc4898a5348f66332c5cdd19de4fbecbe1#043bd2bc4898a5348f66332c5cdd19de4fbecbe1"
 dependencies = [
  "itertools 0.15.0",
  "memchr",
@@ -3997,7 +3997,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_source_file"
 version = "0.17.5"
-source = "git+https://github.com/RustPython/ruff.git?rev=b5960a1a15cd7a758c8e7df1b3b9d93f00288a16#b5960a1a15cd7a758c8e7df1b3b9d93f00288a16"
+source = "git+https://github.com/RustPython/ruff.git?rev=043bd2bc4898a5348f66332c5cdd19de4fbecbe1#043bd2bc4898a5348f66332c5cdd19de4fbecbe1"
 dependencies = [
  "memchr",
  "rustpython-ruff_text_size",
@@ -4006,7 +4006,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_text_size"
 version = "0.17.5"
-source = "git+https://github.com/RustPython/ruff.git?rev=b5960a1a15cd7a758c8e7df1b3b9d93f00288a16#b5960a1a15cd7a758c8e7df1b3b9d93f00288a16"
+source = "git+https://github.com/RustPython/ruff.git?rev=043bd2bc4898a5348f66332c5cdd19de4fbecbe1#043bd2bc4898a5348f66332c5cdd19de4fbecbe1"
 dependencies = [
  "get-size2",
 ]
