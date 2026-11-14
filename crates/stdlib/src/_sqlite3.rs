@@ -2430,6 +2430,8 @@ mod _sqlite3 {
         arraysize: PyAtomic<u32>,
         #[pytraverse(skip)]
         row_factory: PyAtomicRef<Option<PyObject>>,
+        #[pytraverse(skip)]
+        locked: PyAtomic<bool>,
         inner: PyMutex<Option<CursorInner>>,
     }
 
@@ -2474,6 +2476,7 @@ mod _sqlite3 {
         ) -> Self {
             Self {
                 connection,
+                locked: Radium::new(false),
                 arraysize: Radium::new(1),
                 row_factory: PyAtomicRef::from(row_factory),
                 inner: PyMutex::from(Some(CursorInner {
@@ -2490,10 +2493,37 @@ mod _sqlite3 {
         fn new_uninitialized(connection: PyRef<Connection>, _vm: &VirtualMachine) -> Self {
             Self {
                 connection,
+                locked: Radium::new(false),
                 arraysize: Radium::new(1),
                 row_factory: PyAtomicRef::from(None),
                 inner: PyMutex::from(None),
             }
+        }
+
+        fn check_locked(&self, vm: &VirtualMachine) -> PyResult<()> {
+            if self.locked.load(Ordering::Acquire) {
+                Err(new_programming_error(
+                    vm,
+                    "Recursive use of cursors not allowed.".to_owned(),
+                ))
+            } else {
+                Ok(())
+            }
+        }
+
+        fn check_recursive_use(&self, vm: &VirtualMachine) -> PyResult<()> {
+            // Active execution owns inner, so detect reentry before locking it.
+            // Like check_cursor in CPython, connection errors precede locked.
+            if self.locked.load(Ordering::Acquire) {
+                self.connection.check_open(vm)?;
+                self.check_locked(vm)?;
+            }
+            Ok(())
+        }
+
+        fn lock_operation(&self) -> impl Drop + '_ {
+            self.locked.store(true, Ordering::Release);
+            scopeguard::guard((), |()| self.locked.store(false, Ordering::Release))
         }
 
         fn check_cursor_state(inner: Option<&CursorInner>, vm: &VirtualMachine) -> PyResult<()> {
@@ -2531,16 +2561,21 @@ mod _sqlite3 {
             args: ExecuteArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            with_deferred_drops(|| Self::execute_inner(zelf, args.sql, args.parameters, vm))
+            with_deferred_drops(|| {
+                Self::execute_inner(&zelf, args.sql, args.parameters, vm)?;
+                Ok(zelf)
+            })
         }
 
         fn execute_inner(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             sql: PyUtf8StrRef,
             parameters: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
-        ) -> PyResult<PyRef<Self>> {
+        ) -> PyResult<()> {
+            zelf.check_recursive_use(vm)?;
             let mut inner = zelf.inner(vm)?;
+            let _locked = zelf.lock_operation();
             zelf.connection.check_open(vm)?;
 
             if let Some(stmt) = inner.statement.take() {
@@ -2548,8 +2583,7 @@ mod _sqlite3 {
             }
 
             let Some(stmt) = zelf.connection.cached_statement(sql, vm)? else {
-                drop(inner);
-                return Ok(zelf);
+                return Ok(());
             };
 
             inner.rowcount = if stmt.is_dml { 0 } else { -1 };
@@ -2600,8 +2634,7 @@ mod _sqlite3 {
 
             inner.lastrowid = ret.lastrowid;
 
-            drop(inner);
-            Ok(zelf)
+            Ok(())
         }
 
         #[pymethod]
@@ -2611,16 +2644,21 @@ mod _sqlite3 {
             seq_of_parameters: ArgIterable,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            with_deferred_drops(|| Self::executemany_inner(zelf, sql, seq_of_parameters, vm))
+            with_deferred_drops(|| {
+                Self::executemany_inner(&zelf, sql, seq_of_parameters, vm)?;
+                Ok(zelf)
+            })
         }
 
         fn executemany_inner(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             sql: PyUtf8StrRef,
             seq_of_params: ArgIterable,
             vm: &VirtualMachine,
-        ) -> PyResult<PyRef<Self>> {
+        ) -> PyResult<()> {
+            zelf.check_recursive_use(vm)?;
             let mut inner = zelf.inner(vm)?;
+            let _locked = zelf.lock_operation();
             zelf.connection.check_open(vm)?;
 
             if let Some(stmt) = inner.statement.take() {
@@ -2628,8 +2666,7 @@ mod _sqlite3 {
             }
 
             let Some(stmt) = zelf.connection.cached_statement(sql, vm)? else {
-                drop(inner);
-                return Ok(zelf);
+                return Ok(());
             };
 
             zelf.connection.check_open(vm)?;
@@ -2681,8 +2718,7 @@ mod _sqlite3 {
                 inner.statement = Some(stmt);
             }
 
-            drop(inner);
-            Ok(zelf)
+            Ok(())
         }
 
         #[pymethod]
@@ -2699,6 +2735,7 @@ mod _sqlite3 {
             script: PyUtf8StrRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
+            zelf.check_recursive_use(vm)?;
             zelf.check_cursor_valid(vm)?;
 
             let db = zelf.connection.db_lock(vm)?;
@@ -2782,6 +2819,7 @@ mod _sqlite3 {
         }
 
         fn close_inner(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.check_locked(vm)?;
             // Check if __init__ was called
             let mut guard = zelf.inner.lock();
 
@@ -2918,7 +2956,8 @@ mod _sqlite3 {
     impl Initializer for Cursor {
         type Args = PyRef<Connection>;
 
-        fn init(zelf: &Py<Self>, _connection: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, _connection: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.check_locked(vm)?;
             let mut guard = zelf.inner.lock();
             if guard.is_some() {
                 // Already initialized (e.g., from a call to super().__init__)
@@ -2945,6 +2984,7 @@ mod _sqlite3 {
 
     impl Cursor {
         fn next_inner(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            zelf.check_recursive_use(vm)?;
             let mut inner = zelf.inner(vm)?;
             zelf.connection.check_thread(vm)?;
             if let Err(exc) = zelf.connection._db_lock(vm) {
@@ -2962,7 +3002,8 @@ mod _sqlite3 {
             };
             let db = stmt.database();
             let st = stmt.lock();
-            // fetch_one_row
+            // CPython protects conversion callbacks, but not stepping or row_factory.
+            let locked = zelf.lock_operation();
 
             let num_cols = st.data_count();
 
@@ -3041,6 +3082,7 @@ mod _sqlite3 {
                 row.push(val);
             }
 
+            drop(locked);
             let ret = st.step_checked(vm);
             zelf.connection.check_open(vm)?;
             let ret = ret?;

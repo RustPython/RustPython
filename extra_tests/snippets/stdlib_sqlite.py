@@ -1411,3 +1411,59 @@ def check_connection_audit():
 
 
 check_connection_audit()
+
+
+def check_cursor_callback_lock_scope():
+    test = unittest.TestCase()
+    connection = sqlite.connect(":memory:")
+    cursor = connection.cursor()
+
+    # text_factory has the same protected scope as a registered converter.
+    # An exception must release that scope so a later query can reuse the cursor.
+    def text_factory(value):
+        cursor.execute("select 42")
+
+    connection.text_factory = text_factory
+    cursor.execute("select 'text'")
+    with test.assertRaisesRegex(
+        sqlite.ProgrammingError, "^Recursive use of cursors not allowed\\.$"
+    ):
+        cursor.fetchone()
+    connection.text_factory = str
+    assert cursor.execute("select 42").fetchone() == (42,)
+
+    # Parameter adaptation is protected too, and failed execution must unlock.
+    class Parameter:
+        def __conform__(self, protocol):
+            cursor.executescript("select 1")
+
+    with test.assertRaisesRegex(
+        sqlite.ProgrammingError, "^Recursive use of cursors not allowed\\.$"
+    ):
+        cursor.execute("select ?", (Parameter(),))
+    assert cursor.execute("select 43").fetchone() == (43,)
+
+    # row_factory runs outside the protected conversion scope. It can replace
+    # this cursor's pending query, rather than being rejected as recursive use.
+    def row_factory(current, row):
+        current.row_factory = None
+        current.execute("select 44")
+        return row
+
+    cursor.row_factory = row_factory
+    cursor.execute("select 1 union all select 2")
+    assert cursor.fetchone() == (1,)
+    assert cursor.fetchone() == (44,)
+
+    # executescript owns separate statements and does not protect the cursor
+    # for the lifetime of its script callbacks.
+    connection.create_function(
+        "reuse_cursor", 0, lambda: cursor.execute("select 45").fetchone()[0]
+    )
+    cursor.executescript("select reuse_cursor()")
+    assert cursor.execute("select 46").fetchone() == (46,)
+    cursor.close()
+    connection.close()
+
+
+check_cursor_callback_lock_scope()
