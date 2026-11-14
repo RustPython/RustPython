@@ -1,3 +1,4 @@
+import sys
 from xml.parsers import expat
 
 # Without namespace expansion, element and attribute names retain prefixes.
@@ -128,45 +129,52 @@ for name in ("buffer_size", "buffer_text", "CharacterDataHandler"):
     else:
         raise AssertionError("parser attribute deleted")
 
-# Flushed data is detached before invoking callbacks.
-# A callback may change the buffer without leaving a Rust lock held.
-parser = expat.ParserCreate()
-parser.buffer_text = True
-observed = []
-resized = False
+# CPython 3.15.0 retains pending data during callbacks; 3.15.2 fixes
+# reentrant flushes. Mutating callbacks can recursively redeliver data or
+# invalidate the old buffer, so guard their execution, not just assertions.
+# Always exercise the corrected behavior on RustPython.
+callback_safe_flush = sys.implementation.name != "cpython" or sys.version_info >= (
+    3,
+    15,
+    2,
+)
 
+if callback_safe_flush:
+    # Flushed data is detached before invoking callbacks.
+    # A callback may change the buffer without leaving a Rust lock held.
+    parser = expat.ParserCreate()
+    parser.buffer_text = True
+    observed = []
+    resized = False
 
-def resize_during_flush(text):
-    global resized
-    observed.append((text, parser.buffer_used))
-    if not resized:
-        resized = True
-        parser.buffer_size = 64
+    def resize_during_flush(text):
+        global resized
+        observed.append((text, parser.buffer_used))
+        if not resized:
+            resized = True
+            parser.buffer_size = 64
 
+    parser.CharacterDataHandler = resize_during_flush
+    parser.Parse("<r>é<x/>z</r>", True)
+    assert observed == [("éz", 0)]
+    assert parser.buffer_size == 64 and parser.buffer_used == 0
 
-parser.CharacterDataHandler = resize_during_flush
-parser.Parse("<r>é<x/>z</r>", True)
-assert observed == [("éz", 0)]
-assert parser.buffer_size == 64 and parser.buffer_used == 0
+    # CharacterDataHandler replacement flushes existing data to the old handler.
+    parser = expat.ParserCreate()
+    parser.buffer_text = True
+    old_text, new_text = [], []
+    parser.CharacterDataHandler = old_text.append
 
-# CharacterDataHandler replacement flushes existing data to the old handler.
-parser = expat.ParserCreate()
-parser.buffer_text = True
-old_text, new_text = [], []
-parser.CharacterDataHandler = old_text.append
+    def replace_from_character_callback(text):
+        old_text.append(text)
+        if len(old_text) == 1:
+            parser.CharacterDataHandler = new_text.append
 
-
-def replace_from_character_callback(text):
-    old_text.append(text)
-    if len(old_text) == 1:
-        parser.CharacterDataHandler = new_text.append
-
-
-parser.CharacterDataHandler = replace_from_character_callback
-parser.Parse(b"<r>a<x/>b</r>", True)
-assert old_text == ["ab"] and new_text == []
-assert parser.CharacterDataHandler is not replace_from_character_callback
-assert parser.buffer_used == 0
+    parser.CharacterDataHandler = replace_from_character_callback
+    parser.Parse(b"<r>a<x/>b</r>", True)
+    assert old_text == ["ab"] and new_text == []
+    assert parser.CharacterDataHandler is not replace_from_character_callback
+    assert parser.buffer_used == 0
 
 # Flush exceptions propagate; the used count is reset even on failure.
 parser = expat.ParserCreate()
@@ -174,7 +182,8 @@ parser.buffer_text = True
 
 
 def fail_buffered_text(text):
-    assert parser.buffer_used == 0
+    if callback_safe_flush:
+        assert parser.buffer_used == 0
     raise ValueError("buffer callback failure")
 
 
@@ -198,26 +207,27 @@ assert child.CharacterDataHandler is parser.CharacterDataHandler
 child.buffer_text = False
 assert parser.buffer_text is True
 
-# An overflow-triggered flush rechecks callback changes before delivering the
-# new backend event. Disabling buffering must not discard that new text;
-# removing the character handler must discard it.
-for remove_handler in (False, True):
-    parser = expat.ParserCreate()
-    parser.buffer_size = 2
-    delivered = []
+if callback_safe_flush:
+    # An overflow-triggered flush rechecks callback changes before delivering the
+    # new backend event. Disabling buffering must not discard that new text;
+    # removing the character handler must discard it.
+    for remove_handler in (False, True):
+        parser = expat.ParserCreate()
+        parser.buffer_size = 2
+        delivered = []
 
-    def change_during_overflow(text):
-        delivered.append(text)
-        if len(delivered) == 1:
-            if remove_handler:
-                parser.CharacterDataHandler = None
-            else:
-                parser.buffer_text = False
+        def change_during_overflow(text):
+            delivered.append(text)
+            if len(delivered) == 1:
+                if remove_handler:
+                    parser.CharacterDataHandler = None
+                else:
+                    parser.buffer_text = False
 
-    parser.CharacterDataHandler = change_during_overflow
-    parser.Parse(b"<r>a<x/>bc</r>", True)
-    assert delivered == (["a"] if remove_handler else ["a", "bc"])
-    assert parser.buffer_used == 0
+        parser.CharacterDataHandler = change_during_overflow
+        parser.Parse(b"<r>a<x/>bc</r>", True)
+        assert delivered == (["a"] if remove_handler else ["a", "bc"])
+        assert parser.buffer_used == 0
 
 # Callback failure clears all handlers and cannot resume queued events on a
 # subsequent Parse call, regardless of character buffering.
