@@ -585,6 +585,16 @@ mod tests {
                     .is_none()
             );
             assert!(obj.call_method0("class_receiver").unwrap().is(&class));
+            assert!(class.call_method0("class_receiver").unwrap().is(&class));
+            let class_wrapper = class
+                .getattr("__dict__")
+                .unwrap()
+                .get_item("class_receiver")
+                .unwrap();
+            assert_eq!(
+                class_wrapper.get_type().name().unwrap().to_str().unwrap(),
+                "classmethod_descriptor"
+            );
             assert_eq!(
                 class
                     .call_method0("static_noargs")
@@ -656,6 +666,44 @@ mod tests {
             .unwrap();
             assert!(function.getattr("__self__").unwrap().is_none());
             assert_eq!(function.call0().unwrap().extract::<i64>().unwrap(), 1);
+        });
+    }
+
+    #[test]
+    fn descr_new_classmethod_binds_the_type_as_self() {
+        use pyo3::ffi;
+
+        unsafe extern "C" fn receiver(
+            slf: *mut crate::PyObject,
+            _args: *mut crate::PyObject,
+        ) -> *mut crate::PyObject {
+            unsafe { ffi::Py_NewRef(slf.cast()).cast() }
+        }
+
+        Python::attach(|py| {
+            let mut definition = super::PyMethodDef {
+                ml_name: c"class_receiver".as_ptr(),
+                ml_meth: super::PyMethodPointer {
+                    PyCFunction: receiver,
+                },
+                ml_flags: ffi::METH_CLASS | ffi::METH_NOARGS,
+                ml_doc: c"".as_ptr(),
+            };
+            let ty = py.get_type::<PyAny>();
+            let descr = unsafe {
+                Bound::<PyAny>::from_owned_ptr_or_err(
+                    py,
+                    crate::descrobject::PyDescr_NewClassMethod(ty.as_ptr().cast(), &mut definition)
+                        .cast(),
+                )
+            }
+            .unwrap();
+            assert_eq!(
+                descr.get_type().name().unwrap().to_str().unwrap(),
+                "classmethod_descriptor"
+            );
+            let bound = descr.call_method1("__get__", (py.None(), &ty)).unwrap();
+            assert!(bound.call0().unwrap().is(&ty));
         });
     }
 }
