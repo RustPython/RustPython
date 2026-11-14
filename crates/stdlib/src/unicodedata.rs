@@ -31,6 +31,9 @@ impl<'a> TryFromBorrowedObject<'a> for NormalizeFormArg {
 
 #[pymodule]
 mod unicodedata {
+    use alloc::ffi::CString;
+    use rustpython_unicode::{UNICODE_VERSION, UNICODE_VERSION_LEGACY};
+
     use super::{NormalizeFormArg, unicode_core};
     use crate::vm::{
         Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
@@ -312,23 +315,25 @@ mod unicodedata {
         inner: unicode_core::Ucd,
         /// Owns the bytes `unidata_version` points at.
         #[expect(dead_code, reason = "keeps the version string alive")]
-        version_owner: alloc::ffi::CString,
+        version_owner: CString,
         #[pymember]
         unidata_version: crate::vm::builtins::descriptor::CStrMember,
     }
 
     impl Ucd {
         pub(super) fn new(modern: bool) -> Self {
+            let inner = unicode_core::Ucd::new(modern);
             let text = if modern {
-                unicode_core::unicode_version()
+                UNICODE_VERSION
             } else {
-                "3.2.0".to_owned()
+                UNICODE_VERSION_LEGACY
             };
-            let version_owner = alloc::ffi::CString::new(text).unwrap_or_default();
+            let version_owner = CString::new(text)
+                .expect("Embedded Unicode version string should never have internal NULs");
             let unidata_version =
                 crate::vm::builtins::descriptor::CStrMember::new(version_owner.as_ptr());
             Self {
-                inner: unicode_core::Ucd::new(modern),
+                inner,
                 version_owner,
                 unidata_version,
             }
@@ -503,6 +508,6 @@ mod unicodedata {
 
     #[pyattr]
     fn unidata_version(_vm: &VirtualMachine) -> String {
-        unicode_core::unicode_version()
+        UNICODE_VERSION.into()
     }
 }

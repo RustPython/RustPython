@@ -536,17 +536,6 @@ fn generate_algo_names(names: Vec<(u32, Box<str>)>) {
     );
 }
 
-/// Block names and ranges from the same Unicode release as the other latest tables.
-fn generate_blocks() {
-    let mut writer = open_writer("blocks.rs");
-    write_slice_pre(&mut writer, "BLOCKS", "(u32, u32, &str)");
-    for line in UnicodeLineReader::from_file_name("Blocks.txt", true) {
-        let name = line.field(NonZeroUsize::new(1).unwrap(), None);
-        writeln!(writer, "({}, {}, {name:?}),", line.start, line.end).unwrap();
-    }
-    write_slice_post(&mut writer);
-}
-
 /// Formal name aliases (`NameAliases.txt`) and named sequences
 /// (`NamedSequences.txt`).  `unicodedata.lookup` consults both; `\N{}`
 /// accepts only a single character, so named sequences stay out of
@@ -1103,6 +1092,42 @@ fn generate_numeric_type_3_2(rx: mpsc::Receiver<NumericTypeDiffs>) {
     );
 }
 
+/// Block names and ranges from the same Unicode release as the other latest tables.
+fn generate_blocks() {
+    let mut writer = open_writer("blocks.rs");
+    write_slice_pre(&mut writer, "BLOCKS", "(u32, u32, &str)");
+    for line in UnicodeLineReader::from_file_name("Blocks.txt", true) {
+        let name = line.field(NonZeroUsize::new(1).unwrap(), None);
+        writeln!(writer, "({}, {}, {name:?}),", line.start, line.end).unwrap();
+    }
+    write_slice_post(&mut writer);
+}
+
+/// The version string of the latest Unicode database bundled with the standard
+/// library (`unicodedata.unidata_version`).
+pub fn unicode_version() {
+    // Report the vendored database version, not the compiler's Unicode version.
+    let version = open_reader("NameAliases.txt", true)
+        .lines()
+        .next()
+        .expect("should be able to read from vendored NameAliases.txt")
+        .expect("vendored NameAliases.txt must start with its Unicode version");
+    let version = version
+        .strip_prefix("# NameAliases-")
+        .expect("NameAliases.txt doesn't start with version info")
+        .strip_suffix(".txt")
+        .unwrap()
+        .trim();
+
+    println!("cargo:rustc-env=UNICODE_VERSION={version}");
+}
+
+/// Parsers that are standalone and read small files.
+fn small_parsers() {
+    generate_blocks();
+    unicode_version();
+}
+
 /// Run each UCD parser in parallel.
 fn drive_parsers() {
     let parsers = [
@@ -1113,8 +1138,8 @@ fn drive_parsers() {
         binary_props_3_2,
         combining_class_3_2,
         generate_name_lookups,
-        generate_blocks,
         generate_case_mappings,
+        small_parsers,
     ];
 
     let mut handles = Vec::with_capacity(parsers.len() + 2);
