@@ -236,3 +236,18 @@ class MissingSlot:
 
 
 assert MissingSlot().__getstate__() == (None, {"y": 2})
+
+
+# deleting __getattr__ from a base must not drop a subclass's __getattribute__
+class _GABase:
+    pass
+
+
+class _GAProxy(_GABase):
+    def __getattribute__(self, name):
+        return "hooked"
+
+
+_GABase.__getattr__ = lambda self, name: "fallback"
+del _GABase.__getattr__
+assert _GAProxy().x == "hooked"

@@ -10,11 +10,7 @@ from test.support.import_helper import import_fresh_module
 import collections.abc
 from collections import namedtuple, UserDict, OrderedDict
 import copy
-# XXX: RUSTPYTHON
-try:
-    import _datetime
-except ImportError:
-    _datetime = None
+import _datetime
 import gc
 import inspect
 import pickle
@@ -25,9 +21,9 @@ import types
 import unittest.mock
 import weakref
 import typing
+import re
 
 import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests
-import re
 
 c_types = import_fresh_module('types', fresh=['_types'])
 py_types = import_fresh_module('types', blocked=['_types'])

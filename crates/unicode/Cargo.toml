@@ -23,6 +23,8 @@ unicode_names2 = { workspace = true }
 writeable = { workspace = true }
 
 [build-dependencies]
+icu_casemap = { workspace = true }
+icu_locale = { workspace = true }
 icu_properties = { workspace = true }
 unicode_names2 = { workspace = true }
 zlib-rs = { workspace = true }

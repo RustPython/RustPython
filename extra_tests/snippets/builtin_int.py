@@ -396,7 +396,6 @@ try:
     assert format(huge, "o")
     assert format(huge, "b")
 
-    # Limit disabled: no check.
     # The bit-length estimate can overstate the decimal length by one. Even
     # values whose leading digit is 9 must round-trip at the configured limit.
     for max_digits in (640, 4300, 5000):
@@ -419,6 +418,7 @@ try:
                 with assert_raises(ValueError):
                     formatter(too_many)
 
+    # Limit disabled: no check.
     sys.set_int_max_str_digits(0)
     assert str(huge)
 finally:

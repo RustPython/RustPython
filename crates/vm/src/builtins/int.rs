@@ -22,7 +22,7 @@ use alloc::fmt;
 use core::cell::Cell;
 use core::ops::{Neg, Not};
 use core::ptr::NonNull;
-use malachite_bigint::{BigInt, Sign};
+use malachite_bigint::{BigInt, BigUint, Sign};
 use num_integer::{ExtendedGcd, Integer};
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
 use rustpython_common::wtf8::wtf8_concat;
@@ -833,38 +833,33 @@ impl Comparable for PyInt {
 }
 
 /// Pre-format check enforcing `sys.get_int_max_str_digits()` on int → str conversions.
-/// Mirrors CPython's PEP 644 DoS mitigation. Cheap fast-path for small values via
-/// bit-count upper bound on decimal digits.
+/// Like CPython's long_to_decimal_string_internal, reject definitely oversized
+/// values from their bit length before doing any allocation or conversion.
 pub(crate) fn check_int_to_str_digits(value: &BigInt, vm: &VirtualMachine) -> PyResult<()> {
     let limit = vm.state.int_max_str_digits.load();
     if limit == 0 {
         return Ok(());
     }
     let bits = value.bits();
-    // Below ~452 decimal digits: definitely under any reasonable limit.
+    // Below ~452 decimal digits: definitely under any permitted nonzero limit.
     if bits < 1500 {
         return Ok(());
     }
-    // Upper bound on decimal digit count: ⌈bits × log10(2)⌉ + 1, with log10(2) ≈ 0.30103.
-    // Multiply with the u64 bit count: `bits as usize * 30103` wraps on
-    // 32-bit (wasm32) once bits ≳ 142_500, which silently accepts over-limit
-    // conversions.
-    let digits_upper = bits.saturating_mul(30103) / 100_000 + 1;
-    let limit_u64 = u64::try_from(limit).unwrap_or(u64::MAX);
-    if digits_upper > limit_u64 {
-        // The bit-count estimate can exceed the actual decimal length by
-        // more than one digit for very large values. Compare with the exact
-        // boundary instead of rejecting based on the estimate alone.
-        let over_limit = match u32::try_from(limit) {
-            Ok(exponent) => value.abs() >= BigInt::from(10).pow(exponent),
-            Err(_) => format!("{value}").len() - usize::from(value.is_negative()) > limit,
-        };
-        if over_limit {
-            return Err(vm.new_value_error(format!(
-                "Exceeds the limit ({limit} digits) for integer string conversion; \
-                 use sys.set_int_max_str_digits() to increase the limit"
-            )));
-        }
+    // 30102 / 100000 < log10(2) < 30103 / 100000. An n-bit magnitude is
+    // in [2^(n-1), 2^n), so these bounds can accept/reject without allocating.
+    // Use u128 products to avoid overflow, including on 32-bit targets.
+    let digits_upper = u128::from(bits) * 30103 / 100_000 + 1;
+    if digits_upper <= limit as u128 {
+        return Ok(());
+    }
+    let digits_lower = u128::from(bits - 1) * 30102 / 100_000 + 1;
+    // Only the narrow uncertain band needs an exact power-of-ten comparison.
+    // Borrow the magnitude: abs() would copy the entire integer, even positives.
+    if digits_lower > limit as u128 || value.magnitude() >= &Pow::pow(BigUint::from(10u8), limit) {
+        return Err(vm.new_value_error(format!(
+            "Exceeds the limit ({limit} digits) for integer string conversion; \
+             use sys.set_int_max_str_digits() to increase the limit"
+        )));
     }
     Ok(())
 }

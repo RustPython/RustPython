@@ -913,8 +913,8 @@ impl Py<PyStr> {
     fn lower(&self) -> PyStr {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.to_ascii_lowercase().into(),
-            PyKindStr::Utf8(s) => s.to_lowercase().into(),
-            PyKindStr::Wtf8(w) => w.to_lowercase().into(),
+            PyKindStr::Utf8(s) => case::lowercase_str(s).into(),
+            PyKindStr::Wtf8(w) => case::lowercase_wtf8(w).into(),
         }
     }
 
@@ -936,8 +936,8 @@ impl Py<PyStr> {
     fn upper(&self) -> PyStr {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.to_ascii_uppercase().into(),
-            PyKindStr::Utf8(s) => s.to_uppercase().into(),
-            PyKindStr::Wtf8(w) => w.to_uppercase().into(),
+            PyKindStr::Utf8(s) => case::uppercase_str(s).into(),
+            PyKindStr::Wtf8(w) => case::uppercase_wtf8(w).into(),
         }
     }
 
@@ -1426,13 +1426,13 @@ impl Py<PyStr> {
         let mut cased = false;
         let mut previous_is_cased = false;
         for c in self.as_wtf8().code_points().map(CodePoint::to_char_lossy) {
-            if c.is_uppercase() || case::is_titlecase(c) {
+            if case::is_uppercase(c) || case::is_titlecase(c) {
                 if previous_is_cased {
                     return false;
                 }
                 previous_is_cased = true;
                 cased = true;
-            } else if c.is_lowercase() {
+            } else if case::is_lowercase(c) {
                 if !previous_is_cased {
                     return false;
                 }

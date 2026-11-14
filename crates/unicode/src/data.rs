@@ -19,6 +19,9 @@ use icu_properties::props::{
 };
 use rustpython_wtf8::CodePoint;
 
+pub const UNICODE_VERSION: &str = env!("UNICODE_VERSION");
+pub const UNICODE_VERSION_LEGACY: &str = "3.2.0";
+
 // Latest Unicode
 include!(concat!(env!("OUT_DIR"), "/generated/blocks.rs"));
 include!(concat!(env!("OUT_DIR"), "/generated/algo_names.rs"));
@@ -158,6 +161,24 @@ fn cmp_caseless(a: &str, b: &str) -> Ordering {
         .cmp(b.bytes().map(|b| b.to_ascii_uppercase()))
 }
 
+/// Name used by `namereplace`, including CPython's private alias and sequence
+/// records. Unlike `unicodedata.name`, this consults two private-use ranges
+/// populated in UCD source-file order by CPython's database generator.
+#[must_use]
+pub fn name_for_namereplace(code: u32) -> Option<String> {
+    let name = code
+        .checked_sub(0xF0000)
+        .and_then(|i| CAPI_ALIAS_NAMES.get(i as usize))
+        .or_else(|| {
+            code.checked_sub(0xF0200)
+                .and_then(|i| CAPI_SEQUENCE_NAMES.get(i as usize))
+        });
+    if let Some(name) = name {
+        return Some(String::from(*name));
+    }
+    char::from_u32(code).and_then(character_name)
+}
+
 fn lookup_alias(name: &str) -> Option<char> {
     NAME_ALIASES
         .binary_search_by(|(a, _)| cmp_caseless(a, name))
@@ -235,20 +256,6 @@ pub fn membership_3_2(ch: u32) -> bool {
             }
         })
         .is_ok()
-}
-
-/// The version string of the latest Unicode database bundled with the standard
-/// library (`unicodedata.unidata_version`).
-#[must_use]
-pub fn unicode_version() -> String {
-    // Report the vendored database version, not the compiler's Unicode version.
-    include_str!("../unicode/latest/NameAliases.txt")
-        .lines()
-        .next()
-        .and_then(|header| header.strip_prefix("# NameAliases-"))
-        .and_then(|header| header.strip_suffix(".txt"))
-        .expect("vendored NameAliases.txt must start with its Unicode version")
-        .into()
 }
 
 /// Look up a name in the latest UCD (`unicodedata.lookup`).
@@ -540,9 +547,9 @@ impl Ucd {
     #[must_use]
     pub fn unidata_version(&self) -> String {
         if self.modern {
-            unicode_version()
+            UNICODE_VERSION.into()
         } else {
-            "3.2.0".into()
+            UNICODE_VERSION_LEGACY.into()
         }
     }
 }
@@ -551,15 +558,38 @@ impl Ucd {
 mod tests {
     use rustpython_wtf8::CodePoint;
 
-    use super::{LookupResult, Ucd, character_name, lookup_character, lookup_name};
+    use super::{
+        CAPI_ALIAS_NAMES, CAPI_SEQUENCE_NAMES, LookupResult, Ucd, character_name, lookup_character,
+        lookup_name, name_for_namereplace,
+    };
 
     fn cp(ch: char) -> CodePoint {
         CodePoint::from(ch)
     }
 
     #[test]
+    fn private_name_records_follow_ucd_file_order() {
+        for (start, names) in [(0xF0000, CAPI_ALIAS_NAMES), (0xF0200, CAPI_SEQUENCE_NAMES)] {
+            assert_eq!(name_for_namereplace(start - 1), None);
+            assert_eq!(name_for_namereplace(start + names.len() as u32), None);
+            for (index, &name) in names.iter().enumerate() {
+                let code = start + index as u32;
+                assert_eq!(name_for_namereplace(code).as_deref(), Some(name));
+                assert_eq!(char::from_u32(code).and_then(character_name), None);
+            }
+        }
+        assert_eq!(name_for_namereplace(0xF0000).as_deref(), Some("NULL"));
+        assert_eq!(name_for_namereplace(0xD800), None);
+        assert_eq!(name_for_namereplace(0x110000), None);
+        assert_eq!(
+            name_for_namereplace(0x41).as_deref(),
+            Some("LATIN CAPITAL LETTER A")
+        );
+    }
+
+    #[test]
     fn version_matches_vendored_database() {
-        assert_eq!(super::unicode_version(), "17.0.0");
+        assert_eq!(super::UNICODE_VERSION, "17.0.0");
         assert_eq!(Ucd::new(true).unidata_version(), "17.0.0");
     }
 

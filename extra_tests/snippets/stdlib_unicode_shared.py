@@ -118,3 +118,9 @@ for character, value in (("\u09f8", 0.75), ("\u3405", 5.0), ("\u3483", 2.0)):
     else:
         raise AssertionError("modern numeric property leaked into Unicode 3.2")
 assert unicodedata.ucd_3_2_0.numeric("\u4e00") == 1.0
+
+# Native name consumers use the UCD file-order private alias/sequence records.
+assert chr(0xF0000).encode("ascii", "namereplace") == rb"\N{NULL}"
+assert chr(0xF0200).encode("ascii", "namereplace") == rb"\N{KEYCAP NUMBER SIGN}"
+assert unicodedata.name(chr(0xF0000), None) is None
+assert unicodedata.name(chr(0xF0200), None) is None
