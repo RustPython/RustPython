@@ -2112,8 +2112,8 @@ mod tests {
         );
         let callee = Callee::named("example");
         let result = if receiver {
-            use crate::function::{IntoPyNativeFn, MethodFunction};
-            MethodFunction(|_receiver: PyObjectRef, _args: T| ())
+            use crate::function::{IntoPyNativeFn, ReceiverFunction};
+            ReceiverFunction::<_, true>(|_receiver: PyObjectRef, _args: T| ())
                 .call(vm, Some(&vm.ctx.none()), args, callee)
                 .map(|_| ())
         } else {
@@ -2319,6 +2319,37 @@ mod tests {
     }
 
     #[test]
+    fn common_receiver_preserves_legacy_function_and_method_errors() {
+        use crate::{
+            AsObject, Py,
+            builtins::PyModule,
+            function::{IntoPyNativeFn, ReceiverFunction},
+        };
+
+        fn message<const METHOD: bool>(vm: &VirtualMachine) -> String {
+            let module = vm.new_module("receiver", vm.ctx.new_dict(), None);
+            let error =
+                ReceiverFunction::<_, METHOD>(|_receiver: &Py<PyModule>, _args: LegacyNamed| ())
+                    .call(
+                        vm,
+                        Some(module.as_object()),
+                        FuncArgs::from(vec![vm.ctx.none(); 3]),
+                        Callee::named("example"),
+                    )
+                    .unwrap_err();
+            error.args().as_slice()[0].try_to_value(vm).unwrap()
+        }
+
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            assert_eq!(message::<true>(vm), "example expected 2 arguments, got 3");
+            assert_eq!(
+                message::<false>(vm),
+                "example() takes at most 2 arguments (3 given)",
+            );
+        });
+    }
+
+    #[test]
     fn explicitly_custom_signatures_do_not_opt_in_to_clinic_validation() {
         const { assert!(DisplayOnly::BINDING_PARAMS.is_none()) };
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
@@ -2376,9 +2407,9 @@ mod tests {
 
     #[test]
     fn a_receiver_does_not_restore_clinic_validation_for_an_explicit_custom_parser() {
-        use crate::function::{IntoPyNativeFn, MethodFunction};
+        use crate::function::{IntoPyNativeFn, ReceiverFunction};
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            MethodFunction(|_receiver: PyObjectRef, bound: DisplayOnly| {
+            ReceiverFunction::<_, true>(|_receiver: PyObjectRef, bound: DisplayOnly| {
                 assert!(bound.0.args.is_empty());
             })
             .call(
