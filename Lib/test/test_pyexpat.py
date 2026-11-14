@@ -241,7 +241,6 @@ class ParseTest(unittest.TestCase):
         # Issue #6697.
         self.assertRaises(AttributeError, getattr, parser, '\uD800')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parse_str(self):
         out = self.Outputter()
         parser = expat.ParserCreate(namespace_separator='!')
