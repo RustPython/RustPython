@@ -560,7 +560,6 @@ class ConnectionTests(unittest.TestCase):
             del cx
             gc_collect()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Connection signature inspection not working
     def test_connection_signature(self):
         from inspect import signature
         sig = signature(self.cx)
@@ -571,7 +570,6 @@ class UninitialisedConnectionTests(unittest.TestCase):
     def setUp(self):
         self.cx = sqlite.Connection.__new__(sqlite.Connection)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_uninit_operations(self):
         funcs = (
             lambda: self.cx.isolation_level,
