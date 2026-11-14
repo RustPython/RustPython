@@ -138,7 +138,6 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(events[2][0], "socket.bind")
         self.assertEndsWith(events[2][2], "('127.0.0.1', 8080)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_gc(self):
         returncode, events, stderr = self.run_python("test_gc")
         if returncode:
