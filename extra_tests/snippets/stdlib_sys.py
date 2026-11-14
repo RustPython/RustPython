@@ -487,3 +487,110 @@ if os.name == "posix" and sys.platform not in ("wasi", "emscripten"):
                 str(plain),
                 str(prefix),
             ]
+
+# sys.call_tracing explicitly re-enters tracing/profile callbacks, then restores
+# callback suppression on both normal returns and Python exceptions.
+
+
+def _exercise_call_tracing(set_hook, get_hook, fail):
+    events = []
+
+    def nested():
+        if fail:
+            raise LookupError("nested")
+        return 42
+
+    def suppressed():
+        return 0
+
+    def trigger():
+        return 0
+
+    def hook(frame, event, arg):
+        name = frame.f_code.co_name
+        if name in ("nested", "suppressed"):
+            events.append((name, event))
+        if name == "trigger" and event == "call":
+            try:
+                result = sys.call_tracing(nested, ())
+                assert result == 42
+            except LookupError as e:
+                assert fail and str(e) == "nested"
+            suppressed()
+        return hook
+
+    old = get_hook()
+    try:
+        set_hook(hook)
+        trigger()
+        assert get_hook() is hook
+    finally:
+        set_hook(old)
+    assert ("nested", "call") in events, events
+    assert ("nested", "return") in events, events
+    assert not any(name == "suppressed" for name, _ in events), events
+    return events
+
+
+for set_hook, get_hook in [
+    (sys.settrace, sys.gettrace),
+    (sys.setprofile, sys.getprofile),
+]:
+    for fail in [False, True]:
+        _exercise_call_tracing(set_hook, get_hook, fail)
+
+    def hook(*args):
+        return hook
+
+    old = get_hook()
+    try:
+        sys.call_tracing(set_hook, (hook,))
+        assert get_hook() is hook
+        sys.call_tracing(set_hook, (None,))
+        assert get_hook() is None
+    finally:
+        set_hook(old)
+assert sys.call_tracing(lambda x: x + 1, (41,)) == 42
+
+# Changes made by an explicitly traced callback remain installed, without
+# allowing ordinary callback code to recursively trace itself afterward.
+for set_hook, get_hook in [
+    (sys.settrace, sys.gettrace),
+    (sys.setprofile, sys.getprofile),
+]:
+    for replace_hook in (False, True):
+        changed_events = []
+
+        def replacement(frame, event, arg):
+            if frame.f_code.co_name in ("later", "suppressed_after_change"):
+                changed_events.append((frame.f_code.co_name, event))
+            return replacement
+
+        selected_hook = replacement if replace_hook else None
+
+        def suppressed_after_change():
+            pass
+
+        def trigger_change():
+            pass
+
+        def later():
+            pass
+
+        def original(frame, event, arg):
+            if frame.f_code.co_name == "trigger_change" and event == "call":
+                sys.call_tracing(set_hook, (selected_hook,))
+                assert get_hook() is selected_hook
+                suppressed_after_change()
+            return original
+
+        old = get_hook()
+        try:
+            set_hook(original)
+            trigger_change()
+            assert get_hook() is selected_hook
+            later()
+        finally:
+            set_hook(old)
+        assert not any(name == "suppressed_after_change" for name, _ in changed_events)
+        assert (("later", "call") in changed_events) == replace_hook
