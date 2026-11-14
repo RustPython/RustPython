@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+cap-std = "4.0.3"
 wasmer = "7.5.0"
 rustpython-host_env = { path = "../../../crates/host_env" }
 

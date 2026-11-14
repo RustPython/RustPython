@@ -73,3 +73,30 @@ python3 test_host_io.py -v \
   --runtime wasm-runtime/target/release/wasm-runtime \
   --module rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
 ```
+
+
+## Opt-in read-only path opening
+
+The `host-fs` guest feature additionally imports `rustpython_host_fs_v1.path_open`.
+An explicit directory capability supplies relative paths; it never uses the host
+working directory implicitly:
+
+```shell
+(cd rustpython-without-js && cargo build --features host-fs)
+wasm-runtime/target/release/wasm-runtime \
+  rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm \
+  --host-root directory -c "import _io; _io.FileIO('source.py', 'rb').read()"
+```
+
+Paths are resolved with cap-std relative to this preopened directory. Absolute
+paths and parent components are rejected. Internal symlinks are allowed, but a
+symlink cannot grant access outside the directory. Opened handles are read-only;
+create, write and truncate modes return EROFS. `--host-file` may separately lend
+an explicit read/write file, so omitting it matters for a read-only embedding.
+Unix filename bytes are preserved. Windows paths currently require valid UTF-8;
+unpaired UTF-16 surrogate names are explicitly unsupported, not silently altered.
+
+This stage enables path-based FileIO only. Metadata queries and directory
+operations are not implemented by this capability provider or guest ABI.
+The guest still lacks filesystem `posix` hooks and external importlib integration;
+this is not a working `-m test` runner.

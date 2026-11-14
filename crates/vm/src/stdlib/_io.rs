@@ -6268,6 +6268,40 @@ mod fileio {
         ospath::OsPath,
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    type PreparedPath = OsPath;
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    use crate::{exceptions::OSErrorBuilder, ospath::OsPathOrFd};
+
+    // The guest ABI accepts host filename bytes, but unknown-unknown has no
+    // safe arbitrary-byte OsString constructor. Keep their Python owner;
+    // str paths still undergo the existing early filesystem encoding.
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    #[derive(Clone)]
+    enum PreparedPath {
+        Bytes(crate::builtins::PyBytesRef),
+        Str(OsPath),
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    impl PreparedPath {
+        fn try_from_fspath(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+            use crate::function::FsPath;
+            match FsPath::try_from_path_like(obj, true, vm)? {
+                FsPath::Bytes(bytes) => Ok(Self::Bytes(bytes)),
+                path @ FsPath::Str(_) => OsPath::from_fspath(path, vm).map(Self::Str),
+            }
+        }
+
+        fn into_cstring(self, vm: &VirtualMachine) -> PyResult<alloc::ffi::CString> {
+            match self {
+                Self::Bytes(bytes) => alloc::ffi::CString::new(bytes.as_bytes())
+                    .map_err(|err| err.into_pyexception(vm)),
+                Self::Str(path) => path.into_cstring(vm),
+            }
+        }
+    }
+
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_host_env::io as host_io;
 
@@ -6329,7 +6363,7 @@ mod fileio {
             let arg_fd = super::open_file_descriptor(&name, vm)?;
             // Resolve the path before mode validation, even with a custom opener.
             let mut path = if arg_fd.is_none() {
-                Some(OsPath::try_from_fspath(name.clone(), vm)?)
+                Some(PreparedPath::try_from_fspath(name.clone(), vm)?)
             } else {
                 None
             };
