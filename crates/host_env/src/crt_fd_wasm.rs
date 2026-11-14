@@ -140,6 +140,7 @@ fn ebadf() -> io::Error {
     io::Error::from_raw_os_error(EBADF)
 }
 
+#[cfg(not(feature = "wasm-host-fs"))]
 pub fn open(_path: &ffi::CStr, _flags: i32, _mode: i32) -> io::Result<Owned> {
     Err(unsupported())
 }
@@ -192,4 +193,23 @@ fn unsupported() -> io::Error {
         io::ErrorKind::Unsupported,
         "host path opening is unsupported by this embedding ABI",
     )
+}
+
+#[cfg(feature = "wasm-host-fs")]
+#[path = "wasm_host_fs.rs"]
+mod host_fs;
+
+#[cfg(feature = "wasm-host-fs")]
+pub fn open(path: &ffi::CStr, flags: i32, _mode: i32) -> io::Result<Owned> {
+    if flags != crate::os::O_RDONLY {
+        return Err(io::Error::from_raw_os_error(crate::errno::errors::EROFS));
+    }
+    let path = path.to_bytes();
+    let raw = host::result(unsafe {
+        host_fs::path_open(path.as_ptr() as u32, path.len() as u32, flags)
+    })?;
+    let raw = i32::try_from(raw)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid host descriptor"))?;
+    // The ABI transfers one newly owned descriptor on success.
+    Ok(unsafe { Owned::from_raw(raw) })
 }

@@ -10,7 +10,19 @@ use super::Context;
 // The guest uses BSD errno numbers, even when the host runs Linux or Windows.
 fn errno(error: io::Error) -> i64 {
     use rustpython_host_env::errno::errors as native;
-    let mapped = match error.posix_errno() {
+    let posix = error.posix_errno();
+    // Capability denials are Rust errors, not OS errors. Windows maps a
+    // missing raw OS error through winerror_to_errno(0), so checking only
+    // posix == 0 would misreport a denied path as EINVAL there.
+    if error.raw_os_error().is_none() {
+        match error.kind() {
+            io::ErrorKind::PermissionDenied => return -13,
+            io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData => return -22,
+            io::ErrorKind::Unsupported => return -45,
+            _ => {}
+        }
+    }
+    let mapped = match posix {
         native::EPERM => 1,
         native::ENOENT => 2,
         native::EINTR => 4,
@@ -27,6 +39,7 @@ fn errno(error: io::Error) -> i64 {
         native::EROFS => 30,
         native::EPIPE => 32,
         native::EAGAIN => 35,
+        native::ENAMETOOLONG => 63,
         native::EOVERFLOW => 84,
         _ => 5, // Unrepresented native failures become EIO, not an unrelated errno.
     };
@@ -39,6 +52,37 @@ pub struct Descriptors {
 }
 
 impl Descriptors {
+    fn insert_readonly(&mut self, file: std::fs::File) -> io::Result<i32> {
+        let index = self
+            .entries
+            .iter()
+            .enumerate()
+            .skip(3)
+            .find_map(|(index, entry)| entry.is_none().then_some(index))
+            .unwrap_or(self.entries.len().max(3));
+        let raw = i32::try_from(index).map_err(|_| io::Error::other("descriptor table full"))?;
+        #[cfg(unix)]
+        let owned = {
+            let file: std::os::fd::OwnedFd = file.into();
+            crt_fd::Owned::from(file)
+        };
+        #[cfg(windows)]
+        let owned = {
+            use std::os::windows::io::{AsRawHandle, IntoRawHandle};
+            let fd = rustpython_host_env::msvcrt::open_osfhandle(
+                file.as_raw_handle() as isize,
+                rustpython_host_env::os::O_RDONLY | rustpython_host_env::os::O_BINARY,
+            )?;
+            let _ = file.into_raw_handle();
+            unsafe { crt_fd::Owned::from_raw(fd) }
+        };
+        if index >= self.entries.len() {
+            self.entries.resize_with(index + 1, || None);
+        }
+        self.entries[index] = Some(owned);
+        Ok(raw)
+    }
+
     pub fn with_file(path: &Path) -> io::Result<Self> {
         // No ambient stdin/stdout/stderr. The sole explicitly lent file is guest FD 3.
         #[cfg(unix)]
@@ -183,9 +227,73 @@ pub fn fd_info(ctx: FunctionEnvMut<Context>, fd: i32) -> i64 {
         + i64::from(host_io::isatty(file.as_raw())) * 4
 }
 
+pub fn path_open(
+    mut ctx: FunctionEnvMut<Context>,
+    ptr: u32,
+    len: u32,
+    flags: i32,
+) -> Result<i64, RuntimeError> {
+    let (context, store) = ctx.data_and_store_mut();
+    let memory = context.memory()?.view(&store);
+    check_range(memory.data_size(), ptr, len)?;
+    if flags != 0 {
+        return Ok(-30);
+    }
+    if len > 65536 {
+        return Ok(-63);
+    }
+    let Some(root) = context.root.as_ref() else {
+        return Ok(-13);
+    };
+    let mut bytes = vec![0; len as usize];
+    memory
+        .read(u64::from(ptr), &mut bytes)
+        .map_err(|e| RuntimeError::new(e.to_string()))?;
+    if bytes.contains(&0) {
+        return Ok(-22);
+    }
+    #[cfg(unix)]
+    let path = {
+        use std::os::unix::ffi::OsStrExt;
+        Path::new(std::ffi::OsStr::from_bytes(&bytes))
+    };
+    #[cfg(not(unix))]
+    let path = match std::str::from_utf8(&bytes) {
+        Ok(path) => Path::new(path),
+        Err(_) => return Ok(-22),
+    };
+    let file = match root.open_read(path) {
+        Ok(file) => file,
+        Err(error) => return Ok(errno(error)),
+    };
+    Ok(context
+        .descriptors
+        .insert_readonly(file)
+        .map_or_else(errno, i64::from))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn capability_errors_keep_their_error_class() {
+        assert_eq!(
+            errno(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "root escape"
+            )),
+            -13
+        );
+        assert_eq!(
+            errno(io::Error::new(io::ErrorKind::InvalidInput, "encoding")),
+            -22
+        );
+        assert_eq!(
+            errno(io::Error::new(io::ErrorKind::Unsupported, "unsupported")),
+            -45
+        );
+    }
+
     #[test]
     fn guest_range_is_checked_without_allocation() {
         assert!(check_range(65536, 65536, 0).is_ok());
@@ -225,6 +333,7 @@ mod tests {
             Context {
                 memory: None,
                 kv: Default::default(),
+                root: None,
                 descriptors: Descriptors {
                     entries: vec![None, None, None, Some(owned.into())],
                 },

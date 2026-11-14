@@ -6259,11 +6259,45 @@ mod fileio {
         builtins::{PyUtf8Str, PyUtf8StrRef},
         common::wtf8::Wtf8Buf,
         convert::{IntoPyException, ToPyException},
-        exceptions::{OSErrorBuilder, ToOSErrorBuilder},
+        exceptions::ToOSErrorBuilder,
         function::{ArgBytesLike, ArgMemoryBuffer},
-        ospath::{OsPath, OsPathOrFd},
+        ospath::OsPath,
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    type PreparedPath = OsPath;
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    use crate::{exceptions::OSErrorBuilder, ospath::OsPathOrFd};
+
+    // The guest ABI accepts host filename bytes, but unknown-unknown has no
+    // safe arbitrary-byte OsString constructor. Keep their Python owner;
+    // str paths still undergo the existing early filesystem encoding.
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    #[derive(Clone)]
+    enum PreparedPath {
+        Bytes(crate::builtins::PyBytesRef),
+        Str(OsPath),
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    impl PreparedPath {
+        fn try_from_fspath(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+            use crate::function::FsPath;
+            match FsPath::try_from_path_like(obj, true, vm)? {
+                FsPath::Bytes(bytes) => Ok(Self::Bytes(bytes)),
+                path @ FsPath::Str(_) => OsPath::from_fspath(path, vm).map(Self::Str),
+            }
+        }
+
+        fn into_cstring(self, vm: &VirtualMachine) -> PyResult<alloc::ffi::CString> {
+            match self {
+                Self::Bytes(bytes) => alloc::ffi::CString::new(bytes.as_bytes())
+                    .map_err(|err| err.into_pyexception(vm)),
+                Self::Str(path) => path.into_cstring(vm),
+            }
+        }
+    }
+
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_host_env::io as host_io;
 
@@ -6325,7 +6359,7 @@ mod fileio {
             let arg_fd = super::open_file_descriptor(&name, vm)?;
             // Resolve the path before mode validation, even with a custom opener.
             let mut path = if arg_fd.is_none() {
-                Some(OsPath::try_from_fspath(name.clone(), vm)?)
+                Some(PreparedPath::try_from_fspath(name.clone(), vm)?)
             } else {
                 None
             };
@@ -6366,7 +6400,12 @@ mod fileio {
                     let raw_path = path.clone().into_cstring(vm)?;
                     #[cfg(windows)]
                     let raw_path = path.to_wide_cstring(vm)?;
+                    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
                     let filename = OsPathOrFd::Path(path);
+                    // CPython FileIO reports the original argument, not the
+                    // result of __fspath__(), in OSError.filename.
+                    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+                    let filename = name.clone();
                     loop {
                         match vm.allow_threads(|| host_io::open_path(&raw_path, flags, 0o666)) {
                             Ok(fd) => break (fd.into_raw(), Some(filename)),
@@ -6374,9 +6413,15 @@ mod fileio {
                                 vm.check_signals()?;
                             }
                             Err(e) => {
+                                #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
                                 return Err(OSErrorBuilder::with_filename_from_errno(
                                     &e, filename, vm,
                                 ));
+                                #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+                                return Err(e
+                                    .to_os_error_builder(vm)
+                                    .filename(filename)
+                                    .into_pyexception(vm));
                             }
                         }
                     }
