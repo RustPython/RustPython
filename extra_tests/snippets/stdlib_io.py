@@ -322,3 +322,29 @@ class ClosingBuffer:
 _stream.__init__(ClosingBuffer())
 assert _released_values == [b"new"]
 assert _stream.closed
+
+
+# OSError.filename is the original FileIO path argument, including path-like objects.
+class PathLikeName:
+    def __fspath__(self):
+        return "/nonexistent/x"
+
+
+path_like_name = PathLikeName()
+try:
+    FileIO(path_like_name, "r")
+except OSError as error:
+    assert error.filename is path_like_name
+else:
+    raise AssertionError("expected OSError")
+
+for original in ("/nonexistent/x", b"/nonexistent/x"):
+    try:
+        FileIO(original, "r")
+    except OSError as error:
+        assert error.filename is original
+    else:
+        raise AssertionError("expected OSError")
+
+with FileIO(__file__, "rbb") as rbb:
+    assert rbb.mode == "rb"

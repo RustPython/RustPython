@@ -20,10 +20,6 @@ mod msvcrt {
         SEM_NOOPENFILEERRORBOX,
     };
 
-    pub(crate) fn setmode_binary(fd: crt_fd::Borrowed<'_>) {
-        host_msvcrt::setmode_binary(fd);
-    }
-
     // Locking mode constants
     #[pyattr]
     const LK_UNLCK: i32 = host_msvcrt::LK_UNLCK; // Unlock
