@@ -2200,7 +2200,7 @@ mod boundary_cache_tests {
                         code.source_instruction(5).unwrap().op.as_opcode(),
                         bytecode::Opcode::ReturnValue
                     );
-                    let replacement = PyCode::new(code.code.clone(), &vm.ctx);
+                    let replacement = PyCode::new(code.code, &vm.ctx);
                     assert!(replacement.instruction_boundaries.get().is_none());
                 }
             }
