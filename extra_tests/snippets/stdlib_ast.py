@@ -289,3 +289,47 @@ for source, name, location in [
             ) == location
         else:
             raise AssertionError("duplicate parameter accepted")
+
+# Validate normalized identifiers before AST optimization, in source order,
+# including function-type fragments and dotted import components.
+for source, mode, constant in [
+    ("if False:\n x = Truᵉ", "exec", "True"),
+    ("(Truᵉ) -> int", "func_type", "True"),
+    ("(int) -> Falſe", "func_type", "False"),
+    ("import a.Nºne", "exec", "None"),
+    ("@Truᵉ\ndef Falſe(): pass", "exec", "True"),
+    ("{1: Truᵉ, Falſe: 2}", "eval", "True"),
+    ("f(Truᵉ=1, *Falſe)", "eval", "True"),
+]:
+    for optimize in (0, 1, 2):
+        try:
+            ast.parse(source, mode=mode, optimize=optimize)
+        except ValueError as error:
+            assert (
+                str(error) == f"identifier field can't represent '{constant}' constant"
+            )
+        else:
+            raise AssertionError((source, mode, optimize))
+
+# Grouping parentheses remain part of the default's parser span, and an
+# earlier variadic default takes precedence over a later ordinary default.
+for source, offset in [
+    ("type X[**P=(int)] = int", 17),
+    ("type X[**P=(((int)))]=int", 21),
+    ("type X[*Ts=int,T=int] = int", 15),
+]:
+    try:
+        ast.parse(source, feature_version=(3, 12))
+    except SyntaxError as error:
+        assert (
+            error.msg
+            == "Type parameter defaults are only supported in Python 3.13 and greater"
+        )
+        assert (error.lineno, error.offset, error.end_lineno, error.end_offset) == (
+            1,
+            offset,
+            1,
+            offset + 1,
+        )
+    else:
+        raise AssertionError(source)

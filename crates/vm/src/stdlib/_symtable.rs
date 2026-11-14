@@ -162,6 +162,7 @@ mod _symtable {
                 module.as_deref(),
             )
             .map_err(|err| match err {
+                VmCompileError::Exception(error) => error,
                 VmCompileError::Compile(err) => {
                     let err = vm.new_syntax_error(&err, Some(&source));
                     set_syntax_error_filename(err, &filename_obj, vm)

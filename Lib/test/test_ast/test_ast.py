@@ -961,7 +961,6 @@ class AST_Tests(unittest.TestCase):
                 with self.assertRaises(SyntaxError):
                     ast.parse(sample, feature_version=(3, 11))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError not raised
     def test_type_params_default_feature_version(self):
         samples = [
             "type X[*Ts=int] = int",
@@ -1015,7 +1014,6 @@ class AST_Tests(unittest.TestCase):
                             f"'{constant}' constant"):
                         compile(tree, "<test>", "exec")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_constant_as_unicode_name(self):
         constants = [
             ("True", b"Tru\xe1\xb5\x89"),

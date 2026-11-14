@@ -1703,72 +1703,145 @@ fn apply_type_comments_to_module(
 }
 
 #[cfg(feature = "parser")]
-fn ipython_escape_command_syntax_error(
-    top: &ast::Mod,
-    source_file: &SourceFile,
-) -> Option<CompileError> {
-    use ast::visitor::{Visitor, walk_expr, walk_stmt};
+struct ParserAstValidator {
+    error: Option<(TextRange, ParserAstError)>,
+    target_version: ast::PythonVersion,
+}
 
-    #[derive(Default)]
-    struct IpyEscapeCommandVisitor {
-        range: Option<TextRange>,
-    }
+#[cfg(feature = "parser")]
+enum ParserAstError {
+    EscapeCommand,
+    TypeParamDefault,
+    ConstantIdentifier(&'static str),
+}
 
-    impl Visitor<'_> for IpyEscapeCommandVisitor {
-        fn visit_stmt(&mut self, stmt: &ast::Stmt) {
-            if self.range.is_some() {
-                return;
-            }
-            match stmt {
-                ast::Stmt::IpyEscapeCommand(stmt) => {
-                    self.range = Some(stmt.range);
-                }
-                _ => walk_stmt(self, stmt),
-            }
-        }
-
-        fn visit_expr(&mut self, expr: &ast::Expr) {
-            if self.range.is_some() {
-                return;
-            }
-            match expr {
-                ast::Expr::IpyEscapeCommand(expr) => {
-                    self.range = Some(expr.range);
-                }
-                _ => walk_expr(self, expr),
-            }
+#[cfg(feature = "parser")]
+impl ParserAstValidator {
+    fn new(target_version: ast::PythonVersion) -> Self {
+        Self {
+            error: None,
+            target_version,
         }
     }
 
-    let mut visitor = IpyEscapeCommandVisitor::default();
-    match top {
-        ast::Mod::Module(module) => {
-            for statement in &module.body {
-                visitor.visit_stmt(statement);
-                if visitor.range.is_some() {
-                    break;
-                }
-            }
+    fn identifier(&mut self, name: &str, range: TextRange) {
+        if self.error.is_some() {
+            return;
         }
-        ast::Mod::Expression(expression) => {
-            visitor.visit_expr(&expression.body);
+        // Imports combine dotted components after CPython has validated each
+        // component independently while constructing its parser AST.
+        for name in name.split('.') {
+            let name = match name {
+                "None" => "None",
+                "True" => "True",
+                "False" => "False",
+                _ => continue,
+            };
+            self.error = Some((range, ParserAstError::ConstantIdentifier(name)));
+            break;
         }
     }
-    let range = visitor.range?;
-    let source_range = text_range_to_source_range(source_file, range);
-    Some(
-        ParseError {
-            error: parser::ParseErrorType::OtherError("invalid syntax".to_owned()),
-            raw_location: range,
-            location: source_range.start,
-            end_location: source_range.end,
-            source_path: source_file.name().to_owned(),
-            is_unclosed_bracket: false,
-            is_unclosed_string: false,
-            eof_token: None,
+
+    fn into_error<E: From<CompileError> + From<crate::builtins::PyBaseExceptionRef>>(
+        self,
+        vm: &VirtualMachine,
+        source: &str,
+        source_file: &SourceFile,
+    ) -> Option<E> {
+        let (range, kind) = self.error?;
+        match kind {
+            ParserAstError::ConstantIdentifier(name) => Some(
+                vm.new_value_error(format!(
+                    "identifier field can't represent '{name}' constant"
+                ))
+                .into(),
+            ),
+            ParserAstError::TypeParamDefault => cpython_unsupported_syntax_error(
+                &parser::UnsupportedSyntaxError {
+                    kind: parser::UnsupportedSyntaxErrorKind::TypeParamDefault,
+                    range,
+                    target_version: self.target_version,
+                },
+                source,
+                source_file,
+            )
+            .map(Into::into),
+            ParserAstError::EscapeCommand => {
+                let source_range = text_range_to_source_range(source_file, range);
+                Some(
+                    CompileError::from(ParseError {
+                        error: parser::ParseErrorType::OtherError("invalid syntax".to_owned()),
+                        raw_location: range,
+                        location: source_range.start,
+                        end_location: source_range.end,
+                        source_path: source_file.name().to_owned(),
+                        is_unclosed_bracket: false,
+                        is_unclosed_string: false,
+                        eof_token: None,
+                    })
+                    .into(),
+                )
+            }
         }
-        .into(),
-    )
+    }
+}
+
+#[cfg(feature = "parser")]
+impl<'a> ast::visitor::source_order::SourceOrderVisitor<'a> for ParserAstValidator {
+    fn enter_node(
+        &mut self,
+        _node: ast::AnyNodeRef<'a>,
+    ) -> ast::visitor::source_order::TraversalSignal {
+        use ast::visitor::source_order::TraversalSignal;
+        if self.error.is_some() {
+            TraversalSignal::Skip
+        } else {
+            TraversalSignal::Traverse
+        }
+    }
+
+    fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
+        if self.error.is_some() {
+            return;
+        }
+        if let ast::Stmt::IpyEscapeCommand(stmt) = stmt {
+            self.error = Some((stmt.range, ParserAstError::EscapeCommand));
+        } else {
+            ast::visitor::source_order::walk_stmt(self, stmt);
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &'a ast::Expr) {
+        if self.error.is_some() {
+            return;
+        }
+        if let ast::Expr::IpyEscapeCommand(expr) = expr {
+            self.error = Some((expr.range, ParserAstError::EscapeCommand));
+        } else if let ast::Expr::Name(expr) = expr {
+            self.identifier(expr.id.as_str(), expr.range);
+        } else {
+            ast::visitor::source_order::walk_expr(self, expr);
+        }
+    }
+
+    fn visit_identifier(&mut self, identifier: &'a ast::Identifier) {
+        self.identifier(identifier.as_str(), identifier.range());
+    }
+
+    fn visit_type_param(&mut self, param: &'a ast::TypeParam) {
+        if self.error.is_some() {
+            return;
+        }
+        ast::visitor::source_order::walk_type_param(self, param);
+        let has_default = match param {
+            ast::TypeParam::TypeVar(param) => param.default.is_some(),
+            ast::TypeParam::TypeVarTuple(param) => param.default.is_some(),
+            ast::TypeParam::ParamSpec(param) => param.default.is_some(),
+        };
+        if self.error.is_none() && self.target_version.minor < 13 && has_default {
+            self.error = Some((param.range(), ParserAstError::TypeParamDefault));
+        }
+    }
 }
 
 /// Create an empty `arguments` AST node (no parameters).
@@ -1795,7 +1868,7 @@ fn empty_arguments_object(vm: &VirtualMachine) -> PyObjectRef {
 
 #[cfg(feature = "parser")]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn parse<E: From<CompileError>>(
+pub(crate) fn parse<E: From<CompileError> + From<crate::builtins::PyBaseExceptionRef>>(
     vm: &VirtualMachine,
     source: &str,
     filename: &str,
@@ -1892,11 +1965,37 @@ pub(crate) fn parse<E: From<CompileError>>(
         return Err(error.into());
     }
 
-    if let Some(error) = parsed
+    // Preserve the depth guard before the recursive AST validation walk.
+    rustpython_compiler::too_deeply_nested_error(
+        parsed.syntax(),
+        &source_file,
+        rustpython_compiler::CompileOpts::default().recursion_limit,
+    )?;
+    use ast::visitor::source_order::SourceOrderVisitor;
+    let mut validator = ParserAstValidator::new(target_version);
+    validator.visit_mod(parsed.syntax());
+    let unsupported = parsed
         .unsupported_syntax_errors()
         .iter()
-        .find(|error| should_report_unsupported_syntax_error(error))
+        .find(|error| should_report_unsupported_syntax_error(error));
+    if validator.error.as_ref().is_some_and(|(range, _)| {
+        unsupported.is_none_or(|error| {
+            // Defaults are version-checked after their RHS has been parsed.
+            let action = if matches!(
+                error.kind,
+                parser::UnsupportedSyntaxErrorKind::TypeParamDefault
+            ) {
+                error.range.end()
+            } else {
+                error.range.start()
+            };
+            range.start() < action
+        })
+    }) && let Some(error) = validator.into_error(vm, source, &source_file)
     {
+        return Err(error);
+    }
+    if let Some(error) = unsupported {
         if let Some(error) = cpython_unsupported_syntax_error(error, source, &source_file) {
             return Err(error.into());
         }
@@ -1926,15 +2025,7 @@ pub(crate) fn parse<E: From<CompileError>>(
         return Err(error.into());
     }
     let mut top = parsed.into_syntax();
-    rustpython_compiler::too_deeply_nested_error(
-        &top,
-        &source_file,
-        rustpython_compiler::CompileOpts::default().recursion_limit,
-    )?;
     if let Some(error) = rustpython_compiler::unsupported_grammar_error(&top, &source_file) {
-        return Err(error.into());
-    }
-    if let Some(error) = ipython_escape_command_syntax_error(&top, &source_file) {
         return Err(error.into());
     }
     if let Some(error) = feature_version_ast_syntax_error(&top, &source_file, target_version) {
@@ -2024,7 +2115,7 @@ pub(crate) fn wrap_interactive(vm: &VirtualMachine, module_obj: &PyObject) -> Py
 }
 
 #[cfg(feature = "parser")]
-pub(crate) fn parse_func_type<E: From<CompileError>>(
+pub(crate) fn parse_func_type<E: From<CompileError> + From<crate::builtins::PyBaseExceptionRef>>(
     vm: &VirtualMachine,
     source: &str,
     filename: &str,
@@ -2099,6 +2190,11 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
                 eof_token: None,
             })
         })?;
+        rustpython_compiler::too_deeply_nested_error(
+            parsed.syntax(),
+            &source_file,
+            rustpython_compiler::CompileOpts::default().recursion_limit,
+        )?;
         let ast::Mod::Expression(expression) = parsed.into_syntax() else {
             unreachable!();
         };
@@ -2135,6 +2231,11 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
                 eof_token: None,
             })
         })?;
+        rustpython_compiler::too_deeply_nested_error(
+            parsed.syntax(),
+            &source_file,
+            rustpython_compiler::CompileOpts::default().recursion_limit,
+        )?;
         let ast::Mod::Expression(expression) = parsed.into_syntax() else {
             unreachable!();
         };
@@ -2169,6 +2270,18 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
     };
 
     let returns = parse_expr(right)?;
+    use ast::visitor::source_order::SourceOrderVisitor;
+    let mut validator =
+        ParserAstValidator::new(target_version.unwrap_or(ast::PythonVersion::PY315));
+    for argument in &argtypes {
+        validator.visit_expr(argument);
+    }
+    validator.visit_expr(&returns);
+    let validation_source = SourceFileBuilder::new(filename.to_owned(), source.to_owned()).finish();
+    if let Some(error) = validator.into_error(vm, source, &validation_source) {
+        return Err(error);
+    }
+
     // Func-type nodes are parsed from separate fragments. Keep warning offsets
     // in those fragments until the boundary, then map them to the original
     // source without changing the AST's existing location representation.
