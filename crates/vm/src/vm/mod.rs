@@ -3359,6 +3359,21 @@ impl VirtualMachine {
         self.tracing_depth.get() != 0
     }
 
+    // _PyEval_CallTracing: suspend callback recursion suppression for an
+    // explicit call, then restore the surrounding callback's tracing state.
+    pub(crate) fn with_tracing_enabled(&self, f: impl FnOnce() -> PyResult) -> PyResult {
+        let depth = self.tracing_depth.replace(0);
+        let enabled =
+            !self.is_none(&self.trace_func.borrow()) || !self.is_none(&self.profile_func.borrow());
+        let previous_enabled = self.use_tracing.replace(enabled);
+        let result = f();
+        self.tracing_depth.set(depth);
+        if depth != 0 {
+            self.use_tracing.set(previous_enabled);
+        }
+        result
+    }
+
     /// `where_` is empty, or a suffix that already includes the leading space.
     #[cold]
     fn new_recursion_depth_error(&self, where_: &str) -> PyBaseExceptionRef {

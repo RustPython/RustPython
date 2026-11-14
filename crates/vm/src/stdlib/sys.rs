@@ -837,10 +837,7 @@ pub mod sys {
 
     #[pyfunction]
     fn call_tracing(func: PyObjectRef, args: PyTupleRef, vm: &VirtualMachine) -> PyResult {
-        // CPython temporarily enables tracing state around this call.
-        // RustPython does not currently model the full C-level tracing toggles,
-        // but call semantics (func(*args)) are matched.
-        func.call(PosArgs::new(args.as_slice().to_vec()), vm)
+        vm.with_tracing_enabled(|| func.call(PosArgs::new(args.as_slice().to_vec()), vm))
     }
 
     #[pyfunction]
