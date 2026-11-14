@@ -5,7 +5,8 @@ use std::{ffi, io};
 pub type Offset = i64;
 pub type Raw = i32;
 
-use crate::{errno::errors::EBADF, wasm_host_io as host};
+use crate::errno::errors::{EBADF, EINVAL, ENOENT};
+use crate::wasi_p1;
 
 #[repr(transparent)]
 pub struct Owned {
@@ -94,8 +95,8 @@ impl Owned {
 
 impl Drop for Owned {
     fn drop(&mut self) {
-        // The host consumes the table entry even when close reports an error.
-        let _ = host::result(unsafe { host::fd_close(self.fd) });
+        // Close consumes the descriptor even when the import reports an error.
+        let _ = wasi_p1::close(self.fd);
     }
 }
 
@@ -140,76 +141,55 @@ fn ebadf() -> io::Error {
     io::Error::from_raw_os_error(EBADF)
 }
 
-#[cfg(not(feature = "wasm-host-fs"))]
-pub fn open(_path: &ffi::CStr, _flags: i32, _mode: i32) -> io::Result<Owned> {
-    Err(unsupported())
+pub fn open(path: &ffi::CStr, flags: i32, _mode: i32) -> io::Result<Owned> {
+    let path = path.to_bytes();
+    if path.is_empty() {
+        return Err(io::Error::from_raw_os_error(ENOENT));
+    }
+    let raw = wasi_p1::path_open_preopen(path, flags)?;
+    // SAFETY: path_open transferred a newly owned descriptor.
+    Ok(unsafe { Owned::from_raw(raw) })
 }
 
 pub fn openat(_dir: Borrowed<'_>, _path: &ffi::CStr, _flags: i32, _mode: i32) -> io::Result<Owned> {
-    Err(unsupported())
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "host path opening is unsupported by this embedding ABI",
+    ))
 }
 
 pub fn fsync(fd: Borrowed<'_>) -> io::Result<()> {
-    host::result(unsafe { host::fd_sync(fd.as_raw()) }).map(|_| ())
+    wasi_p1::sync(fd.as_raw())
 }
 
 pub fn close(fd: Owned) -> io::Result<()> {
-    // Suppress Drop before invoking close: errors must not close a reused slot.
-    host::result(unsafe { host::fd_close(fd.into_raw()) }).map(|_| ())
+    // Suppress Drop before invoking close: the descriptor is consumed even on error.
+    wasi_p1::close(fd.into_raw())
 }
 
 pub fn closerange(fd_low: Raw, fd_high: Raw) {
     for fd in fd_low.max(0)..fd_high {
-        let _ = host::result(unsafe { host::fd_close(fd) });
+        let _ = wasi_p1::close(fd);
     }
 }
 
 pub fn ftruncate(fd: Borrowed<'_>, len: Offset) -> io::Result<()> {
-    host::result(unsafe { host::fd_truncate(fd.as_raw(), len) }).map(|_| ())
+    if len < 0 {
+        return Err(io::Error::from_raw_os_error(EINVAL));
+    }
+    wasi_p1::set_size(fd.as_raw(), len)
 }
 
 pub fn write(fd: Borrowed<'_>, buf: &[u8]) -> io::Result<usize> {
-    let count = host::result(unsafe {
-        host::fd_write(fd.as_raw(), buf.as_ptr() as u32, buf.len() as u32)
-    })?;
-    host::checked_count(count, buf.len())
+    wasi_p1::write(fd.as_raw(), buf)
 }
 
 pub fn read(fd: Borrowed<'_>, buf: &mut [u8]) -> io::Result<usize> {
-    let count = host::result(unsafe {
-        host::fd_read(fd.as_raw(), buf.as_mut_ptr() as u32, buf.len() as u32)
-    })?;
-    host::checked_count(count, buf.len())
+    wasi_p1::read(fd.as_raw(), buf)
 }
 
 impl io::Read for Borrowed<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         read(*self, buf)
     }
-}
-
-fn unsupported() -> io::Error {
-    io::Error::new(
-        io::ErrorKind::Unsupported,
-        "host path opening is unsupported by this embedding ABI",
-    )
-}
-
-#[cfg(feature = "wasm-host-fs")]
-#[path = "wasm_host_fs.rs"]
-mod host_fs;
-
-#[cfg(feature = "wasm-host-fs")]
-pub fn open(path: &ffi::CStr, flags: i32, _mode: i32) -> io::Result<Owned> {
-    if flags != crate::os::O_RDONLY {
-        return Err(io::Error::from_raw_os_error(crate::errno::errors::EROFS));
-    }
-    let path = path.to_bytes();
-    let raw = host::result(unsafe {
-        host_fs::path_open(path.as_ptr() as u32, path.len() as u32, flags)
-    })?;
-    let raw = i32::try_from(raw)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid host descriptor"))?;
-    // The ABI transfers one newly owned descriptor on success.
-    Ok(unsafe { Owned::from_raw(raw) })
 }

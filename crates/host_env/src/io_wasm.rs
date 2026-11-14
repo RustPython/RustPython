@@ -5,11 +5,7 @@ use crate::errno::errors::{EAGAIN, EBADF, EINTR, EINVAL, EISDIR};
 pub use crate::file_mode::{
     FileMode, FileModeError, FileModeFlag, ParsedFileMode, parse_fileio_mode,
 };
-use crate::{crt_fd, wasm_host_io as host};
-
-const DIRECTORY: i64 = 1;
-const READS_WITHOUT_WAITING: i64 = 2;
-const TTY: i64 = 4;
+use crate::{crt_fd, wasi_p1};
 
 #[derive(Clone, Copy, Debug)]
 pub struct FileTargetInfo {
@@ -17,8 +13,8 @@ pub struct FileTargetInfo {
 }
 
 pub fn inspect_file_target(fd: crt_fd::Borrowed<'_>) -> io::Result<FileTargetInfo> {
-    let info = host::result(unsafe { host::fd_info(fd.as_raw()) })?;
-    if info & DIRECTORY != 0 {
+    let stat = wasi_p1::fdstat(fd.as_raw())?;
+    if stat.fs_filetype == wasi_p1::FILETYPE_DIRECTORY {
         return Err(io::Error::from_raw_os_error(EISDIR));
     }
     Ok(FileTargetInfo { blksize: None })
@@ -42,9 +38,7 @@ pub fn is_seekable(fd: crt_fd::Borrowed<'_>) -> bool {
 }
 
 pub fn reads_without_waiting(fd: crt_fd::Borrowed<'_>) -> bool {
-    // Preserve the native host backend's classification for VM buffer handling.
-    host::result(unsafe { host::fd_info(fd.as_raw()) })
-        .is_ok_and(|info| info & READS_WITHOUT_WAITING != 0)
+    is_seekable(fd)
 }
 
 pub fn validate_whence(whence: i32) -> bool {
@@ -71,7 +65,7 @@ pub fn seek(
     if !validate_whence(how) {
         return Err(io::Error::from_raw_os_error(EINVAL));
     }
-    host::result(unsafe { host::fd_seek(fd.as_raw(), offset, how) })
+    wasi_p1::seek(fd.as_raw(), offset, how)
 }
 
 pub fn tell(fd: crt_fd::Borrowed<'_>) -> io::Result<crt_fd::Offset> {
@@ -79,7 +73,7 @@ pub fn tell(fd: crt_fd::Borrowed<'_>) -> io::Result<crt_fd::Offset> {
 }
 
 pub fn isatty(fd: i32) -> bool {
-    host::result(unsafe { host::fd_info(fd) }).is_ok_and(|info| info & TTY != 0)
+    wasi_p1::is_tty(fd)
 }
 
 pub fn read_once(fd: crt_fd::Borrowed<'_>, buf: &mut [u8]) -> io::Result<usize> {

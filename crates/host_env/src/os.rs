@@ -846,7 +846,17 @@ pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
     Ok(std::ffi::OsStr::from_bytes(b))
 }
 
-#[cfg(not(any(unix, all(target_os = "wasi", not(target_env = "p2")))))]
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
+    // SAFETY: this target stores OsStr as an unvalidated byte string.
+    Ok(unsafe { std::ffi::OsStr::from_encoded_bytes_unchecked(b) })
+}
+
+#[cfg(not(any(
+    unix,
+    all(target_os = "wasi", not(target_env = "p2")),
+    all(target_arch = "wasm32", target_os = "unknown"),
+)))]
 pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
     Ok(core::str::from_utf8(b)?.as_ref())
 }

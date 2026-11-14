@@ -79,16 +79,16 @@ For each of the three components, the entry point is as follows:
 ## Embedded file I/O
 
 The `rustpython-vm` feature `host_io` enables `_io.FileIO` and file-descriptor
-path conversion without enabling the Python OS, subprocess, signal or ctypes
-modules. The existing `host_env` feature includes `host_io`, so default builds
-retain their existing behavior. `host_io` does not install standard streams by
-itself.
+and path conversion without the `os`, signal, subprocess or ctypes modules.
+`host_env` includes `host_io`.
 
-This feature is **not a sandbox**: on native platforms, it uses the existing
-host file-descriptor backend, including access to host paths. On
-`wasm32-unknown-unknown`, the current backend still reports unsupported file
-operations. Merely enabling `host_io` does not provide host imports or make
-CPython's `-m test` runner usable.
+On native targets, FileIO uses the host's file descriptors and paths
+directly, so `host_io` is not a sandbox. On `wasm32-unknown-unknown`,
+`host_io` makes the guest import a subset of WASI preview1
+(`wasi_snapshot_preview1`: fd read/write/seek/close/sync/filestat_set_size/fdstat_get,
+prestat, path_open). Paths resolve through host preopens and the host decides
+access. `wasm32-wasip1` builds use the standard WASI libc path instead. This
+does not provide stdio, `os`, or a `-m test` runner on wasm32-unknown.
 
 ## Components
 

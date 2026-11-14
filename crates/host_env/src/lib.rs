@@ -19,15 +19,11 @@ pub mod io;
 #[cfg(all(
     target_arch = "wasm32",
     not(target_os = "wasi"),
-    not(all(target_os = "unknown", feature = "wasm-host-io"))
+    not(all(target_os = "unknown", feature = "host_io"))
 ))]
 #[path = "io_unsupported.rs"]
 pub mod io;
-#[cfg(all(
-    target_arch = "wasm32",
-    target_os = "unknown",
-    feature = "wasm-host-io"
-))]
+#[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "host_io"))]
 #[path = "io_wasm.rs"]
 pub mod io;
 pub mod os;
@@ -39,15 +35,11 @@ pub mod crt_fd;
 #[cfg(all(
     target_arch = "wasm32",
     not(target_os = "wasi"),
-    not(all(target_os = "unknown", feature = "wasm-host-io"))
+    not(all(target_os = "unknown", feature = "host_io"))
 ))]
 #[path = "crt_fd_unsupported.rs"]
 pub mod crt_fd;
-#[cfg(all(
-    target_arch = "wasm32",
-    target_os = "unknown",
-    feature = "wasm-host-io"
-))]
+#[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "host_io"))]
 #[path = "crt_fd_wasm.rs"]
 pub mod crt_fd;
 
@@ -133,9 +125,5 @@ pub mod winsound;
 #[cfg(windows)]
 pub mod wmi;
 
-#[cfg(all(
-    target_arch = "wasm32",
-    target_os = "unknown",
-    feature = "wasm-host-io"
-))]
-mod wasm_host_io;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "host_io"))]
+mod wasi_p1;

@@ -7,13 +7,7 @@ use crate::{
 use core::hint::cold_path;
 use std::path::{Path, PathBuf};
 
-#[cfg(all(
-    feature = "host_io",
-    any(
-        feature = "host_env",
-        not(all(target_arch = "wasm32", target_os = "unknown"))
-    )
-))]
+#[cfg(all(feature = "host_io", feature = "host_env"))]
 pub(crate) use crate::ospath_fd::OsPathOrFd;
 
 /// path_converter
@@ -280,7 +274,6 @@ impl OsPath {
     /// Convert an object to OsPath using the os.fspath-style error message.
     /// Used by open(), which should report "expected str, bytes or os.PathLike object, not"
     /// instead of "should be string, bytes or os.PathLike, not".
-    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     pub(crate) fn try_from_fspath(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let fspath = FsPath::try_from_path_like(obj, true, vm)?;
         Self::from_fspath(fspath, vm)
