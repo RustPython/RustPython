@@ -47,11 +47,9 @@
 //!   consumed everything fed so far and it is safe to return control to
 //!   Python; `ParserMsg::Finished`/`Error` mean the thread has exited.
 //! - If a handler raises, `pump` stops dispatching and propagates the error
-//!   immediately, but leaves the parser thread and channel alone (any
-//!   already-produced events stay queued) so the *next* `Parse()` call
-//!   resumes exactly where dispatch left off, mirroring libexpat (a callback
-//!   exception aborts that `XML_Parse()` call without corrupting the
-//!   parser's internal state).
+//!   immediately, clears registered handlers, and stops the backend. Like
+//!   libexpat's non-resumable callback abort, later `Parse()` calls report
+//!   that parsing has finished.
 //! - Calling `Parse()`/`ParseFile()` reentrantly (e.g. from within a
 //!   handler) would deadlock waiting on a channel that same call is meant to
 //!   drain, so it is rejected with a `RuntimeError` via a `busy` flag
@@ -168,10 +166,11 @@ mod _pyexpat {
     use crate::vm::{
         AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
-        builtins::{PyException, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
+        builtins::{PyException, PyInt, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
         extend_module,
         function::{
             ArgBytesLike, ArgIndex, ArgStrOrBytesLike, IntoFuncArgs, OptionalArg, OptionalOption,
+            PySetterValue,
         },
         types::Constructor,
     };
@@ -291,7 +290,8 @@ mod _pyexpat {
         end_element: MutableObject,
         character_data: MutableObject,
         entity_decl: MutableObject,
-        buffer_text: MutableObject,
+        #[pytraverse(skip)]
+        character_buffer: PyRwLock<CharacterBuffer>,
         namespace_prefixes: MutableObject,
         ordered_attributes: MutableObject,
         specified_attributes: MutableObject,
@@ -317,6 +317,19 @@ mod _pyexpat {
         attlist_decl: MutableObject,
         skipped_entity: MutableObject,
     }
+    #[derive(Debug)]
+    struct CharacterBuffer {
+        size: usize,
+        data: Option<String>,
+    }
+
+    fn new_character_buffer(size: usize, vm: &VirtualMachine) -> PyResult<String> {
+        let mut data = String::new();
+        data.try_reserve_exact(size)
+            .map_err(|_| vm.new_memory_error(""))?;
+        Ok(data)
+    }
+
     type PyExpatLikeXmlParserRef = PyRef<PyExpatLikeXmlParser>;
 
     #[inline]
@@ -334,37 +347,6 @@ mod _pyexpat {
         // silently discarded.
         handler.call(args, vm)?;
         Ok(())
-    }
-
-    fn invoke_int_handler<T>(
-        vm: &VirtualMachine,
-        handler: &MutableObject,
-        name: &str,
-        args: T,
-    ) -> PyResult<Option<i32>>
-    where
-        T: IntoFuncArgs,
-    {
-        let handler = handler.read().clone();
-        if vm.is_none(&handler) {
-            return Ok(None);
-        }
-        let result = handler.call(args, vm)?;
-        core::ffi::c_long::try_from_object(vm, result)
-            .map(|value| {
-                // Expat callbacks convert C long to int. These types have the
-                // same width on Windows, but differ on 64-bit Unix targets.
-                #[allow(clippy::unnecessary_cast)]
-                let value = value as i32;
-                Some(value)
-            })
-            .inspect_err(|error| {
-                let _ = error.add_note_str(
-                    vm.ctx
-                        .new_str(format!("invalid '{name}' event handler return value")),
-                    vm,
-                );
-            })
     }
 
     #[derive(Debug)]
@@ -962,7 +944,10 @@ mod _pyexpat {
                 end_element: MutableObject::new(vm.ctx.none()),
                 character_data: MutableObject::new(vm.ctx.none()),
                 entity_decl: MutableObject::new(vm.ctx.none()),
-                buffer_text: MutableObject::new(vm.ctx.new_bool(false).into()),
+                character_buffer: PyRwLock::new(CharacterBuffer {
+                    size: 8192,
+                    data: None,
+                }),
                 namespace_prefixes: MutableObject::new(vm.ctx.new_bool(false).into()),
                 ordered_attributes: MutableObject::new(vm.ctx.new_bool(false).into()),
                 specified_attributes: MutableObject::new(vm.ctx.new_bool(false).into()),
@@ -996,15 +981,21 @@ mod _pyexpat {
 
             create_property!(ctx, attributes, "StartElementHandler", class, start_element);
             create_property!(ctx, attributes, "EndElementHandler", class, end_element);
-            create_property!(
-                ctx,
-                attributes,
+            let attr = ctx.new_static_getset(
                 "CharacterDataHandler",
                 class,
-                character_data
+                |this: &Py<Self>| this.character_data.read().clone(),
+                |this: &Py<Self>, value: PySetterValue<PyObjectRef>, vm: &VirtualMachine| {
+                    let PySetterValue::Assign(value) = value else {
+                        return Err(vm.new_runtime_error("Cannot delete attribute"));
+                    };
+                    this.flush_character_buffer(vm)?;
+                    let _old_handler = core::mem::replace(&mut *this.character_data.write(), value);
+                    Ok(())
+                },
             );
+            attributes.insert(ctx.intern_str("CharacterDataHandler"), attr.into());
             create_property!(ctx, attributes, "EntityDeclHandler", class, entity_decl);
-            create_bool_property!(ctx, attributes, "buffer_text", class, buffer_text);
             create_bool_property!(
                 ctx,
                 attributes,
@@ -1209,8 +1200,18 @@ mod _pyexpat {
                 zelf.parameter_entity_parsing.load(Ordering::Relaxed),
                 Ordering::Relaxed,
             );
+            {
+                let parent = zelf.character_buffer.read();
+                *child.character_buffer.write() = CharacterBuffer {
+                    size: parent.size,
+                    data: parent
+                        .data
+                        .as_ref()
+                        .map(|_| new_character_buffer(parent.size, vm))
+                        .transpose()?,
+                };
+            }
             for (source, target) in [
-                (&zelf.buffer_text, &child.buffer_text),
                 (&zelf.namespace_prefixes, &child.namespace_prefixes),
                 (&zelf.ordered_attributes, &child.ordered_attributes),
                 (&zelf.specified_attributes, &child.specified_attributes),
@@ -1260,6 +1261,222 @@ mod _pyexpat {
                 || vm.ctx.none(),
                 |base| vm.ctx.new_str(base.as_str()).into(),
             )
+        }
+
+        #[pygetset]
+        fn buffer_text(zelf: &Py<Self>) -> bool {
+            zelf.character_buffer.read().data.is_some()
+        }
+
+        #[pygetset(setter)]
+        fn set_buffer_text(
+            zelf: &Py<Self>,
+            value: PySetterValue<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_runtime_error("Cannot delete attribute"));
+            };
+            if value.is_true(vm)? {
+                let mut buffer = zelf.character_buffer.write();
+                if buffer.data.is_none() {
+                    buffer.data = Some(new_character_buffer(buffer.size, vm)?);
+                }
+            } else if zelf.character_buffer.read().data.is_some() {
+                zelf.flush_character_buffer(vm)?;
+                zelf.character_buffer.write().data = None;
+            }
+            Ok(())
+        }
+
+        #[pygetset]
+        fn buffer_size(zelf: &Py<Self>) -> usize {
+            zelf.character_buffer.read().size
+        }
+
+        #[pygetset(setter)]
+        fn set_buffer_size(
+            zelf: &Py<Self>,
+            value: PySetterValue<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_runtime_error("Cannot delete attribute"));
+            };
+            if !value.fast_isinstance(PyInt::class(&vm.ctx)) {
+                return Err(vm.new_type_error("buffer_size must be an integer"));
+            }
+            let size = core::ffi::c_long::try_from_object(vm, value)?;
+            if size <= 0 {
+                return Err(vm.new_value_error("buffer_size must be greater than zero"));
+            }
+            if size as usize == zelf.character_buffer.read().size {
+                return Ok(());
+            }
+            if size > i32::MAX as core::ffi::c_long {
+                return Err(vm.new_value_error(format!(
+                    "buffer_size must not be greater than {}",
+                    i32::MAX
+                )));
+            }
+            zelf.flush_character_buffer(vm)?;
+            {
+                // Match CPython's release-before-allocation ordering: failure
+                // disables buffering while retaining the previous size.
+                let _old_data = zelf.character_buffer.write().data.take();
+            }
+            let data = new_character_buffer(size as usize, vm)?;
+            *zelf.character_buffer.write() = CharacterBuffer {
+                size: size as usize,
+                data: Some(data),
+            };
+            Ok(())
+        }
+
+        #[pygetset]
+        fn buffer_used(zelf: &Py<Self>) -> usize {
+            zelf.character_buffer
+                .read()
+                .data
+                .as_ref()
+                .map_or(0, String::len)
+        }
+
+        fn after_callback<T>(&self, result: PyResult<T>, vm: &VirtualMachine) -> PyResult<T> {
+            if result.is_err() {
+                // CPython call_with_frame/flag_error stops Expat without
+                // allowing resumption and clears every handler, not just the one
+                // which raised. Do not retain queued callbacks after failure.
+                self.completed.store(true, Ordering::SeqCst);
+                self.finished.store(true, Ordering::SeqCst);
+                self.teardown_backend();
+                for handler in [
+                    &self.start_element,
+                    &self.end_element,
+                    &self.character_data,
+                    &self.entity_decl,
+                    &self.processing_instruction,
+                    &self.unparsed_entity_decl,
+                    &self.notation_decl,
+                    &self.start_namespace_decl,
+                    &self.end_namespace_decl,
+                    &self.comment,
+                    &self.start_cdata_section,
+                    &self.end_cdata_section,
+                    &self.default,
+                    &self.default_expand,
+                    &self.not_standalone,
+                    &self.external_entity_ref,
+                    &self.start_doctype_decl,
+                    &self.end_doctype_decl,
+                    &self.xml_decl,
+                    &self.element_decl,
+                    &self.attlist_decl,
+                    &self.skipped_entity,
+                ] {
+                    // Releasing a callable may execute Python; the table lock
+                    // must be gone before that callable is released.
+                    let _old_handler = core::mem::replace(&mut *handler.write(), vm.ctx.none());
+                }
+            }
+            result
+        }
+
+        fn flush_character_buffer(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let text = {
+                let mut buffer = self.character_buffer.write();
+                let Some(data) = buffer.data.as_mut().filter(|data| !data.is_empty()) else {
+                    return Ok(());
+                };
+                let text = data.clone();
+                data.clear();
+                text
+            };
+            // Clear used data before invoking Python: the callback can resize,
+            // disable buffering, or replace itself without flushing recursively.
+            self.after_callback(
+                invoke_handler(vm, &self.character_data, (vm.ctx.new_str(text),)),
+                vm,
+            )
+        }
+
+        fn character_data(&self, vm: &VirtualMachine, text: String) -> PyResult<()> {
+            if vm.is_none(&self.character_data.read()) {
+                return Ok(());
+            }
+            let needs_flush = {
+                let buffer = self.character_buffer.read();
+                buffer
+                    .data
+                    .as_ref()
+                    .is_some_and(|data| text.len() > buffer.size - data.len())
+            };
+            if needs_flush {
+                self.flush_character_buffer(vm)?;
+                if vm.is_none(&self.character_data.read()) {
+                    return Ok(());
+                }
+            }
+            {
+                let mut buffer = self.character_buffer.write();
+                let size = buffer.size;
+                if let Some(data) = buffer.data.as_mut()
+                    && text.len() <= size - data.len()
+                {
+                    data.push_str(&text);
+                    return Ok(());
+                }
+            }
+            // An oversized backend event is delivered whole, not split into
+            // artificial chunks to imitate Expat's internal input conversion.
+            self.after_callback(
+                invoke_handler(vm, &self.character_data, (vm.ctx.new_str(text),)),
+                vm,
+            )
+        }
+
+        fn invoke_buffered_handler<T: IntoFuncArgs>(
+            &self,
+            vm: &VirtualMachine,
+            handler: &MutableObject,
+            args: T,
+        ) -> PyResult<()> {
+            if !vm.is_none(&handler.read()) {
+                self.flush_character_buffer(vm)?;
+            }
+            self.after_callback(invoke_handler(vm, handler, args), vm)
+        }
+
+        fn invoke_buffered_int_handler<T: IntoFuncArgs>(
+            &self,
+            vm: &VirtualMachine,
+            handler: &MutableObject,
+            name: &str,
+            args: T,
+        ) -> PyResult<Option<i32>> {
+            if !vm.is_none(&handler.read()) {
+                self.flush_character_buffer(vm)?;
+            }
+            let handler = handler.read().clone();
+            if vm.is_none(&handler) {
+                return Ok(None);
+            }
+            let result = self.after_callback(handler.call(args, vm), vm)?;
+            core::ffi::c_long::try_from_object(vm, result)
+                .map(|value| {
+                    // Expat callbacks convert C long to int. These types have the
+                    // same width on Windows, but differ on 64-bit Unix targets.
+                    #[allow(clippy::unnecessary_cast)]
+                    let value = value as i32;
+                    Some(value)
+                })
+                .inspect_err(|error| {
+                    let _ = error.add_note_str(
+                        vm.ctx
+                            .new_str(format!("invalid '{name}' event handler return value")),
+                        vm,
+                    );
+                })
         }
 
         /// Construct element name with namespace if separator is set
@@ -1330,8 +1547,12 @@ mod _pyexpat {
                         if doctype.system_id.is_some()
                             && !parse_entities
                             && !self.standalone.load(Ordering::Relaxed)
-                            && invoke_int_handler(vm, &self.not_standalone, "NotStandalone", ())?
-                                == Some(0)
+                            && self.invoke_buffered_int_handler(
+                                vm,
+                                &self.not_standalone,
+                                "NotStandalone",
+                                (),
+                            )? == Some(0)
                         {
                             return Err(self.handler_error(
                                 vm,
@@ -1342,7 +1563,7 @@ mod _pyexpat {
                         let name = self.intern_name(vm, doctype.name);
                         let system_id = doctype.system_id.map(|s| vm.ctx.new_str(s));
                         let public_id = doctype.public_id.map(|s| vm.ctx.new_str(s));
-                        invoke_handler(
+                        self.invoke_buffered_handler(
                             vm,
                             &self.start_doctype_decl,
                             (
@@ -1357,7 +1578,7 @@ mod _pyexpat {
                         {
                             self.handle_external_subset(vm, system_id, public_id)?;
                         }
-                        invoke_handler(vm, &self.end_doctype_decl, ())?;
+                        self.invoke_buffered_handler(vm, &self.end_doctype_decl, ())?;
                     }
                     Ok(())
                 }
@@ -1406,7 +1627,11 @@ mod _pyexpat {
                         for (prefix, uri) in declarations {
                             let prefix = (!prefix.is_empty()).then(|| vm.ctx.new_str(prefix));
                             let uri = (!uri.is_empty()).then(|| vm.ctx.new_str(uri));
-                            invoke_handler(vm, &self.start_namespace_decl, (prefix, uri))?;
+                            self.invoke_buffered_handler(
+                                vm,
+                                &self.start_namespace_decl,
+                                (prefix, uri),
+                            )?;
                         }
                     }
                     let ordered = self.ordered_attributes.read().is(&vm.ctx.true_value);
@@ -1434,41 +1659,37 @@ mod _pyexpat {
                     };
 
                     let name_str = self.intern_name(vm, self.make_name(&name, vm));
-                    invoke_handler(vm, &self.start_element, (name_str, attrs))
+                    self.invoke_buffered_handler(vm, &self.start_element, (name_str, attrs))
                 }
                 XmlEvent::EndElement { name, .. } => {
                     let name_str = self.intern_name(vm, self.make_name(&name, vm));
-                    invoke_handler(vm, &self.end_element, (name_str,))?;
+                    self.invoke_buffered_handler(vm, &self.end_element, (name_str,))?;
                     let declarations = self.namespace_stack.write().pop();
                     if let Some((_, prefixes)) = declarations {
                         for prefix in prefixes.into_iter().rev() {
                             let prefix = (!prefix.is_empty()).then(|| vm.ctx.new_str(prefix));
-                            invoke_handler(vm, &self.end_namespace_decl, (prefix,))?;
+                            self.invoke_buffered_handler(vm, &self.end_namespace_decl, (prefix,))?;
                         }
                     }
                     Ok(())
                 }
-                XmlEvent::Characters(chars) => {
-                    let str = PyStr::from(chars).into_ref(&vm.ctx);
-                    invoke_handler(vm, &self.character_data, (str,))
-                }
+                XmlEvent::Characters(chars) => self.character_data(vm, chars),
                 XmlEvent::ProcessingInstruction { name, data } => {
                     let name = PyStr::from(name).into_ref(&vm.ctx);
                     let data = data.unwrap_or_default();
                     // Expat skips XML S between the target and data, not trailing whitespace.
                     let data = PyStr::from(data.trim_start_matches([' ', '\t', '\r', '\n']))
                         .into_ref(&vm.ctx);
-                    invoke_handler(vm, &self.processing_instruction, (name, data))
+                    self.invoke_buffered_handler(vm, &self.processing_instruction, (name, data))
                 }
                 XmlEvent::Comment(comment) => {
                     let comment = PyStr::from(comment).into_ref(&vm.ctx);
-                    invoke_handler(vm, &self.comment, (comment,))
+                    self.invoke_buffered_handler(vm, &self.comment, (comment,))
                 }
                 XmlEvent::CData(chars) => {
-                    invoke_handler(vm, &self.start_cdata_section, ())?;
-                    let str = PyStr::from(chars).into_ref(&vm.ctx);
-                    invoke_handler(vm, &self.character_data, (str,))?;
-                    invoke_handler(vm, &self.end_cdata_section, ())
+                    self.invoke_buffered_handler(vm, &self.start_cdata_section, ())?;
+                    self.character_data(vm, chars)?;
+                    self.invoke_buffered_handler(vm, &self.end_cdata_section, ())
                 }
                 _ => Ok(()),
             }
@@ -1498,7 +1719,7 @@ mod _pyexpat {
             public_id: Option<PyStrRef>,
         ) -> PyResult<()> {
             let base = self.base.read().as_ref().map(|s| vm.ctx.new_str(s.clone()));
-            let result = invoke_int_handler(
+            let result = self.invoke_buffered_int_handler(
                 vm,
                 &self.external_entity_ref,
                 "ExternalEntityRef",
@@ -1594,11 +1815,8 @@ mod _pyexpat {
         /// the parser thread reports it is blocked waiting for more input
         /// (`NeedMore`), has finished (`Finished`), or hit a parse error
         /// (`Error`, raised as `ExpatError`). If a handler raises, dispatching stops and
-        /// the error propagates, but the parser thread and any events it
-        /// already produced are kept around so a later `Parse()` call
-        /// resumes exactly where dispatch left off, mirroring libexpat
-        /// (a callback exception aborts that `XML_Parse()` call without
-        /// corrupting the parser's internal state). Only used by
+        /// the error propagates after clearing handlers and stopping the
+        /// backend, matching libexpat's non-resumable callback abort. Only used by
         /// `Backend::Threaded`.
         #[cfg(not(target_arch = "wasm32"))]
         fn pump(&self, vm: &VirtualMachine, min_pushes: u64) -> PyResult<()> {
@@ -1789,7 +2007,9 @@ mod _pyexpat {
                 // corrupt state, so reject it instead, mirroring CPython.
                 return Err(vm.new_runtime_error("Parse() called before Parse() returned"));
             }
-            let result = self.feed_inner(vm, chunk, isfinal, unicode_input);
+            let result = self
+                .feed_inner(vm, chunk, isfinal, unicode_input)
+                .and_then(|()| self.flush_character_buffer(vm));
             self.busy.store(false, Ordering::SeqCst);
             result
         }
