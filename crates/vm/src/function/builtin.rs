@@ -1,6 +1,6 @@
 use super::{BorrowedArgs, Callee, FromArgs, FuncArgs, SigArg};
 use crate::{
-    Py, PyObject, PyPayload, PyRef, PyResult, VirtualMachine,
+    Py, PyObject, PyPayload, PyResult, VirtualMachine,
     convert::{ToPyResult, TryFromObject},
     object::PyThreadingConstraint,
 };
@@ -256,52 +256,6 @@ macro_rules! into_py_native_fn_tuple {
             }
         }
 
-        impl<F, S, $($T,)* R> PyNativeFnInternal<(BorrowedParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine> for F
-        where
-            F: Fn(&Py<S>, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
-            S: PyPayload,
-            $($T: FromArgs,)*
-            R: ToPyResult,
-        {
-            const ARGS: &'static [SigArg] =
-                &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
-
-            fn call_(
-                &self,
-                vm: &VirtualMachine,
-                _receiver: Option<&PyObject>,
-                args: FuncArgs,
-                callee: Callee,
-            ) -> PyResult {
-                let (zelf, $($n,)*) = args.bind_for::<(PyRef<S>, $($T,)*)>(vm, callee)?;
-
-                (self)(&zelf, $($n,)* vm).to_pyresult(vm)
-            }
-        }
-
-        impl<F, S, $($T,)* R> PyNativeFnInternal<(RefParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine> for F
-        where
-            F: Fn(&S, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
-            S: PyPayload,
-            $($T: FromArgs,)*
-            R: ToPyResult,
-        {
-            const ARGS: &'static [SigArg] =
-                &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
-
-            fn call_(
-                &self,
-                vm: &VirtualMachine,
-                _receiver: Option<&PyObject>,
-                args: FuncArgs,
-                callee: Callee,
-            ) -> PyResult {
-                let (zelf, $($n,)*) = args.bind_for::<(PyRef<S>, $($T,)*)>(vm, callee)?;
-
-                (self)(&zelf, $($n,)* vm).to_pyresult(vm)
-            }
-        }
-
         impl<F, $($T,)* R> PyNativeFnInternal<($(OwnedParam<$T>,)*), R, ()> for F
         where
             F: Fn($($T,)*) -> R + PyThreadingConstraint + 'static,
@@ -323,51 +277,6 @@ macro_rules! into_py_native_fn_tuple {
             }
         }
 
-        impl<F, S, $($T,)* R> PyNativeFnInternal<(BorrowedParam<S>, $(OwnedParam<$T>,)*), R, ()> for F
-        where
-            F: Fn(&Py<S>, $($T,)*) -> R + PyThreadingConstraint + 'static,
-            S: PyPayload,
-            $($T: FromArgs,)*
-            R: ToPyResult,
-        {
-            const ARGS: &'static [SigArg] =
-                &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
-
-            fn call_(
-                &self,
-                vm: &VirtualMachine,
-                _receiver: Option<&PyObject>,
-                args: FuncArgs,
-                callee: Callee,
-            ) -> PyResult {
-                let (zelf, $($n,)*) = args.bind_for::<(PyRef<S>, $($T,)*)>(vm, callee)?;
-
-                (self)(&zelf, $($n,)*).to_pyresult(vm)
-            }
-        }
-
-        impl<F, S, $($T,)* R> PyNativeFnInternal<(RefParam<S>, $(OwnedParam<$T>,)*), R, ()> for F
-        where
-            F: Fn(&S, $($T,)*) -> R + PyThreadingConstraint + 'static,
-            S: PyPayload,
-            $($T: FromArgs,)*
-            R: ToPyResult,
-        {
-            const ARGS: &'static [SigArg] =
-                &[SigArg::marker("$self") $(, SigArg::from_arg::<$T>(""))*];
-
-            fn call_(
-                &self,
-                vm: &VirtualMachine,
-                _receiver: Option<&PyObject>,
-                args: FuncArgs,
-                callee: Callee,
-            ) -> PyResult {
-                let (zelf, $($n,)*) = args.bind_for::<(PyRef<S>, $($T,)*)>(vm, callee)?;
-
-                (self)(&zelf, $($n,)*).to_pyresult(vm)
-            }
-        }
         impl<F, S, $($T,)* R, const METHOD: bool> IntoPyNativeFn<ReceiverFunctionKind<(OwnedParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine>> for ReceiverFunction<F, METHOD>
         where
             F: Fn(S, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
@@ -602,7 +511,7 @@ mod tests {
 
     #[test]
     fn method_receivers_are_borrowed_outside_python_arguments() {
-        use crate::{AsObject, PyObjectRef, builtins::PyList};
+        use crate::{AsObject, PyObjectRef, PyRef, builtins::PyList};
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let receiver = vm.ctx.new_list(vec![]);
             let count = receiver.as_object().strong_count();
@@ -657,11 +566,11 @@ mod tests {
 
     #[test]
     fn ordinary_functions_ignore_native_receivers() {
-        use crate::{AsObject, builtins::PyList};
+        use crate::{AsObject, PyRef, builtins::PyList};
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let receiver = vm.ctx.new_str("not the Python argument");
             let argument = vm.ctx.new_list(vec![]);
-            let function = |value: &Py<PyList>| value.to_owned();
+            let function = |value: PyRef<PyList>| value;
             let result = IntoPyNativeFn::call(
                 &function,
                 vm,

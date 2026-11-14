@@ -538,7 +538,7 @@ const fn default_char_len(default: DefaultRepr) -> usize {
 }
 
 const fn emit_sep(buf: &mut [u8], mut st: St, token_chars: usize) -> St {
-    // CPython Tools/clinic/libclinic/dsl_parser.py:add_parameter: wrap at >=72,
+    // Tools/clinic/libclinic/dsl_parser.py:add_parameter: wrap at >=72,
     // align with the first parameter, and never split a parameter/default.
     let trailing_comma = if st.tokens + 1 < st.total_tokens {
         1
