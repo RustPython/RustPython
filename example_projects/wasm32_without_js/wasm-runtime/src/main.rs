@@ -5,11 +5,16 @@ use wasmer::{
     Store, imports,
 };
 
-const USAGE: &str = "usage: wasm-runtime MODULE.wasm (-c CODE | FILE.py)";
+mod host_io;
+use wasm_runtime::readonly_fs::ReadOnlyRoot;
+
+const USAGE: &str = "usage: wasm-runtime MODULE.wasm [--host-file EXISTING_FILE] [--host-root DIR] (-c CODE | FILE.py)";
 
 struct Context {
     memory: Option<Memory>,
     kv: HashMap<Vec<u8>, Vec<u8>>,
+    descriptors: host_io::Descriptors,
+    root: Option<ReadOnlyRoot>,
 }
 
 impl Context {
@@ -83,7 +88,23 @@ fn kv_get(
 fn run() -> Result<i32, Box<dyn std::error::Error>> {
     let mut args = std::env::args_os().skip(1);
     let module_path = PathBuf::from(args.next().ok_or(USAGE)?);
-    let source_arg = args.next().ok_or(USAGE)?;
+    let mut source_arg = args.next().ok_or(USAGE)?;
+    let mut host_file = None;
+    let mut host_root = None;
+    loop {
+        let destination = if source_arg == "--host-file" {
+            &mut host_file
+        } else if source_arg == "--host-root" {
+            &mut host_root
+        } else {
+            break;
+        };
+        if destination.is_some() {
+            return Err(USAGE.into());
+        }
+        *destination = Some(PathBuf::from(args.next().ok_or(USAGE)?));
+        source_arg = args.next().ok_or(USAGE)?;
+    }
     let source = if source_arg == "-c" {
         args.next()
             .ok_or(USAGE)?
@@ -102,7 +123,24 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
     let module = Module::new(&store, std::fs::read(&module_path)?)?;
     // Fail closed if a future build accidentally acquires OS or JS imports.
     for import in module.imports() {
-        if import.module() != "env" || !matches!(import.name(), "print" | "kv_get" | "kv_put") {
+        let allowed = (import.module() == "env"
+            && matches!(import.name(), "print" | "kv_get" | "kv_put"))
+            || ((host_file.is_some() || host_root.is_some())
+                && import.module() == "rustpython_host_io_v1"
+                && matches!(
+                    import.name(),
+                    "fd_read"
+                        | "fd_write"
+                        | "fd_close"
+                        | "fd_seek"
+                        | "fd_truncate"
+                        | "fd_sync"
+                        | "fd_info"
+                ))
+            || (host_root.is_some()
+                && import.module() == "rustpython_host_fs_v1"
+                && import.name() == "path_open");
+        if !allowed {
             return Err(format!("unexpected import: {}.{}", import.module(), import.name()).into());
         }
     }
@@ -111,6 +149,15 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
         Context {
             memory: None,
             kv: HashMap::new(),
+            root: host_root
+                .as_deref()
+                .map(ReadOnlyRoot::preopen)
+                .transpose()?,
+            descriptors: host_file
+                .as_deref()
+                .map(host_io::Descriptors::with_file)
+                .transpose()?
+                .unwrap_or_default(),
         },
     );
     let imports = imports! {
@@ -118,6 +165,18 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
             "print" => Function::new_typed_with_env(&mut store, &env, print),
             "kv_get" => Function::new_typed_with_env(&mut store, &env, kv_get),
             "kv_put" => Function::new_typed_with_env(&mut store, &env, kv_put),
+        },
+        "rustpython_host_fs_v1" => {
+            "path_open" => Function::new_typed_with_env(&mut store, &env, host_io::path_open),
+        },
+        "rustpython_host_io_v1" => {
+            "fd_read" => Function::new_typed_with_env(&mut store, &env, host_io::fd_read),
+            "fd_write" => Function::new_typed_with_env(&mut store, &env, host_io::fd_write),
+            "fd_close" => Function::new_typed_with_env(&mut store, &env, host_io::fd_close),
+            "fd_seek" => Function::new_typed_with_env(&mut store, &env, host_io::fd_seek),
+            "fd_truncate" => Function::new_typed_with_env(&mut store, &env, host_io::fd_truncate),
+            "fd_sync" => Function::new_typed_with_env(&mut store, &env, host_io::fd_sync),
+            "fd_info" => Function::new_typed_with_env(&mut store, &env, host_io::fd_info),
         }
     };
     let instance = Instance::new(&mut store, &module, &imports)?;

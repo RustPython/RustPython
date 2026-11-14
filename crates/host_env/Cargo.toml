@@ -9,6 +9,9 @@ repository.workspace = true
 license.workspace = true
 
 [features]
+# Explicit embedding ABI for pre-opened descriptors on wasm32-unknown-unknown.
+wasm-host-io = []
+wasm-host-fs = ["wasm-host-io"]
 # `ctypes` module: libffi (linked against the system library) and libloading.
 ctypes = ["dep:libffi", "dep:libloading"]
 native-certs = ["dep:rustls-native-certs"]

@@ -81,7 +81,13 @@ pub mod object;
 #[cfg(feature = "opcode-histogram")]
 pub mod opcode_histogram;
 pub mod ospath;
-#[cfg(feature = "host_env")]
+#[cfg(all(
+    feature = "host_io",
+    any(
+        feature = "host_env",
+        not(all(target_arch = "wasm32", target_os = "unknown"))
+    )
+))]
 mod ospath_fd;
 
 pub mod prelude;

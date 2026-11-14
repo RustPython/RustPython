@@ -2212,13 +2212,6 @@ pub(super) mod _os {
         crate::host_env::time::strerror(code)
     }
 
-    pub(crate) fn ftruncate_borrowed(
-        fd: crt_fd::Borrowed<'_>,
-        length: crt_fd::Offset,
-    ) -> io::Result<()> {
-        crt_fd::ftruncate(fd, length)
-    }
-
     #[pyfunction]
     fn ftruncate(fd: i32, length: crt_fd::Offset, vm: &VirtualMachine) -> PyResult<()> {
         ftruncate_impl(fd, length, vm)
@@ -2551,7 +2544,6 @@ pub(super) mod _os {
         supports
     }
 }
-pub(crate) use _os::ftruncate_borrowed;
 
 pub(crate) struct SupportFunc {
     name: &'static str,
