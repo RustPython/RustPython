@@ -994,7 +994,6 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
                 _: &::rustpython_vm::function::FuncArgs,
                 _: &::std::ops::RangeInclusive<usize>,
                 _: usize,
-                _: usize,
                 _: ::rustpython_vm::function::Callee,
                 _: &::rustpython_vm::VirtualMachine,
             ) -> ::core::option::Option<::rustpython_vm::builtins::PyBaseExceptionRef> {

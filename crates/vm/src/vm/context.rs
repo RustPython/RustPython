@@ -356,7 +356,7 @@ impl Context {
 
         let names = unsafe { ConstName::new(&string_pool, types.str_type) };
 
-        let slot_new_wrapper = PyMethodDef::new_const(
+        let slot_new_wrapper = PyMethodDef::new_method_const(
             names.__new__.as_str(),
             PyType::__new__,
             PyMethodFlags::METHOD,
@@ -665,6 +665,17 @@ impl Context {
             flags.with_call_convention(F::ARGS),
             doc,
         );
+        PyRef::new_ref(payload, self.types.method_def.to_owned(), None)
+    }
+
+    pub fn new_raw_method_def(
+        &self,
+        name: &'static str,
+        f: impl crate::function::PyNativeFn,
+        flags: PyMethodFlags,
+        doc: ItemDoc,
+    ) -> PyRef<HeapMethodDef> {
+        let payload = HeapMethodDef::with_owned_function(name, Box::new(f), flags, doc);
         PyRef::new_ref(payload, self.types.method_def.to_owned(), None)
     }
 

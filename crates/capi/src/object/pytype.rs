@@ -13,7 +13,7 @@ use rustpython_vm::types::{
     AtomicPyTypeFlags, CNewFunc, CSlotId, CSlots, PyTypeFlags, PyTypeSlots,
     SlotAccessor::{TpBase, TpDealloc, TpDoc, TpGetset, TpMembers, TpMethods, TpNew, TpTraverse},
 };
-use rustpython_vm::{AsObject, Py, PyObject, PyResult, VirtualMachine, identifier};
+use rustpython_vm::{AsObject, Py, PyObject, PyPayload, PyResult, VirtualMachine, identifier};
 
 pub type PyTypeObject = Py<PyType>;
 
@@ -156,10 +156,9 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
                         PySlotType::TypeSlot(TpMethods, pfunc) => {
                             for def in PyMethodDef::iter(pfunc.cast()) {
                                 let name = unsafe { def.ml_name.try_as_str(vm)? };
-                                let is_static = PyMethodFlags::from_bits_retain(def.ml_flags as _)
-                                    .contains(PyMethodFlags::STATIC);
-                                let method = def.build_method_def(vm, !is_static)?;
-                                methods.push((name, method));
+                                let flags = PyMethodFlags::from_bits_retain(def.ml_flags as _);
+                                let method = def.build_method_def(vm)?;
+                                methods.push((name, flags, method));
                             }
                         }
                         PySlotType::TypeSlot(TpNew, pfunc) => {
@@ -200,11 +199,27 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
 
         let attrs = &class.attributes;
         let class_static = unsafe { &*((&*class) as *const _) };
-        for (name, method) in methods {
-            attrs.insert(
-                vm.ctx.intern_str(name),
-                method.build_method(class_static, vm).into(),
-            );
+        for (name, flags, method) in methods {
+            let method = if flags.contains(PyMethodFlags::CLASS) {
+                if flags.contains(PyMethodFlags::STATIC) {
+                    return Err(vm.new_value_error("method cannot be both class and static"));
+                }
+                method.build_classmethod(class_static, vm).into()
+            } else if flags.contains(PyMethodFlags::STATIC) {
+                // Static functions bind the defining class for metadata, not as
+                // a Python argument. They must not use a method descriptor,
+                // whose call protocol consumes its first argument as self.
+                let function = method.build_function(vm, Some(class.to_owned().into()));
+                if let Some(module) = attrs.get(identifier!(vm, __module__)) {
+                    function.as_object().set_attr("__module__", module, vm)?;
+                }
+                rustpython_vm::builtins::PyStaticMethod::new(function.into())
+                    .into_ref(&vm.ctx)
+                    .into()
+            } else {
+                method.build_method(class_static, vm).into()
+            };
+            attrs.insert(vm.ctx.intern_str(name), method);
         }
         for getset in getsets {
             let name = unsafe { getset.name.try_as_str(vm)? };
@@ -361,7 +376,7 @@ pub fn set_tp_new(vm: &VirtualMachine, ty: &Py<PyType>, tp_new: newfunc) -> PyRe
     // `update_slot` does not read it back as a definition of `__new__`.
     let def = vm.ctx.new_method_def(
         "__new__",
-        PyType::__new__,
+        rustpython_vm::function::ReceiverFunction::<_, true>(PyType::__new__),
         PyMethodFlags::METHOD,
         ItemDoc::NONE,
     );

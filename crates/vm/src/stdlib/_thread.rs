@@ -1149,7 +1149,7 @@ pub(crate) mod _thread {
         fn extend_pyclass(ctx: &crate::vm::Context, class: &'static Py<crate::builtins::PyType>) {
             // (type, (sequence, dict)). Set before the trait installs its default.
             const EXCEPT_HOOK_ARGS_REDUCE: crate::function::PyMethodDef =
-                crate::function::PyMethodDef::new_const(
+                crate::function::PyMethodDef::new_method_const(
                     "__reduce__",
                     |zelf: crate::PyRef<crate::builtins::PyTuple>,
                      vm: &VirtualMachine|

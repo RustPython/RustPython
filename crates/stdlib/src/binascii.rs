@@ -12,53 +12,16 @@ use rustpython_vm::{VirtualMachine, builtins::PyBaseExceptionRef};
 mod decl {
     use super::{base_n, new_binascii_error};
     use crate::vm::{
-        AsObject, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyBytes, PyBytesRef, PyDict, PyModule, PyStr, PyTypeRef},
-        function::{
-            ArgAsciiBuffer, ArgBytesLike, ArgIndex, ArgIntoBool, ItemDoc, OptionalArg, PyMethodDef,
-            PyMethodFlags,
-        },
+        function::{ArgAsciiBuffer, ArgBytesLike, ArgIndex, ArgIntoBool, OptionalArg},
     };
     use rustpython_common::binascii;
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         __module_exec(vm, module);
         module.set_native_state(vm.ctx.new_dict().into());
-        const DECODE: &PyMethodDef = &PyMethodDef::new_const(
-            "a2b_base64",
-            a2b_base64,
-            PyMethodFlags::empty(),
-            ItemDoc::static_text(
-                "a2b_base64($module, data, /, *, strict_mode=<unrepresentable>, padded=True, alphabet=BASE64_ALPHABET, ignorechars=<unrepresentable>, canonical=False)\n--\n\nDecode a line of base64 data.",
-            ),
-        );
-        const DECODE32: &PyMethodDef = &PyMethodDef::new_const(
-            "a2b_base32",
-            a2b_base32,
-            PyMethodFlags::empty(),
-            ItemDoc::static_text(
-                "a2b_base32($module, data, /, *, padded=True, alphabet=BASE32_ALPHABET, ignorechars=b'', canonical=False)\n--\n\nDecode a line of base32 data.",
-            ),
-        );
-        const DECODE85: &PyMethodDef = &PyMethodDef::new_const(
-            "a2b_base85",
-            a2b_base85,
-            PyMethodFlags::empty(),
-            ItemDoc::static_text(
-                "a2b_base85($module, data, /, *, alphabet=BASE85_ALPHABET, ignorechars=b'', canonical=False)\n--\n\nDecode a line of Base85 data.",
-            ),
-        );
-        for (name, definition) in [
-            ("a2b_base64", DECODE),
-            ("a2b_base32", DECODE32),
-            ("a2b_base85", DECODE85),
-        ] {
-            let function = definition.build_bound_function(&vm.ctx, module.to_owned().into());
-            function
-                .as_object()
-                .set_attr("__module__", vm.ctx.new_str("binascii"), vm)?;
-            module.dict().set_item(name, function.into(), vm)?;
-        }
         Ok(())
     }
 
@@ -274,8 +237,9 @@ mod decl {
         canonical: OptionalArg<PyObjectRef>,
     }
 
+    #[pyfunction]
     fn a2b_base64(
-        module: PyRef<PyModule>,
+        module: &Py<PyModule>,
         args: A2bBase64Args,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
@@ -300,7 +264,7 @@ mod decl {
             const DEFAULT_TABLE: [u8; 256] =
                 binascii::base64_reverse_table(binascii::BASE64_ALPHABET);
             let table = match &alphabet {
-                OptionalArg::Present(value) => reverse_table(&module, value, 64, Some(b'='), vm)?,
+                OptionalArg::Present(value) => reverse_table(module, value, 64, Some(b'='), vm)?,
                 OptionalArg::Missing => DEFAULT_TABLE,
             };
             let mut ignored = [false; 256];
@@ -446,8 +410,9 @@ mod decl {
         canonical: OptionalArg<PyObjectRef>,
     }
 
+    #[pyfunction]
     fn a2b_base32(
-        module: PyRef<PyModule>,
+        module: &Py<PyModule>,
         args: A2bBase32Args,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
@@ -463,7 +428,7 @@ mod decl {
             // and reach ordered cleanup even when __bool__ raises.
             let canonical = canonical_argument(&canonical, vm)?;
             let table = match &alphabet {
-                OptionalArg::Present(value) => reverse_table(&module, value, 32, Some(b'='), vm)?,
+                OptionalArg::Present(value) => reverse_table(module, value, 32, Some(b'='), vm)?,
                 OptionalArg::Missing => base_n::reverse_table(base_n::BASE32, Some(b'=')),
             };
             let ignore = ignored_argument(&ignorechars);
@@ -520,8 +485,9 @@ mod decl {
         canonical: OptionalArg<PyObjectRef>,
     }
 
+    #[pyfunction]
     fn a2b_base85(
-        module: PyRef<PyModule>,
+        module: &Py<PyModule>,
         args: A2bBase85Args,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
@@ -536,7 +502,7 @@ mod decl {
             // and reach ordered cleanup even when __bool__ raises.
             let canonical = canonical_argument(&canonical, vm)?;
             let table = match &alphabet {
-                OptionalArg::Present(value) => reverse_table(&module, value, 85, None, vm)?,
+                OptionalArg::Present(value) => reverse_table(module, value, 85, None, vm)?,
                 OptionalArg::Missing => base_n::reverse_table(base_n::BASE85, None),
             };
             let ignore = ignored_argument(&ignorechars);

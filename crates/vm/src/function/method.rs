@@ -1,7 +1,7 @@
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyRef, VirtualMachine,
     builtins::{
-        PyStaticMethod, PyType,
+        PyModule, PyStaticMethod, PyType,
         builtin_func::{PyNativeFunction, PyNativeMethod},
         descriptor::{PyClassMethodDescriptor, PyMethodDescriptor},
     },
@@ -70,11 +70,20 @@ impl PyMethodFlags {
 
 #[macro_export]
 macro_rules! define_methods {
+    (@function $func:ident, METHOD) => {
+        $crate::function::static_func($crate::function::ReceiverFunction::<_, true>($func))
+    };
+    (@function $func:ident, CLASS) => {
+        $crate::function::static_func($crate::function::ReceiverFunction::<_, true>($func))
+    };
+    (@function $func:ident, $flags:ident) => {
+        $crate::function::static_func($func)
+    };
     // TODO: more flexible syntax
     ($($name:literal => $func:ident as $flags:ident),+) => {
         vec![ $( $crate::function::PyMethodDef {
             name: $name,
-            func: $crate::function::static_func($func),
+            func: $crate::define_methods!(@function $func, $flags),
             flags: $crate::function::PyMethodFlags::$flags,
             #[cfg(feature = "doc")]
             doc_off: 0,
@@ -152,6 +161,20 @@ impl PyMethodDef {
         }
     }
 
+    /// Construct a method whose first Rust parameter is supplied by native binding.
+    #[inline]
+    pub const fn new_method_const<Kind, F>(
+        name: &'static str,
+        func: F,
+        flags: PyMethodFlags,
+        doc: super::ItemDoc,
+    ) -> Self
+    where
+        super::ReceiverFunction<F, true>: IntoPyNativeFn<Kind>,
+    {
+        Self::new_const(name, super::ReceiverFunction::<_, true>(func), flags, doc)
+    }
+
     #[inline]
     pub const fn new_raw_const(
         name: &'static str,
@@ -196,10 +219,16 @@ impl PyMethodDef {
         PyNativeFunction {
             zelf: None,
             value: self,
-            module_object: None,
             module: crate::object::PyAtomicRef::new_empty(),
             _method_def_owner: None,
         }
+    }
+
+    #[must_use]
+    pub fn to_module_function(&'static self, module: PyRef<PyModule>) -> PyNativeFunction {
+        let mut function = self.to_function();
+        function.zelf = Some(module.into());
+        function
     }
 
     pub fn to_method(
@@ -219,7 +248,6 @@ impl PyMethodDef {
             func: PyNativeFunction {
                 zelf: Some(obj),
                 value: self,
-                module_object: None,
                 module: crate::object::PyAtomicRef::new_empty(),
                 _method_def_owner: None,
             },
@@ -248,7 +276,6 @@ impl PyMethodDef {
         let function = PyNativeFunction {
             zelf: Some(obj),
             value: self,
-            module_object: None,
             module: crate::object::PyAtomicRef::new_empty(),
             _method_def_owner: owner,
         };
@@ -308,7 +335,7 @@ impl PyMethodDef {
                 .map_or("builtins", |(module, _)| module);
             Some(ctx.intern_str(module).to_owned().into())
         };
-        // m_self is the type; STATIC skips prepending it on call.
+        // m_self is the type; the static adapter ignores it on call.
         let function = self.build_bound_function(ctx, class.to_owned().into());
         drop(function.module.store(module));
         function
@@ -346,7 +373,7 @@ impl PyMethodDef {
     ) -> [Self; SUM_LEN] {
         const NULL_METHOD: PyMethodDef = PyMethodDef {
             name: "",
-            func: &|_, _, _| unreachable!(),
+            func: &|_, _, _, _| unreachable!(),
             flags: PyMethodFlags::empty(),
             #[cfg(feature = "doc")]
             doc_off: 0,
@@ -489,6 +516,20 @@ impl Py<HeapMethodDef> {
             None,
         )
     }
+
+    pub fn build_classmethod(
+        &self,
+        class: &'static Py<PyType>,
+        vm: &VirtualMachine,
+    ) -> PyRef<PyClassMethodDescriptor> {
+        let mut function = PyClassMethodDescriptor::new(unsafe { self.method() }, class, &vm.ctx);
+        function._method_def_owner = Some(self.to_owned().into());
+        PyRef::new_ref(
+            function,
+            vm.ctx.types.classmethod_descriptor_type.to_owned(),
+            None,
+        )
+    }
 }
 
 #[pyclass]
@@ -547,6 +588,49 @@ mod tests {
             );
             drop(method);
             assert_eq!(Arc::strong_count(&captured), 1);
+        });
+    }
+    #[test]
+    fn bound_native_call_does_not_clone_or_prepend_the_receiver() {
+        use crate::{builtins::PyList, function::ReceiverFunction};
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let receiver = vm.ctx.new_list(vec![]);
+            let count_when_bound = receiver.as_object().strong_count() + 1;
+            let definition = vm.ctx.new_method_def(
+                "borrowed",
+                ReceiverFunction::<_, true>(move |zelf: &Py<PyList>, args: FuncArgs| {
+                    assert_eq!(zelf.as_object().strong_count(), count_when_bound);
+                    assert_eq!(args.args.len(), 1);
+                    assert_eq!(args.kwargs.len(), 1);
+                }),
+                PyMethodFlags::METHOD,
+                super::super::ItemDoc::NONE,
+            );
+            let function = definition.build_function(vm, Some(receiver.into()));
+            // Keep one explicit owner in addition to the function's receiver.
+            let receiver = function.get_self().unwrap().to_owned();
+            for vectorcall in [false, true] {
+                if vectorcall {
+                    let keyword = vm.ctx.new_str("named").into();
+                    function
+                        .as_object()
+                        .vectorcall(vec![vm.ctx.none(), vm.ctx.none()], 1, Some(&[keyword]), vm)
+                        .unwrap();
+                } else {
+                    function
+                        .as_object()
+                        .call(
+                            FuncArgs::new(
+                                vec![vm.ctx.none()],
+                                core::iter::once(("named", vm.ctx.none()))
+                                    .collect::<crate::function::KwArgs>(),
+                            ),
+                            vm,
+                        )
+                        .unwrap();
+                }
+            }
+            assert_eq!(receiver.strong_count(), count_when_bound);
         });
     }
 }

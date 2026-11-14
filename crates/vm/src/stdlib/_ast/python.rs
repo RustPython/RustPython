@@ -36,7 +36,7 @@ pub(crate) mod _ast {
             class.set_str_attr("_attributes", empty_tuple.clone(), ctx);
             class.set_str_attr("__match_args__", empty_tuple, ctx);
 
-            const AST_DEEPCOPY: PyMethodDef = PyMethodDef::new_const(
+            const AST_DEEPCOPY: PyMethodDef = PyMethodDef::new_method_const(
                 "__deepcopy__",
                 |zelf: PyObjectRef, memo: PyObjectRef, vm: &VirtualMachine| -> PyResult {
                     ast_deepcopy(&zelf, &memo, vm)
@@ -169,7 +169,7 @@ pub(crate) mod _ast {
         obj.set_attr(&name, value, vm)
     }
 
-    pub(crate) const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
+    pub(crate) const AST_REPLACE: PyMethodDef = PyMethodDef::new_method_const(
         "__replace__",
         |zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine| -> PyResult {
             ast_replace(&zelf, args, vm)
@@ -576,7 +576,7 @@ pub(crate) mod _ast {
             set_empty_annotations(typ);
         }
 
-        const AST_REDUCE: PyMethodDef = PyMethodDef::new_const(
+        const AST_REDUCE: PyMethodDef = PyMethodDef::new_method_const(
             "__reduce__",
             |zelf: PyObjectRef, vm: &VirtualMachine| -> PyResult<PyTupleRef> {
                 ast_reduce(&zelf, vm)

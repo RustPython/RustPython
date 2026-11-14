@@ -1687,12 +1687,17 @@ impl ToTokens for MethodNursery {
             } else {
                 quote!(new_const)
             };
+            let function = if !item.raw && !matches!(item.attr_name, AttrName::StaticMethod) {
+                quote!(rustpython_vm::function::ReceiverFunction::<_, true>(Self::#ident))
+            } else {
+                quote!(Self::#ident)
+            };
             inner_tokens.extend(quote! [
                 #(#cfgs)*
                 {
                     let mut def = rustpython_vm::function::PyMethodDef::#method_new(
                         #py_name,
-                        Self::#ident,
+                        #function,
                         #flags,
                         #doc,
                     );

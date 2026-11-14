@@ -112,16 +112,15 @@ impl GetDescriptor for PyMethodDescriptor {
 impl Callable for PyMethodDescriptor {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         method_descr_check_self(zelf, args.args.first().map(|obj| &**obj), vm)?;
         if !args.kwargs.is_empty() && !zelf.method.flags.contains(PyMethodFlags::KEYWORDS) {
             return Err(method_descr_no_keywords_error(zelf, vm));
         }
-        (zelf.method.func)(
-            vm,
-            args,
-            Callee::named(zelf.method.name).with_instance_arg(true),
-        )
+        let receiver = args
+            .take_positional()
+            .expect("descriptor receiver was checked");
+        (zelf.method.func)(vm, Some(&receiver), args, Callee::named(zelf.method.name))
     }
 }
 
@@ -1595,7 +1594,7 @@ fn method_descr_no_keywords_error(
 /// Vectorcall for method_descriptor: calls native method directly
 fn vectorcall_method_descriptor(
     zelf_obj: &PyObject,
-    args: Vec<PyObjectRef>,
+    mut args: Vec<PyObjectRef>,
     nargs: usize,
     kwnames: Option<&[PyObjectRef]>,
     vm: &VirtualMachine,
@@ -1615,11 +1614,13 @@ fn vectorcall_method_descriptor(
     {
         return Err(method_descr_no_keywords_error(zelf, vm));
     }
-    let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
+    let receiver = args.remove(0);
+    let func_args = FuncArgs::from_vectorcall_owned(args, nargs - 1, kwnames);
     (zelf.method.func)(
         vm,
+        Some(&receiver),
         func_args,
-        Callee::named(zelf.method.name).with_instance_arg(true),
+        Callee::named(zelf.method.name),
     )
 }
 

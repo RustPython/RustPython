@@ -57,3 +57,57 @@ for exc, expected_name in [
 ]:
     assert exc.__module__ == "binascii"
     assert exc.__name__ == expected_name
+
+# Module-bound functions retain their defining module when stored elsewhere.
+# Both owned and borrowed Rust module receivers use the same Python binding.
+for name, encoded, decoded in (
+    ("a2b_base64", b"YQ==", b"a"),
+    ("a2b_base32", b"ME======", b"a"),
+    ("a2b_base85", b"VE", b"a"),
+):
+    function = getattr(binascii, name)
+    assert function.__self__ is binascii
+    assert function.__module__ == "binascii"
+    assert function(encoded) == decoded
+    assert function.__text_signature__.startswith("($module, data, /, *")
+
+# The database supplies the full decoder documentation, not only its summary.
+for function in (binascii.a2b_base32, binascii.a2b_base64, binascii.a2b_base85):
+    assert "\n  ignorechars\n" in function.__doc__
+    assert "\n  canonical\n" in function.__doc__
+for function in (binascii.a2b_base32, binascii.a2b_base64):
+    assert "\n  padded\n" in function.__doc__
+assert "Set to True by default if ignorechars is specified" in dec_b64.__doc__
+
+# A Python-visible module argument must not be mistaken for a bound receiver.
+import _imp
+import sys
+
+assert _imp.exec_builtin(sys) == 0
+with assert_raises(TypeError):
+    _imp.exec_builtin()
+
+# Receiver injection must not change the Python-facing callable metadata.
+import math
+
+for module, function in (
+    (math, math.sqrt),
+    (_imp, _imp.exec_builtin),
+    (_imp, _imp.exec_dynamic),
+    (binascii, binascii.a2b_base32),
+    (binascii, binascii.a2b_base64),
+    (binascii, binascii.a2b_base85),
+):
+    assert function.__self__ is module
+    assert function.__module__ == module.__name__
+    assert function.__qualname__ == function.__name__
+    assert repr(function) == f"<built-in function {function.__name__}>"
+    assert function.__reduce__() == function.__name__
+    alias = getattr(module, function.__name__)
+    assert function == alias
+    assert hash(function) == hash(alias)
+    assert function.__text_signature__.startswith("($module,")
+
+assert _imp.exec_dynamic(sys) == 0
+with assert_raises(TypeError):
+    _imp.exec_dynamic()

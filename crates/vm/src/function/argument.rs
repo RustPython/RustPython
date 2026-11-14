@@ -300,7 +300,7 @@ impl FuncArgs {
         callee: Callee,
     ) -> PyResult<[Option<&PyObject>; N]> {
         let shape = const {
-            let shape = match BindingShape::for_parser(T::CLINIC_PARAMS, 0, T::UNPACK_KEYWORDS) {
+            let shape = match BindingShape::for_parser(T::CLINIC_PARAMS, T::UNPACK_KEYWORDS) {
                 Some(shape) => shape,
                 None => panic!("borrowed arguments require a known Clinic signature"),
             };
@@ -322,7 +322,7 @@ impl FuncArgs {
             }
             shape
         };
-        if let Some(error) = shape.check_counts(self, 0, callee, vm) {
+        if let Some(error) = shape.check_counts(self, callee, vm) {
             return Err(error);
         }
         let mut slots = [None; N];
@@ -395,15 +395,11 @@ impl FuncArgs {
         callee: impl Into<Callee>,
     ) -> PyResult<T> {
         let callee = callee.into();
-        // A message describes the parameters the function declares, and the
-        // instance a method is called on is not one of them.
-        let instance = callee.instance_args();
         let arity = T::arity();
-        let arity = arity.start().saturating_sub(instance)..=arity.end().saturating_sub(instance);
         let nargs = self.args.len();
-        let num_given = nargs.saturating_sub(instance);
+        let num_given = nargs;
 
-        if let Some(err) = T::check_before_convert(&self, &arity, num_given, instance, callee, vm) {
+        if let Some(err) = T::check_before_convert(&self, &arity, num_given, callee, vm) {
             return Err(err);
         }
 
@@ -411,10 +407,8 @@ impl FuncArgs {
             Ok(bound) => bound,
             Err(e) => {
                 // take_positional has just removed the failed argument, so N is
-                // nargs - remaining, minus the instance.
-                let pos = nargs
-                    .saturating_sub(self.args.len())
-                    .saturating_sub(instance);
+                // nargs - remaining. Native receivers never enter FuncArgs.
+                let pos = nargs.saturating_sub(self.args.len());
                 return Err(e.into_exception(&arity, num_given, pos, callee, vm));
             }
         };
@@ -451,13 +445,10 @@ impl FuncArgs {
 ///
 /// A binding that happens somewhere the name isn't known leaves it off, the way
 /// `_PyArg_Parser.fname` is NULL. A message describes the parameters the
-/// function declares, so a method's instance argument counts as neither an
-/// expected parameter nor a given argument, the way `descrobject.c` reports
-/// `nargs - 1`.
+/// function declares. Native receivers are passed separately from those arguments.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Callee {
     name: Option<&'static str>,
-    instance_arg: bool,
 }
 
 impl From<&'static str> for Callee {
@@ -470,10 +461,7 @@ impl Callee {
     /// A function a message can name.
     #[must_use]
     pub const fn named(name: &'static str) -> Self {
-        Self {
-            name: Some(name),
-            instance_arg: false,
-        }
+        Self { name: Some(name) }
     }
 
     /// The type a slot builds or initializes, named the way a message names it.
@@ -488,17 +476,11 @@ impl Callee {
         Self::for_type(T::class(&vm.ctx))
     }
 
-    /// Marks a call whose leading argument fills the method's instance parameter.
-    #[must_use]
-    pub const fn with_instance_arg(mut self, instance_arg: bool) -> Self {
-        self.instance_arg = instance_arg;
-        self
-    }
-
-    /// How many leading arguments answer for the instance rather than for a
-    /// parameter the method declares.
-    const fn instance_args(self) -> usize {
-        self.instance_arg as usize
+    pub(crate) fn missing_receiver(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        vm.new_type_error(format!(
+            "unbound method {} needs an argument",
+            self.name.unwrap_or("<unknown>")
+        ))
     }
 
     /// _PyArg_CheckPositional
@@ -674,7 +656,7 @@ struct BindingShape {
 }
 
 impl BindingShape {
-    const fn validated(params: Option<&'static [Param]>, skip: usize) -> Option<Self> {
+    const fn validated(params: Option<&'static [Param]>) -> Option<Self> {
         const fn known(params: Option<&[Param]>) -> bool {
             let Some(params) = params else {
                 return false;
@@ -695,18 +677,17 @@ impl BindingShape {
             return None;
         }
         assert!(
-            Self::from_params(params, 0).is_some(),
+            Self::from_params(params).is_some(),
             "FromArgs binding parameters must describe one Clinic signature; use an explicit custom binding override for a staged parser",
         );
-        Self::from_params(params, skip)
+        Self::from_params(params)
     }
 
     const fn for_parser(
         params: Option<&'static [Param]>,
-        skip: usize,
         force_unpack_keywords: bool,
     ) -> Option<Self> {
-        let Some(mut shape) = Self::validated(params, skip) else {
+        let Some(mut shape) = Self::validated(params) else {
             return None;
         };
         if force_unpack_keywords {
@@ -724,7 +705,7 @@ impl BindingShape {
         }
     }
 
-    const fn from_params(params: Option<&'static [Param]>, mut skip: usize) -> Option<Self> {
+    const fn from_params(params: Option<&'static [Param]>) -> Option<Self> {
         let Some(params) = params else {
             return None;
         };
@@ -740,14 +721,14 @@ impl BindingShape {
             required_keyword_only: false,
             anonymous_positional: false,
         };
-        if shape.count(params, &mut skip) && skip == 0 {
+        if shape.count(params) {
             Some(shape)
         } else {
             None
         }
     }
 
-    const fn count(&mut self, params: &[Param], skip: &mut usize) -> bool {
+    const fn count(&mut self, params: &[Param]) -> bool {
         let mut i = 0;
         while i < params.len() {
             let param = &params[i];
@@ -756,12 +737,11 @@ impl BindingShape {
             }
             match param.kind {
                 ParamKind::Flatten(Some(inner)) => {
-                    if !self.count(inner, skip) {
+                    if !self.count(inner) {
                         return false;
                     }
                 }
                 ParamKind::Flatten(None) => return false,
-                ParamKind::PositionalOnly if *skip > 0 => *skip -= 1,
                 ParamKind::PositionalOnly | ParamKind::PositionalOrKeyword => {
                     // Other tuple compositions are valid Rust binders, but do
                     // not describe the ordered layout of one Clinic parser.
@@ -812,11 +792,10 @@ impl BindingShape {
     fn check_counts(
         &self,
         args: &FuncArgs,
-        instance: usize,
         callee: Callee,
         vm: &VirtualMachine,
     ) -> Option<PyBaseExceptionRef> {
-        let nargs = args.args.len().saturating_sub(instance);
+        let nargs = args.args.len();
         let nkwargs = args.kwargs.len();
         let binding_arity = self.arity();
         if !self.has_keywords {
@@ -900,14 +879,13 @@ impl BindingShape {
         &self,
         args: &FuncArgs,
         arity: &RangeInclusive<usize>,
-        instance: usize,
         callee: Callee,
         vm: &VirtualMachine,
     ) -> Option<PyBaseExceptionRef> {
-        if let Some(error) = self.check_counts(args, instance, callee, vm) {
+        if let Some(error) = self.check_counts(args, callee, vm) {
             return Some(error);
         }
-        let nargs = args.args.len().saturating_sub(instance);
+        let nargs = args.args.len();
         let nkwargs = args.kwargs.len();
         // Walk when a required argument may be missing, or when keywords need
         // matching. Optional-only calls with no keywords skip this.
@@ -916,7 +894,7 @@ impl BindingShape {
             || self.required_positional != 0
             || self.required_keyword_only
         {
-            let mut matched = BindingMatch::new(instance);
+            let mut matched = BindingMatch::new();
             if let Err(missing) = matched.walk(self.params, nargs, &args.kwargs) {
                 return Some(missing.into_exception(arity, nargs, 0, callee, vm));
             }
@@ -924,7 +902,7 @@ impl BindingShape {
             // lands in **kwargs, or is unexpected.
             if matched.found < nkwargs {
                 if let Some((name, pos)) =
-                    BindingMatch::new(instance).first_duplicate(self.params, nargs, &args.kwargs)
+                    BindingMatch::new().first_duplicate(self.params, nargs, &args.kwargs)
                 {
                     return Some(callee.given_by_name_and_position(name, pos, vm));
                 }
@@ -955,16 +933,14 @@ impl BindingShape {
 struct BindingMatch {
     positional: usize,
     position: usize,
-    skip: usize,
     found: usize,
 }
 
 impl BindingMatch {
-    const fn new(skip: usize) -> Self {
+    const fn new() -> Self {
         Self {
             positional: 0,
             position: 0,
-            skip,
             found: 0,
         }
     }
@@ -978,7 +954,6 @@ impl BindingMatch {
         for param in params {
             match param.kind {
                 ParamKind::Flatten(Some(inner)) => self.walk(inner, nargs, kwargs)?,
-                ParamKind::PositionalOnly if self.skip > 0 => self.skip -= 1,
                 ParamKind::PositionalOnly => {
                     self.positional += 1;
                     self.position += 1;
@@ -1019,7 +994,6 @@ impl BindingMatch {
                         return Some(duplicate);
                     }
                 }
-                ParamKind::PositionalOnly if self.skip > 0 => self.skip -= 1,
                 ParamKind::PositionalOnly => {
                     self.positional += 1;
                     self.position += 1;
@@ -1215,7 +1189,7 @@ pub trait FromArgs: Sized {
     /// custom parser without binding metadata has no positional upper bound.
     #[must_use]
     fn arity() -> RangeInclusive<usize> {
-        match const { BindingShape::validated(Self::BINDING_PARAMS, 0) } {
+        match const { BindingShape::validated(Self::BINDING_PARAMS) } {
             Some(shape) => shape.arity(),
             None => 0..=usize::MAX,
         }
@@ -1266,15 +1240,11 @@ pub trait FromArgs: Sized {
         args: &FuncArgs,
         arity: &RangeInclusive<usize>,
         num_given: usize,
-        instance: usize,
         callee: Callee,
         vm: &VirtualMachine,
     ) -> Option<PyBaseExceptionRef> {
-        let shape = if instance == 0 {
-            const { BindingShape::for_parser(Self::BINDING_PARAMS, 0, Self::FORCE_UNPACK_KEYWORDS) }
-        } else {
-            const { BindingShape::for_parser(Self::BINDING_PARAMS, 1, Self::FORCE_UNPACK_KEYWORDS) }
-        };
+        let shape =
+            const { BindingShape::for_parser(Self::BINDING_PARAMS, Self::FORCE_UNPACK_KEYWORDS) };
         if let Some(shape) = shape {
             if args.kwargs.is_empty()
                 && num_given >= shape.required_positional
@@ -1283,7 +1253,7 @@ pub trait FromArgs: Sized {
             {
                 return None;
             }
-            return shape.check(args, arity, instance, callee, vm);
+            return shape.check(args, arity, callee, vm);
         }
 
         // A function that takes no keywords refuses them before counting its
@@ -1321,7 +1291,7 @@ impl<T: FromArgs> FromArgs for UnpackKeywords<T> {
     const PARAMS: Option<&'static [Param]> = T::PARAMS;
     const BINDING_PARAMS: Option<&'static [Param]> = {
         assert!(
-            BindingShape::from_params(T::BINDING_PARAMS, 0).is_some(),
+            BindingShape::from_params(T::BINDING_PARAMS).is_some(),
             "UnpackKeywords requires a known binding shape"
         );
         T::BINDING_PARAMS
@@ -1759,11 +1729,10 @@ macro_rules! tuple_check_before_convert {
             args: &FuncArgs,
             arity: &RangeInclusive<usize>,
             num_given: usize,
-            instance: usize,
             callee: Callee,
             vm: &VirtualMachine,
         ) -> Option<PyBaseExceptionRef> {
-            $T::check_before_convert(args, arity, num_given, instance, callee, vm)
+            $T::check_before_convert(args, arity, num_given, callee, vm)
         }
     };
     ($($T:ident),+) => {};
@@ -2076,7 +2045,7 @@ mod tests {
     #[derive(FromArgs)]
     struct FlattenedClinic {
         #[pyarg(flatten)]
-        args: (PyObjectRef, ClinicNamed),
+        args: (ClinicNamed,),
     }
 
     #[allow(dead_code)]
@@ -2111,7 +2080,7 @@ mod tests {
     #[derive(FromArgs)]
     struct FlattenedLegacy {
         #[pyarg(flatten)]
-        args: (PyObjectRef, LegacyNamed),
+        args: (LegacyNamed,),
     }
 
     struct DisplayOnly(FuncArgs);
@@ -2141,8 +2110,16 @@ mod tests {
                 .map(|&name| (name, vm.ctx.none()))
                 .collect::<KwArgs>(),
         );
-        let callee = Callee::named("example").with_instance_arg(receiver);
-        match args.bind_for::<T>(vm, callee) {
+        let callee = Callee::named("example");
+        let result = if receiver {
+            use crate::function::{IntoPyNativeFn, ReceiverFunction};
+            ReceiverFunction::<_, true>(|_receiver: PyObjectRef, _args: T| ())
+                .call(vm, Some(&vm.ctx.none()), args, callee)
+                .map(|_| ())
+        } else {
+            args.bind_for::<T>(vm, callee).map(|_| ())
+        };
+        match result {
             Err(error) => error.args().as_slice()[0].try_to_value(vm).unwrap(),
             Ok(_) => panic!("binding unexpectedly succeeded"),
         }
@@ -2184,7 +2161,7 @@ mod tests {
             ] {
                 assert_eq!(binding_error::<Wrapped>(nargs, names, false, vm), expected);
                 assert_eq!(
-                    binding_error::<(PyObjectRef, Wrapped)>(nargs + 1, names, true, vm),
+                    binding_error::<(Wrapped,)>(nargs, names, true, vm),
                     expected,
                 );
                 assert_eq!(
@@ -2237,15 +2214,15 @@ mod tests {
     }
 
     #[test]
-    fn clinic_tuple_and_flatten_validation_skip_the_receiver() {
+    fn clinic_tuple_and_flatten_validation_exclude_the_native_receiver() {
         const { assert!(<(PyObjectRef, ClinicNamed)>::PARAMS.is_none()) };
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
             assert_eq!(
-                binding_error::<(PyObjectRef, ClinicNamed)>(2, &["first"], true, vm),
+                binding_error::<(ClinicNamed,)>(1, &["first"], true, vm),
                 "example() missing required argument 'second' (pos 2)",
             );
             assert_eq!(
-                binding_error::<FlattenedClinic>(3, &["first"], true, vm),
+                binding_error::<FlattenedClinic>(2, &["first"], true, vm),
                 "argument for example() given by name ('first') and position (1)",
             );
         });
@@ -2269,20 +2246,20 @@ mod tests {
     fn clinic_validation_preserves_successful_keyword_bindings() {
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let args = FuncArgs::new(
-                vec![vm.ctx.none()],
+                vec![],
                 [("first", 1), ("second", 2), ("optional", 3)]
                     .into_iter()
                     .map(|(name, value)| (name, vm.ctx.new_int(value).into()))
                     .collect::<KwArgs>(),
             );
             let bound = args
-                .bind_for::<FlattenedClinic>(vm, Callee::named("example").with_instance_arg(true))
+                .bind_for::<FlattenedClinic>(vm, Callee::named("example"))
                 .unwrap_or_else(|_| panic!("known keywords should bind"));
             assert_eq!(
                 (
-                    bound.args.1.first,
-                    bound.args.1.second,
-                    bound.args.1.optional
+                    bound.args.0.first,
+                    bound.args.0.second,
+                    bound.args.0.optional
                 ),
                 (1, 2, 3),
             );
@@ -2304,11 +2281,11 @@ mod tests {
         const { assert!(LegacyNamed::BINDING_PARAMS.is_none()) };
         const { assert!(<(PyObjectRef, LegacyNamed)>::BINDING_PARAMS.is_none()) };
         const UNKNOWN: &[super::Param] = &[super::Param::flatten(None)];
-        assert!(BindingShape::from_params(Some(UNKNOWN), 0).is_none());
-        assert!(BindingShape::from_params(<(PosArgs, i32)>::BINDING_PARAMS, 0).is_none());
-        assert!(BindingShape::from_params(<(KwArgs, ClinicNamed)>::BINDING_PARAMS, 0).is_none());
-        assert!(BindingShape::from_params(<(ClinicNamed, i32)>::BINDING_PARAMS, 0).is_none());
-        assert!(BindingShape::from_params(<(ClinicNamed, PosArgs)>::BINDING_PARAMS, 0).is_none());
+        assert!(BindingShape::from_params(Some(UNKNOWN)).is_none());
+        assert!(BindingShape::from_params(<(PosArgs, i32)>::BINDING_PARAMS).is_none());
+        assert!(BindingShape::from_params(<(KwArgs, ClinicNamed)>::BINDING_PARAMS).is_none());
+        assert!(BindingShape::from_params(<(ClinicNamed, i32)>::BINDING_PARAMS).is_none());
+        assert!(BindingShape::from_params(<(ClinicNamed, PosArgs)>::BINDING_PARAMS).is_none());
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let message = binding_error::<(LegacyNamed,)>(1, &[], false, vm);
             assert!(message.contains("NoneType"), "{message}");
@@ -2320,14 +2297,55 @@ mod tests {
     fn legacy_conversion_order_survives_receivers_and_flattened_composition() {
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
             for message in [
-                binding_error::<(PyObjectRef, LegacyNamed)>(2, &[], true, vm),
-                binding_error::<FlattenedLegacy>(2, &[], true, vm),
+                binding_error::<(LegacyNamed,)>(1, &[], true, vm),
+                binding_error::<FlattenedLegacy>(1, &[], true, vm),
                 binding_error::<(LegacyNamed, ())>(1, &["first"], false, vm),
             ] {
                 assert!(message.contains("NoneType"), "{message}");
                 assert!(!message.contains("missing required"), "{message}");
                 assert!(!message.contains("given by name"), "{message}");
             }
+        });
+    }
+
+    #[test]
+    fn method_legacy_parser_keeps_the_outer_arity_check() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            assert_eq!(
+                binding_error::<LegacyNamed>(3, &[], true, vm),
+                "example expected 2 arguments, got 3",
+            );
+        });
+    }
+
+    #[test]
+    fn common_receiver_preserves_legacy_function_and_method_errors() {
+        use crate::{
+            AsObject, Py,
+            builtins::PyModule,
+            function::{IntoPyNativeFn, ReceiverFunction},
+        };
+
+        fn message<const METHOD: bool>(vm: &VirtualMachine) -> String {
+            let module = vm.new_module("receiver", vm.ctx.new_dict(), None);
+            let error =
+                ReceiverFunction::<_, METHOD>(|_receiver: &Py<PyModule>, _args: LegacyNamed| ())
+                    .call(
+                        vm,
+                        Some(module.as_object()),
+                        FuncArgs::from(vec![vm.ctx.none(); 3]),
+                        Callee::named("example"),
+                    )
+                    .unwrap_err();
+            error.args().as_slice()[0].try_to_value(vm).unwrap()
+        }
+
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            assert_eq!(message::<true>(vm), "example expected 2 arguments, got 3");
+            assert_eq!(
+                message::<false>(vm),
+                "example() takes at most 2 arguments (3 given)",
+            );
         });
     }
 
@@ -2381,7 +2399,7 @@ mod tests {
                 "example expected 1 argument, got 0",
             );
             assert_eq!(
-                binding_error::<(PyObjectRef, ManualPositional)>(3, &[], true, vm),
+                binding_error::<(ManualPositional,)>(2, &[], true, vm),
                 "example expected 1 argument, got 2",
             );
         });
@@ -2389,23 +2407,24 @@ mod tests {
 
     #[test]
     fn a_receiver_does_not_restore_clinic_validation_for_an_explicit_custom_parser() {
-        const { assert!(<(PyObjectRef, DisplayOnly)>::BINDING_PARAMS.is_none()) };
+        use crate::function::{IntoPyNativeFn, ReceiverFunction};
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            let (_, bound) = FuncArgs::from(vec![vm.ctx.none()])
-                .bind_for::<(PyObjectRef, DisplayOnly)>(
-                    vm,
-                    Callee::named("example").with_instance_arg(true),
-                )
-                .unwrap_or_else(|_| {
-                    panic!("the custom parser does not require display parameters")
-                });
-            assert!(bound.0.args.is_empty());
+            ReceiverFunction::<_, true>(|_receiver: PyObjectRef, bound: DisplayOnly| {
+                assert!(bound.0.args.is_empty());
+            })
+            .call(
+                vm,
+                Some(&vm.ctx.none()),
+                FuncArgs::default(),
+                Callee::named("example"),
+            )
+            .unwrap_or_else(|_| panic!("the custom parser does not require display parameters"));
         });
     }
 
     #[test]
     #[should_panic(expected = "must describe one Clinic signature")]
     fn malformed_known_compositions_cannot_silently_disable_clinic_validation() {
-        BindingShape::validated(<(PosArgs, i32)>::BINDING_PARAMS, 0);
+        BindingShape::validated(<(PosArgs, i32)>::BINDING_PARAMS);
     }
 }
