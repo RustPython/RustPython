@@ -50,6 +50,11 @@ struct BufferInternal {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_CheckBuffer(obj: *mut PyObject) -> c_int {
+    with_vm(|_vm| c_int::from(unsafe { obj.assume_borrowed() }.check_buffer()))
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_GetBuffer(
     obj: *mut PyObject,
     view: *mut Py_buffer,
@@ -280,9 +285,44 @@ pub unsafe extern "C" fn PyBuffer_FromContiguous(
 
 #[cfg(test)]
 mod tests {
+    use super::PyObject_CheckBuffer;
     use pyo3::buffer::PyBuffer;
     use pyo3::prelude::*;
-    use pyo3::types::{PyByteArray, PyBytes};
+    use pyo3::types::{PyByteArray, PyBytes, PyMemoryView};
+    use rustpython_vm::{AsObject, vm::thread::with_current_vm};
+
+    #[test]
+    fn object_check_buffer() {
+        Python::attach(|py| {
+            with_current_vm(|vm| {
+                let bytes = vm.ctx.new_bytes(b"hello".to_vec());
+                let bytearray = vm.ctx.new_bytearray(b"hello".to_vec());
+                let list = vm.ctx.new_list(Vec::new());
+
+                assert_eq!(
+                    unsafe { PyObject_CheckBuffer(bytes.as_object().as_raw().cast_mut()) },
+                    1
+                );
+                assert_eq!(
+                    unsafe { PyObject_CheckBuffer(bytearray.as_object().as_raw().cast_mut()) },
+                    1
+                );
+                assert_eq!(
+                    unsafe { PyObject_CheckBuffer(list.as_object().as_raw().cast_mut()) },
+                    0
+                );
+                assert_eq!(
+                    unsafe { PyObject_CheckBuffer(vm.ctx.none.as_object().as_raw().cast_mut()) },
+                    0
+                );
+
+                let source = PyBytes::new(py, b"released");
+                let view = PyMemoryView::from(source.as_any()).unwrap();
+                view.call_method0("release").unwrap();
+                assert_eq!(unsafe { PyObject_CheckBuffer(view.as_ptr().cast()) }, 1);
+            });
+        });
+    }
 
     #[test]
     fn object_getbuffer_basic_and_release() {
