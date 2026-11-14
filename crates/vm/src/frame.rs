@@ -939,6 +939,7 @@ pub(crate) struct FrameColdData {
     pub f_locals_cache: PyMutex<Option<PyDictRef>>,
     pub f_overwritten_fast_locals: PyMutex<Vec<PyObjectRef>>,
     pub retained_back: PyMutex<Option<FrameObjectRef>>,
+    pub pending_lineno_jump: PyAtomic<bool>,
     pub pending_stack_pops: PyAtomic<u32>,
     pub pending_unwind_from_stack: PyAtomic<i64>,
     /// Thread that is still running the frame this one was materialized from,
@@ -947,6 +948,14 @@ pub(crate) struct FrameColdData {
     /// pointer: reading it can never chase freed memory, so it stays usable
     /// as the gate for frames that belong to another thread.
     pub attached_tid: atomic::AtomicU64,
+}
+
+impl FrameColdData {
+    fn clear_pending_lineno_jump(&self) {
+        self.pending_lineno_jump.store(false, Relaxed);
+        self.pending_stack_pops.store(0, Relaxed);
+        self.pending_unwind_from_stack.store(0, Relaxed);
+    }
 }
 
 impl Default for FrameColdData {
@@ -959,6 +968,7 @@ impl Default for FrameColdData {
             f_locals_cache: PyMutex::new(None),
             f_overwritten_fast_locals: PyMutex::new(Vec::new()),
             retained_back: PyMutex::new(None),
+            pending_lineno_jump: Default::default(),
             pending_stack_pops: Default::default(),
             pending_unwind_from_stack: Default::default(),
             attached_tid: atomic::AtomicU64::new(0),
@@ -991,6 +1001,8 @@ pub struct InterpreterFrame {
 
     /// Previous line number for LINE event suppression.
     pub(crate) prev_line: core::cell::Cell<u32>,
+    // Dynamic operation history survives generator suspension and frame moves.
+    monitoring_current: core::cell::Cell<Option<u32>>,
 
     /// Back-reference to owning generator/coroutine/async generator.
     /// Borrowed reference (not ref-counted) to avoid Generator↔FrameObject cycle.
@@ -1003,6 +1015,9 @@ pub struct InterpreterFrame {
     /// Used by `frame.clear()` to reject clearing an executing frame,
     /// even when called from a different thread.
     pub(crate) owner: atomic::AtomicI8,
+    // A previously bounded-walk-validated yield-from shape in this frame's code.
+    // Zero is not a suspension point. Access requires the frame execution claim.
+    validated_yield_from: core::cell::Cell<u32>,
     /// Base pointer of the datastack allocation when this frame and its
     /// localsplus are bump-allocated together. Null for heap-backed frames.
     pub(crate) datastack_base: *mut u8,
@@ -1026,6 +1041,12 @@ unsafe impl Send for InterpreterFrame {}
 unsafe impl Sync for InterpreterFrame {}
 
 impl InterpreterFrame {
+    /// Actual operation dispatched on this thread, independent of a callback's
+    /// pending f_lineno target. Only read through a TLS-resolved live frame.
+    pub(crate) fn monitoring_current_instruction(&self) -> Option<u32> {
+        self.monitoring_current.get()
+    }
+
     /// Construct a new InterpreterFrame with raw pointers set from the given references.
     ///
     /// For FrameObject-owned frames, `init_iframe_ptrs` patches the pointers
@@ -1089,9 +1110,11 @@ impl InterpreterFrame {
             locals,
             lasti: Radium::new(0),
             prev_line: core::cell::Cell::new(prev_line),
+            monitoring_current: core::cell::Cell::new(None),
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(owner as i8),
+            validated_yield_from: core::cell::Cell::new(0),
             datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::new(),
@@ -1402,6 +1425,7 @@ impl InterpreterFrame {
             locals,
             lasti: Radium::new(self.lasti.load(Relaxed)),
             prev_line: core::cell::Cell::new(self.prev_line.get()),
+            monitoring_current: core::cell::Cell::new(self.monitoring_current.get()),
             generator: PyAtomicBorrow::new(),
             // Do NOT copy previous — it may point to stack-allocated frames
             // that become dangling after their call returns. The f_back chain
@@ -1412,6 +1436,7 @@ impl InterpreterFrame {
             // an executing frame"; `attached_tid` carries the "still running"
             // half of that state instead, so the owner field does not have to.
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
+            validated_yield_from: core::cell::Cell::new(self.validated_yield_from.get()),
             datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::from(Box::new(FrameColdData {
@@ -1490,9 +1515,11 @@ impl InterpreterFrame {
             locals,
             lasti: Radium::new(self.lasti.load(Relaxed)),
             prev_line: core::cell::Cell::new(self.prev_line.get()),
+            monitoring_current: core::cell::Cell::new(self.monitoring_current.get()),
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
+            validated_yield_from: core::cell::Cell::new(self.validated_yield_from.get()),
             datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::new(),
@@ -1572,8 +1599,8 @@ impl InterpreterFrame {
         // frame's first statement), suppressing the legitimate first 'line'
         // event once the dispatch loop reaches it.
         if matches!(
-            self.code().instructions.read_op(idx),
-            Instruction::Resume { .. } | Instruction::InstrumentedResume
+            monitoring::source_operation(self.code(), idx).map(|unit| unit.op),
+            Some(Instruction::Resume { .. })
         ) {
             return;
         }
@@ -1898,6 +1925,15 @@ impl GenCont {
 
 /// A valid execution result, or an exception
 type FrameResult = PyResult<Option<ExecutionResult>>;
+
+// Saved only when monitoring/tracing changes between instruction dispatches.
+// Keeping the prefix state makes switching loops safe even after EXTENDED_ARG.
+struct DispatchState {
+    idx: usize,
+    arg_state: bytecode::OpArgState,
+    #[cfg(feature = "opcode-histogram")]
+    prev_op: u8,
+}
 
 impl FrameObject {
     pub(crate) fn new(
@@ -2619,6 +2655,8 @@ impl Py<FrameObject> {
             iframe: iframe_ptr,
             func_obj,
             prev_line: &iframe.prev_line,
+            monitoring_current: &iframe.monitoring_current,
+            monitoring_previous: None,
             monitoring_mask: 0,
             flatten: Flatten::Nothing,
             call_traced: false,
@@ -2841,10 +2879,27 @@ fn exec_iframe<'a>(
         iframe: iframe_ptr,
         func_obj,
         prev_line: &iframe.prev_line,
+        monitoring_current: &iframe.monitoring_current,
+        monitoring_previous: None,
         monitoring_mask: 0,
         flatten,
         call_traced: false,
     }
+}
+
+// Legacy profiling must observe calls even after native-call specialization.
+#[cold]
+fn legacy_profile_call(op: Instruction) -> bool {
+    matches!(
+        op,
+        Instruction::CallListAppend
+            | Instruction::CallLen
+            | Instruction::CallIsinstance
+            | Instruction::CallMethodDescriptorNoargs
+            | Instruction::CallMethodDescriptorO
+            | Instruction::CallMethodDescriptorFast
+            | Instruction::CallMethodDescriptorFastWithKeywords
+    )
 }
 
 /// Execute an InterpreterFrame's bytecode directly, without a FrameObject.
@@ -2860,8 +2915,8 @@ pub(crate) fn run_iframe(
 /// Whether the trampoline may skip a delegating frame's own instructions.
 ///
 /// It may not while anything is watching them run: `sys.settrace` fires line
-/// and opcode events per instruction, and `sys.monitoring` both fires events
-/// and rewrites the very opcodes the `yield from` shape is recognized by.
+/// and opcode events per instruction, and virtual `sys.monitoring` dispatch
+/// must observe each logical instruction even though executable opcodes stay intact.
 #[inline]
 pub(crate) fn gen_collapse_allowed(vm: &VirtualMachine) -> bool {
     !vm.use_tracing.get() && vm.state.monitoring_events.load() == 0
@@ -2882,29 +2937,58 @@ pub(crate) fn yield_from_delegate(
     let code = iframe.code();
     let send_caches = Instruction::from(Opcode::Send).cache_entries();
     let resumed_at = iframe.lasti.load(Relaxed) as usize;
+    // Suspension advances monitoring_current to the RESUME after YIELD_VALUE.
+    // Its predecessor is therefore a known instruction start, so a direct
+    // yield can be rejected without walking the prefix on every resume.
+    // Other positions retain the bounded walk below.
+    if iframe.monitoring_current.get() == Some(resumed_at as u32)
+        && let Some(previous) = resumed_at.checked_sub(1)
+        && previous < code.instructions.len()
+    {
+        let unit = code.instructions.read_unit(previous);
+        if matches!(unit.op.deoptimize(), Instruction::YieldValue { .. }) && u8::from(unit.arg) == 0
+        {
+            return None;
+        }
+    }
     // The SEND, its cache and the YIELD_VALUE sit below `resumed_at`.
     let send_idx = resumed_at.checked_sub(2 + send_caches)?;
-    if !matches!(
-        code.instructions.get(resumed_at)?.op,
-        Instruction::Resume { .. }
-    ) {
-        return None;
-    }
-    let yield_unit = code.instructions.get(resumed_at - 1)?;
-    if !matches!(yield_unit.op, Instruction::YieldValue { .. }) || u8::from(yield_unit.arg) < 1 {
-        return None;
-    }
-    let send_unit = code.instructions.get(send_idx)?;
-    if !matches!(send_unit.op, Instruction::SendGen) {
-        return None;
-    }
-    // An EXTENDED_ARG prefix would make the raw oparg below the wrong exit.
-    if send_idx > 0
-        && matches!(
-            code.instructions.get(send_idx - 1)?.op,
-            Instruction::ExtendedArg
-        )
-    {
+    let send_unit = if iframe.validated_yield_from.get() == resumed_at as u32 {
+        // The code's instruction boundaries and operands are immutable. A
+        // previous bounded walk proved this SEND start, even if f_lineno has
+        // since moved away and back. Specialization can still change its opcode.
+        code.instructions.read_unit(send_idx)
+    } else {
+        let [before_send, send_unit, yield_unit, resume_unit] =
+            monitoring::source_operations_sorted(
+                code,
+                [
+                    send_idx.saturating_sub(1),
+                    send_idx,
+                    resumed_at - 1,
+                    resumed_at,
+                ],
+            );
+        if !matches!(resume_unit?.op, Instruction::Resume { .. }) {
+            return None;
+        }
+        let yield_unit = yield_unit?;
+        if !matches!(yield_unit.op, Instruction::YieldValue { .. }) || u8::from(yield_unit.arg) < 1
+        {
+            return None;
+        }
+        let send_unit = send_unit?;
+        if !matches!(send_unit.op, Instruction::Send { .. }) {
+            return None;
+        }
+        // An EXTENDED_ARG prefix would make the raw operand the wrong exit.
+        if send_idx > 0 && matches!(before_send?.op, Instruction::ExtendedArg) {
+            return None;
+        }
+        iframe.validated_yield_from.set(resumed_at as u32);
+        send_unit
+    };
+    if !matches!(code.instructions.read_op(send_idx), Instruction::SendGen) {
         return None;
     }
     let stack = iframe.localsplus.stack_as_slice();
@@ -2957,13 +3041,11 @@ pub(crate) fn is_delegating(coro: &Coro) -> bool {
     if resumed_at == 0 {
         return false;
     }
-    matches!(
-        code.instructions.get(resumed_at).map(|u| u.op),
-        Some(Instruction::Resume { .. })
-    ) && code
-        .instructions
-        .get(resumed_at - 1)
-        .is_some_and(|u| matches!(u.op, Instruction::YieldValue { .. }) && u8::from(u.arg) >= 1)
+    let [yield_unit, resume_unit] =
+        monitoring::source_operations_sorted(code, [resumed_at - 1, resumed_at]);
+    matches!(resume_unit.map(|u| u.op), Some(Instruction::Resume { .. }))
+        && yield_unit
+            .is_some_and(|u| matches!(u.op, Instruction::YieldValue { .. }) && u8::from(u.arg) >= 1)
 }
 
 /// Finish a `yield from` level the trampoline ran in place of the frame:
@@ -2982,6 +3064,8 @@ pub(crate) fn park_after_yield_from(iframe: &mut InterpreterFrame, resumed_at: u
             .all(|sr| !sr.is_borrowed()),
         "borrowed refs on stack at yield point"
     );
+    // Match the RESUME predecessor retained by an actual YIELD_VALUE.
+    iframe.monitoring_current.set(Some(resumed_at));
     iframe.lasti.store(resumed_at, Relaxed);
 }
 
@@ -3005,8 +3089,15 @@ pub(crate) fn trampoline_gen_stop(
         }
     }
     iframe.localsplus.push_stack(vm.unwrap_or_none(value));
+    iframe.monitoring_current.set(None);
     iframe.lasti.store(cont.exit, Relaxed);
     Ok(())
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DispatchMode {
+    Physical,
+    Monitored { opcode_traced: bool },
 }
 
 /// An executing frame; borrows mutable frame-internal data for the duration
@@ -3032,6 +3123,8 @@ pub(crate) struct ExecutingFrame<'a> {
     func_obj: Option<&'a PyObject>,
     lasti: &'a PyAtomic<u32>,
     prev_line: &'a core::cell::Cell<u32>,
+    monitoring_current: &'a core::cell::Cell<Option<u32>>,
+    monitoring_previous: Option<u32>,
     /// Cached monitoring events mask. Reloaded at Resume instruction only,
     monitoring_mask: u32,
     /// What this frame may hand back to the trampoline, if it is running
@@ -3524,7 +3617,12 @@ impl ExecutingFrame<'_> {
     /// this activation so lasti is already the resume unit
     /// (COPY_FREE_VARS / RETURN_GENERATOR that precede it are not a 'call',
     /// and later RESUMEs in a SEND loop are not a new call either).
-    fn trace_call_from_resume(&mut self, vm: &VirtualMachine, resume_type: u32) -> PyResult<()> {
+    fn trace_call_from_resume(
+        &mut self,
+        vm: &VirtualMachine,
+        resume_type: u32,
+        mode: DispatchMode,
+    ) -> PyResult<()> {
         // RESUME_AT_GEN_EXPR_START runs before the frame is complete. The
         // first traceable instruction is the ordinary RESUME after creation.
         if resume_type & ResumeContext::LOCATION_MASK == ResumeLocation::AtGenExprStart.as_u32()
@@ -3542,13 +3640,31 @@ impl ExecutingFrame<'_> {
         } else {
             monitoring::MonitoringEvent::PyResume
         };
-        let trace_result = vm.trace_event_what(crate::protocol::TraceEvent::Call, what, None)?;
+        let profile_selected = !vm.is_none(&vm.profile_func.borrow());
+        let trace_result = if matches!(mode, DispatchMode::Physical) {
+            vm.trace_event_what(crate::protocol::TraceEvent::Call, what, None)?
+        } else {
+            vm.trace_participant_what(
+                crate::protocol::TraceEvent::Call,
+                what,
+                None,
+                crate::protocol::TraceParticipant::Trace,
+            )?
+        };
         if let Some(local_trace) = trace_result {
             let was_unset = self.iframe().cold().trace.lock().is_none();
             *self.iframe().cold().trace.lock() = Some(local_trace);
             if was_unset {
                 self.iframe().sync_prev_line_from_lasti();
             }
+        }
+        if !matches!(mode, DispatchMode::Physical) && profile_selected {
+            vm.trace_participant_what(
+                crate::protocol::TraceEvent::Call,
+                what,
+                None,
+                crate::protocol::TraceParticipant::Profile,
+            )?;
         }
         Ok(())
     }
@@ -3583,10 +3699,17 @@ impl ExecutingFrame<'_> {
             .map_or(0, |c| c.pending_unwind_from_stack.load(Relaxed))
     }
 
-    /// Set pending_stack_pops on the frame.
     #[inline]
-    fn set_pending_stack_pops(&self, val: u32) {
-        self.iframe().cold().pending_stack_pops.store(val, Relaxed);
+    fn has_pending_lineno_jump(&self) -> bool {
+        self.iframe()
+            .cold_opt()
+            .is_some_and(|cold| cold.pending_lineno_jump.load(Relaxed))
+    }
+
+    fn clear_pending_lineno_jump(&self) {
+        if let Some(cold) = self.iframe().cold_opt() {
+            cold.clear_pending_lineno_jump();
+        }
     }
 
     /// Run `__init__` for the tp_new specialization. `args` holds the
@@ -3642,17 +3765,39 @@ impl ExecutingFrame<'_> {
     /// Apply a pending `f_lineno` jump's stack pops, if any.
     fn apply_pending_lineno_jump(&mut self, vm: &VirtualMachine) {
         let pops = self.pending_stack_pops();
+        let from_stack = self.pending_unwind_from_stack();
+        // Clear even a zero-pop assignment before any destructor can reenter.
+        self.clear_pending_lineno_jump();
         if pops > 0 {
-            let from_stack = self.pending_unwind_from_stack();
             self.unwind_stack_for_lineno(pops as usize, from_stack, vm);
-            self.set_pending_stack_pops(0);
         }
     }
 
     /// `_YIELD_VALUE_EVENT`: fire PY_YIELD while the value is still on the
     /// stack. If the tracer assigned `f_lineno`, continue at the new lasti
     /// instead of suspending.
-    fn yield_value_event(&mut self, vm: &VirtualMachine) -> PyResult<bool> {
+    fn yield_value_event(&mut self, vm: &VirtualMachine, mode: DispatchMode) -> PyResult<bool> {
+        if !matches!(mode, DispatchMode::Physical) {
+            let before = self.lasti();
+            let offset = (before - 1) * 2;
+            let tools = monitoring::snapshot_tools(vm, MonitoringEvent::PyYield, self.code, offset);
+            let value = self.top_value().to_owned();
+            self.trace_virtual_return(vm, MonitoringEvent::PyYield, &value)?;
+            monitoring::fire_snapshot(
+                vm,
+                MonitoringEvent::PyYield,
+                self.code,
+                offset,
+                offset,
+                &[vm.ctx.new_int(offset).into(), value],
+                tools,
+            )?;
+            if self.lasti() != before || self.has_pending_lineno_jump() {
+                self.apply_pending_lineno_jump(vm);
+                return Ok(true);
+            }
+            return Ok(false);
+        }
         let lasti_before = self.lasti();
         if vm.use_tracing.get() {
             let value = self.top_value().to_owned();
@@ -3661,7 +3806,7 @@ impl ExecutingFrame<'_> {
                 monitoring::MonitoringEvent::PyYield,
                 Some(value),
             )?;
-            if self.lasti() != lasti_before {
+            if self.lasti() != lasti_before || self.has_pending_lineno_jump() {
                 self.apply_pending_lineno_jump(vm);
                 return Ok(true);
             }
@@ -3670,7 +3815,7 @@ impl ExecutingFrame<'_> {
             let value = self.top_value().to_owned();
             let offset = (self.lasti() - 1) * 2;
             monitoring::fire_py_yield(vm, self.code, offset, &value)?;
-            if self.lasti() != lasti_before {
+            if self.lasti() != lasti_before || self.has_pending_lineno_jump() {
                 self.apply_pending_lineno_jump(vm);
                 return Ok(true);
             }
@@ -3751,6 +3896,35 @@ impl ExecutingFrame<'_> {
         &mut self,
         vm: &VirtualMachine,
     ) -> PyResult<Option<ExecutionResult>> {
+        let mut state = DispatchState {
+            idx: self.lasti() as usize,
+            arg_state: bytecode::OpArgState::default(),
+            #[cfg(feature = "opcode-histogram")]
+            prev_op: 0,
+        };
+        let result = loop {
+            let observed = !PREPARE_GENERATOR
+                && (vm.state.monitoring_events.load() != 0 || vm.use_tracing.get());
+            let step = if observed {
+                self.run_until_inner::<PREPARE_GENERATOR, true>(state, vm)
+            } else {
+                self.run_until_inner::<PREPARE_GENERATOR, false>(state, vm)
+            };
+            match step {
+                Ok(core::ops::ControlFlow::Continue(next)) => state = next,
+                Ok(core::ops::ControlFlow::Break(result)) => break Ok(result),
+                Err(exception) => break Err(exception),
+            }
+        };
+        self.clear_pending_lineno_jump();
+        result
+    }
+
+    fn run_until_inner<const PREPARE_GENERATOR: bool, const OBSERVED: bool>(
+        &mut self,
+        state: DispatchState,
+        vm: &VirtualMachine,
+    ) -> PyResult<core::ops::ControlFlow<Option<ExecutionResult>, DispatchState>> {
         flame_guard!(format!(
             "FrameObject::run({obj_name})",
             obj_name = self.code.obj_name
@@ -3772,12 +3946,12 @@ impl ExecutingFrame<'_> {
         // its base pointer is hoisted here; reading it through `self.code`
         // inside the loop cost two more dependent loads per instruction.
         let units_ptr = self.code.instructions.units_ptr();
-        let mut arg_state = bytecode::OpArgState::default();
-        let mut idx = lasti_cell.load(Relaxed) as usize;
+        let mut arg_state = state.arg_state;
+        let mut idx = state.idx;
         // Previous opcode in this frame, for the `(prev, op)` pair histogram.
         // Zero (`CACHE`, never dispatched) marks "no predecessor yet".
         #[cfg(feature = "opcode-histogram")]
-        let mut prev_op: u8 = 0;
+        let mut prev_op = state.prev_op;
         loop {
             // Advance lasti past the current instruction BEFORE firing the
             // line event.  This ensures that f_lineno (which reads
@@ -3786,6 +3960,34 @@ impl ExecutingFrame<'_> {
             // than read-modify-written, which would re-load what was just read.
             lasti_cell.store(idx as u32 + 1, Relaxed);
 
+            #[cfg(feature = "threading")]
+            let dispatch_requests = if !PREPARE_GENERATOR && !OBSERVED {
+                crate::vm::thread::current_dispatch_requests()
+            } else {
+                None
+            };
+            if !PREPARE_GENERATOR
+                && OBSERVED != {
+                    #[cfg(feature = "threading")]
+                    let monitoring = dispatch_requests.map_or_else(
+                        || vm.state.monitoring_events.load() != 0,
+                        |requests| requests.monitoring_active(),
+                    );
+                    #[cfg(not(feature = "threading"))]
+                    let monitoring = vm.state.monitoring_events.load() != 0;
+                    // Keep the effective Cell as the tracing source of truth,
+                    // including callback suppression and external embedding writes.
+                    monitoring || vm.use_tracing.get()
+                }
+            {
+                return Ok(core::ops::ControlFlow::Continue(DispatchState {
+                    idx,
+                    arg_state,
+                    #[cfg(feature = "opcode-histogram")]
+                    prev_op,
+                }));
+            }
+
             // Read once and reuse for both the line-trace check below and
             // the opcode-trace check after the instruction is decoded,
             // instead of re-reading the Cell twice per instruction. This is
@@ -3793,7 +3995,15 @@ impl ExecutingFrame<'_> {
             // principle toggle it, because we refresh `tracing` below right
             // after that call returns (that cold path is only taken when
             // tracing was already on, so it costs nothing on the hot path).
-            let mut tracing = !PREPARE_GENERATOR && vm.use_tracing.get();
+            let mut virtual_dispatch = if PREPARE_GENERATOR || !OBSERVED {
+                None
+            } else {
+                monitoring::dispatch_operation(vm, self.code, idx)
+            };
+            let virtual_line = virtual_dispatch
+                .is_some_and(|(_, top)| matches!(top, Instruction::InstrumentedLine));
+            let mut tracing = !PREPARE_GENERATOR && OBSERVED && vm.use_tracing.get();
+            let mut legacy_line_processed = false;
 
             // Fire 'line' trace event when line number changes.
             // Only fire if this frame has a per-frame trace function set
@@ -3803,19 +4013,46 @@ impl ExecutingFrame<'_> {
             // fills those with a dummy line, which would emit a 'line'
             // event whose f_lineno is None.
             if tracing
+                && !virtual_line
                 && self.trace_is_set(vm)
                 && self.trace_lines_is_set()
                 && !matches!(
-                    self.code.instructions.read_op(idx),
+                    self.code.instructions.read_op(idx).deoptimize(),
                     Instruction::Resume { .. }
-                        | Instruction::ResumeCheck
-                        | Instruction::InstrumentedResume
                 )
             {
                 let line = self.code.addr2line(idx as i32 * 2);
                 if line >= 0 && line as u32 != self.prev_line.get() {
                     self.prev_line.set(line as u32);
-                    match vm.trace_event(crate::protocol::TraceEvent::Line, None) {
+                    monitoring::prepare_code(vm, self.code);
+                    let line_operation = monitoring::known_operation(vm, self.code, idx);
+                    let line_tools =
+                        if line_operation.is_some_and(|operation| operation.line_eligible) {
+                            monitoring::snapshot_tools(
+                                vm,
+                                MonitoringEvent::Line,
+                                self.code,
+                                idx as u32 * 2,
+                            )
+                        } else {
+                            0
+                        };
+                    // This LINE event retains its membership across the legacy
+                    // callback; newly enabled LINE is not replayed at this site.
+                    let trace_result = (|| -> PyResult<()> {
+                        vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
+                        monitoring::fire_snapshot(
+                            vm,
+                            MonitoringEvent::Line,
+                            self.code,
+                            idx as u32 * 2,
+                            idx as u32 * 2,
+                            &[vm.ctx.new_int(line).into()],
+                            line_tools,
+                        )
+                    })();
+                    legacy_line_processed = true;
+                    match trace_result {
                         Ok(_) => {}
                         Err(exception) => {
                             if let Some((loc, _end_loc)) = self.code.locations.get(idx) {
@@ -3840,7 +4077,9 @@ impl ExecutingFrame<'_> {
                                     idx = lasti_cell.load(Relaxed) as usize;
                                     continue;
                                 }
-                                Ok(Some(value)) => break Ok(Some(value)),
+                                Ok(Some(value)) => {
+                                    break Ok(core::ops::ControlFlow::Break(Some(value)));
+                                }
                                 Err(e) => break Err(e),
                             }
                         }
@@ -3851,31 +4090,69 @@ impl ExecutingFrame<'_> {
                     tracing = !PREPARE_GENERATOR && vm.use_tracing.get();
                     // Trace callback may have changed lasti via set_f_lineno.
                     // Re-read and restart the loop from the new position.
-                    if lasti_cell.load(Relaxed) != (idx as u32 + 1) {
+                    if lasti_cell.load(Relaxed) != (idx as u32 + 1)
+                        || self.has_pending_lineno_jump()
+                    {
                         // set_f_lineno defers stack unwinding because we hold
                         // the state mutex.  Perform it now.
-                        let pops = self.pending_stack_pops();
-                        if pops > 0 {
-                            let from_stack = self.pending_unwind_from_stack();
-                            self.unwind_stack_for_lineno(pops as usize, from_stack, vm);
-                            self.set_pending_stack_pops(0);
-                        }
+                        self.apply_pending_lineno_jump(vm);
                         arg_state.reset();
                         idx = lasti_cell.load(Relaxed) as usize;
                         continue;
                     }
                 }
             }
-            // One aligned acquire load fetches opcode and arg together; two
-            // separate atomic reads would force the instruction array pointer
-            // to be re-loaded across the acquire barrier.
+            if legacy_line_processed {
+                virtual_dispatch =
+                    monitoring::dispatch_operation(vm, self.code, idx).map(|(operation, top)| {
+                        let continuation = if matches!(top, Instruction::InstrumentedLine) {
+                            monitoring::layer_site(vm, self.code, idx)
+                                .expect("live code retains its virtual line continuation")
+                                .line_next
+                        } else {
+                            top
+                        };
+                        (operation, continuation)
+                    });
+            }
+            // Opcode and operand use byte-sized loads: specialization changes
+            // only the opcode, preserving the operand and base cache width.
             // SAFETY: `idx` is a position this code object's own control flow
             // produced, so it is in bounds of the instruction array, and
             // `units_ptr` stays valid for as long as `self.code` is borrowed.
-            let unit = unsafe { bytecode::CodeUnits::read_unit_from(units_ptr, idx) };
-            let op = unit.op;
-            let arg = arg_state.extend(unit.arg);
+            let (op, raw_arg, mode, caches) = if let Some((operation, top)) = virtual_dispatch {
+                (
+                    top,
+                    operation.raw_arg.into(),
+                    DispatchMode::Monitored {
+                        opcode_traced: false,
+                    },
+                    operation.cache_entries,
+                )
+            } else {
+                let unit = unsafe { bytecode::CodeUnits::read_unit_from(units_ptr, idx) };
+                let (op, mode) = if OBSERVED && tracing && legacy_profile_call(unit.op) {
+                    (
+                        Opcode::Call.as_instruction(),
+                        // The physical-path opcode callback runs below. Avoid
+                        // adaptive cache writes for this virtual legacy call.
+                        DispatchMode::Monitored {
+                            opcode_traced: true,
+                        },
+                    )
+                } else {
+                    (unit.op, DispatchMode::Physical)
+                };
+                (
+                    op,
+                    unit.arg,
+                    mode,
+                    if OBSERVED { unit.op.cache_entries() } else { 0 },
+                )
+            };
+            let arg = arg_state.extend(raw_arg);
             let mut do_extend_arg = false;
+            let mut dispatch_index = idx as u32;
 
             // f_lineno for a live (currently executing) frame is derived
             // lazily from lasti/locations (see `FrameObject::lineno`) rather
@@ -3887,7 +4164,7 @@ impl ExecutingFrame<'_> {
             // prev_line itself is now only touched on the (cold) tracing
             // path, where it deduplicates consecutive 'line' events.
 
-            if tracing {
+            if tracing && virtual_dispatch.is_none() {
                 // Fire 'opcode' trace event for sys.settrace when f_trace_opcodes
                 // is set. Skip RESUME and ExtendedArg
                 // (_Py_call_instrumentation_instruction).
@@ -3902,6 +4179,7 @@ impl ExecutingFrame<'_> {
                     )
                 {
                     vm.trace_event(crate::protocol::TraceEvent::Opcode, None)?;
+                    dispatch_index = self.lasti().saturating_sub(1);
                 }
             }
 
@@ -3920,8 +4198,19 @@ impl ExecutingFrame<'_> {
                 vm.run_scheduled_gc();
                 vm.raise_async_exception()
             }
-            if vm.eval_breaker_tripped()
-                && let Err(exception) = eval_breaker_work(vm)
+            #[cfg(feature = "threading")]
+            let breaker_tripped = dispatch_requests.map_or_else(
+                || vm.eval_breaker_tripped(),
+                |requests| vm.eval_breaker_tripped_with_stop(requests.stop_requested()),
+            );
+            #[cfg(not(feature = "threading"))]
+            let breaker_tripped = vm.eval_breaker_tripped();
+            if breaker_tripped
+                && let Err(exception) = {
+                    let result = eval_breaker_work(vm);
+                    dispatch_index = self.lasti().saturating_sub(1);
+                    result
+                }
             {
                 #[cold]
                 fn handle_signal_exception(
@@ -3953,7 +4242,7 @@ impl ExecutingFrame<'_> {
                 match handle_signal_exception(self, exception, idx, !PREPARE_GENERATOR, vm) {
                     Ok(None) => {}
                     Ok(Some(value)) => {
-                        break Ok(Some(value));
+                        break Ok(core::ops::ControlFlow::Break(Some(value)));
                     }
                     Err(exception) => {
                         break Err(exception);
@@ -3982,15 +4271,16 @@ impl ExecutingFrame<'_> {
                 // pointer advanced to POP_TOP. The iterator pair a generator
                 // expression pushed must outlive this execution borrow.
                 self.localsplus.promote_stack();
-                break Ok(None);
+                break Ok(core::ops::ControlFlow::Break(None));
             }
-            let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
+            let result =
+                self.execute_instruction(op, arg, mode, dispatch_index, &mut do_extend_arg, vm);
+            let caches = if OBSERVED { caches } else { op.cache_entries() };
             // Skip inline cache entries if instruction fell through (no jump).
             // `cache_entries()` is a table lookup, so it is done here rather
             // than before dispatch: computing it up front kept the count live
             // across the whole handler and cost a spill and a reload of it on
             // every instruction.
-            let caches = op.cache_entries();
             let mut next_idx = lasti_cell.load(Relaxed);
             if caches > 0 && next_idx == lasti_before {
                 next_idx = lasti_before + caches as u32;
@@ -3999,7 +4289,7 @@ impl ExecutingFrame<'_> {
             match result {
                 Ok(None) => {}
                 Ok(Some(value)) => {
-                    break Ok(Some(value));
+                    break Ok(core::ops::ControlFlow::Break(Some(value)));
                 }
                 // Instruction raised an exception
                 Err(exception) => {
@@ -4141,7 +4431,7 @@ impl ExecutingFrame<'_> {
                         // The handler unwound to a new position, so the next
                         // index is whatever it left in the frame.
                         Ok(None) => next_idx = lasti_cell.load(Relaxed),
-                        Ok(Some(result)) => break Ok(Some(result)),
+                        Ok(Some(result)) => break Ok(core::ops::ControlFlow::Break(Some(result))),
                         Err(exception) => {
                             monitoring::reset_reraise_pending();
                             // Fire PY_UNWIND: exception escapes this frame
@@ -4381,9 +4671,8 @@ impl ExecutingFrame<'_> {
             },
         ) {
             Ok(None) => {
-                // Reset prev_line so that the first instruction in the handler
-                // fires a LINE event. In CPython, gen_send_ex re-enters the
-                // eval loop which reinitializes its local prev_instr tracker.
+                // Reset the legacy trace line cache for the exception handler.
+                // Monitoring retains the RESUME position recorded on suspension.
                 self.prev_line.set(0);
                 self.run(vm)
             }
@@ -4445,12 +4734,26 @@ impl ExecutingFrame<'_> {
         &mut self,
         instruction: Instruction,
         arg: bytecode::OpArg,
+        mode: DispatchMode,
+        index: u32,
         extend_arg: &mut bool,
         vm: &VirtualMachine,
     ) -> FrameResult {
         flame_guard!(format!(
             "FrameObject::execute_instruction({instruction:?} {arg:?})"
         ));
+        self.monitoring_previous = self.monitoring_current.replace(Some(index));
+        if matches!(
+            mode,
+            DispatchMode::Monitored {
+                opcode_traced: false
+            }
+        ) && !matches!(
+            instruction,
+            Instruction::InstrumentedLine | Instruction::InstrumentedInstruction
+        ) {
+            self.trace_virtual_opcode(vm, instruction)?;
+        }
 
         #[cfg(feature = "vm-tracing-logging")]
         {
@@ -4473,7 +4776,7 @@ impl ExecutingFrame<'_> {
         match instruction {
             Instruction::BinaryOp { op } => {
                 let op_val = op.get(arg);
-                self.adaptive(|s, ii, cb| s.specialize_binary_op(vm, op_val, ii, cb));
+                self.adaptive(mode, |s, ii, cb| s.specialize_binary_op(vm, op_val, ii, cb));
                 self.execute_bin_op(vm, op_val)
             }
             // Super-instruction for BINARY_OP_ADD_UNICODE + STORE_FAST targeting
@@ -4505,7 +4808,14 @@ impl ExecutingFrame<'_> {
                         .downcast_ref_if_exact::<PyStr>(vm)
                         .expect("BINARY_OP_INPLACE_ADD_UNICODE right operand not exact str");
                     local_str.concat_in_place(right_str.as_wtf8(), vm);
-
+                    drop(right);
+                    // Allocation or operand destruction can enable monitoring.
+                    // Preserve the completed result, but dispatch STORE_FAST normally.
+                    if self.specialization_eval_frame_active(vm) {
+                        self.push_value(local_str.into());
+                        return Ok(None);
+                    }
+                    self.monitoring_current.set(None);
                     self.localsplus.fastlocals_mut()[target_local] = Some(local_str.into());
                     self.jump_relative_forward(
                         1,
@@ -4646,12 +4956,12 @@ impl ExecutingFrame<'_> {
             Instruction::Call { argc: nargs } => {
                 // Stack: [callable, self_or_null, arg1, ..., argN]
                 let nargs_val = nargs.get(arg);
-                self.adaptive(|s, ii, cb| s.specialize_call(vm, nargs_val, ii, cb));
+                self.adaptive(mode, |s, ii, cb| s.specialize_call(vm, nargs_val, ii, cb));
                 self.execute_call_vectorcall(nargs_val, vm)
             }
             Instruction::CallKw { argc: nargs } => {
                 let nargs = nargs.get(arg);
-                self.adaptive(|s, ii, cb| s.specialize_call_kw(vm, nargs, ii, cb));
+                self.adaptive(mode, |s, ii, cb| s.specialize_call_kw(vm, nargs, ii, cb));
                 // Stack: [callable, self_or_null, arg1, ..., argN, kwarg_names]
                 self.execute_call_kw_vectorcall(nargs, vm)
             }
@@ -4709,11 +5019,13 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CompareOp { opname: op } => {
                 let op_val = op.get(arg);
-                self.adaptive(|s, ii, cb| s.specialize_compare_op(vm, op_val, ii, cb));
+                self.adaptive(mode, |s, ii, cb| {
+                    s.specialize_compare_op(vm, op_val, ii, cb)
+                });
                 self.execute_compare(vm, arg)
             }
             Instruction::ContainsOp { invert } => {
-                self.adaptive(|s, ii, cb| s.specialize_contains_op(vm, ii, cb));
+                self.adaptive(mode, |s, ii, cb| s.specialize_contains_op(vm, ii, cb));
                 let b = self.pop_stackref();
                 let a = self.pop_stackref();
 
@@ -4721,6 +5033,8 @@ impl ExecutingFrame<'_> {
                     bytecode::Invert::No => self._in(vm, &a, &b)?,
                     bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
                 };
+                drop(b);
+                drop(a);
                 self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                 Ok(None)
             }
@@ -4938,7 +5252,9 @@ impl ExecutingFrame<'_> {
             Instruction::ForIter { .. } => {
                 // Relative forward jump: target = lasti + caches + delta
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                self.adaptive(|s, ii, cb| s.specialize_for_iter(vm, u32::from(arg), ii, cb));
+                self.adaptive(mode, |s, ii, cb| {
+                    s.specialize_for_iter(vm, u32::from(arg), ii, cb)
+                });
                 self.execute_for_iter(vm, target)?;
                 Ok(None)
             }
@@ -5100,6 +5416,8 @@ impl ExecutingFrame<'_> {
                     bytecode::Invert::No => res,
                     bytecode::Invert::Yes => !res,
                 };
+                drop(b);
+                drop(a);
                 self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                 Ok(None)
             }
@@ -5111,10 +5429,12 @@ impl ExecutingFrame<'_> {
                 // CPython rewrites JUMP_BACKWARD to JUMP_BACKWARD_NO_JIT
                 // when JIT is unavailable.
                 let instr_idx = self.lasti() as usize - 1;
-                unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::JumpBackwardNoJit);
+                if matches!(mode, DispatchMode::Physical) {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .replace_op(instr_idx, Instruction::JumpBackwardNoJit);
+                    }
                 }
                 self.jump_relative_backward_and_trace_line(u32::from(arg), 1, vm)?;
                 Ok(None)
@@ -5163,10 +5483,12 @@ impl ExecutingFrame<'_> {
                 })?;
                 Ok(None)
             }
-            Instruction::LoadAttr { namei: idx } => self.load_attr(vm, idx.get(arg)),
+            Instruction::LoadAttr { namei: idx } => self.load_attr(vm, idx.get(arg), mode),
             Instruction::LoadSuperAttr { namei: idx } => {
                 let idx_val = idx.get(arg);
-                self.adaptive(|s, ii, cb| s.specialize_load_super_attr(vm, idx_val, ii, cb));
+                self.adaptive(mode, |s, ii, cb| {
+                    s.specialize_load_super_attr(vm, idx_val, ii, cb)
+                });
                 self.load_super_attr(vm, idx_val)
             }
             Instruction::LoadBuildClass => {
@@ -5355,7 +5677,9 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadGlobal { namei: idx } => {
                 let oparg = idx.get(arg);
-                self.adaptive(|s, ii, cb| s.specialize_load_global(vm, oparg, ii, cb));
+                self.adaptive(mode, |s, ii, cb| {
+                    s.specialize_load_global(vm, oparg, ii, cb)
+                });
                 let name = &self.code.names[(oparg >> 1) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
@@ -5764,34 +6088,16 @@ impl ExecutingFrame<'_> {
                 // Lazy quickening: initialize adaptive counters on first execution.
                 // Read before the swap so that the steady state — every call after
                 // the first — costs a load rather than a read-modify-write.
-                if !self.code.quickened.load(atomic::Ordering::Relaxed)
+                if matches!(mode, DispatchMode::Physical)
+                    && !self.code.quickened.load(atomic::Ordering::Relaxed)
                     && !self.code.quickened.swap(true, atomic::Ordering::Relaxed)
                 {
                     self.code.instructions.quicken();
                     atomic::fence(atomic::Ordering::Release);
                 }
-                // Check if bytecode needs re-instrumentation
-                let global_ver = vm
-                    .state
-                    .instrumentation_version
-                    .load(atomic::Ordering::Acquire);
-                let code_ver = self
-                    .code
-                    .instrumentation_version
-                    .load(atomic::Ordering::Acquire);
-                if code_ver != global_ver {
-                    let events = {
-                        let state = vm.state.monitoring.lock();
-                        state.events_for_code(self.code.get_id())
-                    };
-                    monitoring::instrument_code(self.code, events);
-                    self.code
-                        .instrumentation_version
-                        .store(global_ver, atomic::Ordering::Release);
-                    // Re-execute this instruction (it may now be INSTRUMENTED_RESUME)
-                    self.update_lasti(|i| *i -= 1);
-                } else {
-                    self.trace_call_from_resume(vm, u32::from(arg))?;
+                self.trace_call_from_resume(vm, u32::from(arg), mode)?;
+                if self.has_pending_lineno_jump() {
+                    self.apply_pending_lineno_jump(vm);
                 }
                 Ok(None)
             }
@@ -5898,7 +6204,9 @@ impl ExecutingFrame<'_> {
             Instruction::SetupAnnotations => self.setup_annotations(vm),
             Instruction::StoreAttr { namei: idx } => {
                 let idx_val = idx.get(arg);
-                self.adaptive(|s, ii, cb| s.specialize_store_attr(vm, idx_val, ii, cb));
+                self.adaptive(mode, |s, ii, cb| {
+                    s.specialize_store_attr(vm, idx_val, ii, cb)
+                });
                 self.store_attr(vm, idx_val)
             }
             Instruction::StoreDeref { i } => {
@@ -5974,7 +6282,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::StoreSubscr => {
-                self.adaptive(|s, ii, cb| s.specialize_store_subscr(vm, ii, cb));
+                self.adaptive(mode, |s, ii, cb| s.specialize_store_subscr(vm, ii, cb));
                 self.execute_store_subscript(vm)
             }
             Instruction::Swap { i: index } => {
@@ -5993,9 +6301,10 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::ToBool => {
-                self.adaptive(|s, ii, cb| s.specialize_to_bool(vm, ii, cb));
+                self.adaptive(mode, |s, ii, cb| s.specialize_to_bool(vm, ii, cb));
                 let obj = self.pop_stackref();
                 let bool_val = obj.try_to_bool(vm)?;
+                drop(obj);
                 self.push_bool_or_fused_jump(instruction.cache_entries(), bool_val, vm);
                 Ok(None)
             }
@@ -6005,7 +6314,9 @@ impl ExecutingFrame<'_> {
             }
             Instruction::UnpackSequence { count: size } => {
                 let expected = size.get(arg);
-                self.adaptive(|s, ii, cb| s.specialize_unpack_sequence(vm, expected, ii, cb));
+                self.adaptive(mode, |s, ii, cb| {
+                    s.specialize_unpack_sequence(vm, expected, ii, cb)
+                });
                 self.unpack_sequence(expected, vm)
             }
             Instruction::WithExceptStart => {
@@ -6049,14 +6360,17 @@ impl ExecutingFrame<'_> {
                 );
                 // _YIELD_VALUE_EVENT: if f_lineno jumped, DISPATCH to the
                 // new instruction instead of suspending.
-                if self.yield_value_event(vm)? {
+                if self.yield_value_event(vm, mode)? {
                     return Ok(None);
                 }
+                // CPython advances frame->instr_ptr to RESUME before suspension.
+                // A later throw/close enters its handler without executing RESUME.
+                self.monitoring_current.set(Some(self.lasti()));
                 Ok(Some(ExecutionResult::Yield(self.pop_value())))
             }
             Instruction::Send { .. } => {
                 // (receiver, null_or_index, v -- receiver, null_or_index, retval)
-                self.adaptive(|s, ii, cb| s.specialize_send(vm, ii, cb));
+                self.adaptive(mode, |s, ii, cb| s.specialize_send(vm, ii, cb));
                 let exit_label = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
                 let receiver = self.nth_value(2);
                 let can_fast_send = !self.specialization_eval_frame_active(vm)
@@ -7882,6 +8196,7 @@ impl ExecutingFrame<'_> {
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
+                    drop(obj);
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
@@ -7896,6 +8211,7 @@ impl ExecutingFrame<'_> {
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
+                    drop(obj);
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
@@ -7909,6 +8225,7 @@ impl ExecutingFrame<'_> {
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
+                    drop(obj);
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
@@ -7923,6 +8240,7 @@ impl ExecutingFrame<'_> {
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
+                    drop(obj);
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
@@ -7937,6 +8255,7 @@ impl ExecutingFrame<'_> {
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
+                    drop(obj);
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
@@ -7957,6 +8276,7 @@ impl ExecutingFrame<'_> {
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
+                    drop(obj);
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
@@ -7985,6 +8305,8 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::No => self._in(vm, &a, &b)?,
                         bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
                     };
+                    drop(b);
+                    drop(a);
                     self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                     Ok(None)
                 }
@@ -8015,6 +8337,8 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::No => self._in(vm, &a, &b)?,
                         bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
                     };
+                    drop(b);
+                    drop(a);
                     self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                     Ok(None)
                 }
@@ -8215,7 +8539,7 @@ impl ExecutingFrame<'_> {
             // All INSTRUMENTED_* opcodes delegate to a cold function to keep
             // the hot instruction loop free of monitoring overhead.
             _ => {
-                let (result, do_extend_arg) = self.execute_instrumented(instruction, arg, vm);
+                let (result, do_extend_arg) = self.execute_instrumented(instruction, arg, mode, vm);
                 *extend_arg = do_extend_arg;
                 result
             }
@@ -8230,13 +8554,13 @@ impl ExecutingFrame<'_> {
         &mut self,
         instruction: Instruction,
         arg: bytecode::OpArg,
+        mode: DispatchMode,
         vm: &VirtualMachine,
     ) -> (FrameResult, bool) {
         // Keep the mutable flag inside this cold function so its address does
         // not escape the dispatch loop and force a stack access for every opcode.
         let mut do_extend_arg = false;
-        let result =
-            self.execute_instrumented_from(instruction, arg, false, &mut do_extend_arg, vm);
+        let result = self.execute_instrumented_from(instruction, arg, mode, &mut do_extend_arg, vm);
         (result, do_extend_arg)
     }
 
@@ -8245,7 +8569,7 @@ impl ExecutingFrame<'_> {
         &mut self,
         instruction: Instruction,
         arg: bytecode::OpArg,
-        wrapper_dispatch: bool,
+        mode: DispatchMode,
         do_extend_arg: &mut bool,
         vm: &VirtualMachine,
     ) -> FrameResult {
@@ -8274,53 +8598,44 @@ impl ExecutingFrame<'_> {
         self.monitoring_mask = vm.state.monitoring_events.load();
         match instruction {
             Instruction::InstrumentedResume => {
-                // Version check: re-instrument if stale
-                let global_ver = vm
-                    .state
-                    .instrumentation_version
-                    .load(atomic::Ordering::Acquire);
-                let code_ver = self
-                    .code
-                    .instrumentation_version
-                    .load(atomic::Ordering::Acquire);
-                if code_ver != global_ver {
-                    let events = {
-                        let state = vm.state.monitoring.lock();
-                        state.events_for_code(self.code.get_id())
-                    };
-                    monitoring::instrument_code(self.code, events);
-                    self.code
-                        .instrumentation_version
-                        .store(global_ver, atomic::Ordering::Release);
-                    // Re-execute (may have been de-instrumented to base Resume)
-                    self.update_lasti(|i| *i -= 1);
-                    return Ok(None);
-                }
                 let resume_type = u32::from(arg);
                 let offset = (self.lasti() - 1) * 2;
-                if resume_type == 0 {
-                    if self.monitoring_mask & MonitoringEvent::PyStart.mask() != 0 {
-                        monitoring::fire_py_start(vm, self.code, offset)?;
-                    }
-                } else if self.monitoring_mask & MonitoringEvent::PyResume.mask() != 0 {
-                    monitoring::fire_py_resume(vm, self.code, offset)?;
+                let event = if resume_type == 0 {
+                    MonitoringEvent::PyStart
+                } else {
+                    MonitoringEvent::PyResume
+                };
+                let tools = monitoring::snapshot_tools(vm, event, self.code, offset);
+                self.trace_call_from_resume(vm, resume_type, mode)?;
+                monitoring::fire_snapshot(
+                    vm,
+                    event,
+                    self.code,
+                    offset,
+                    offset,
+                    &[vm.ctx.new_int(offset).into()],
+                    tools,
+                )?;
+                if self.has_pending_lineno_jump() {
+                    self.apply_pending_lineno_jump(vm);
                 }
-                self.trace_call_from_resume(vm, resume_type)?;
                 Ok(None)
             }
             Instruction::InstrumentedReturnValue => {
+                let offset = (self.lasti() - 1) * 2;
+                let tools =
+                    monitoring::snapshot_tools(vm, MonitoringEvent::PyReturn, self.code, offset);
                 let value = self.pop_value();
-                if vm.use_tracing.get() {
-                    vm.trace_event_what(
-                        crate::protocol::TraceEvent::Return,
-                        monitoring::MonitoringEvent::PyReturn,
-                        Some(value.clone()),
-                    )?;
-                }
-                if self.monitoring_mask & MonitoringEvent::PyReturn.mask() != 0 {
-                    let offset = (self.lasti() - 1) * 2;
-                    monitoring::fire_py_return(vm, self.code, offset, &value)?;
-                }
+                self.trace_virtual_return(vm, MonitoringEvent::PyReturn, &value)?;
+                monitoring::fire_snapshot(
+                    vm,
+                    MonitoringEvent::PyReturn,
+                    self.code,
+                    offset,
+                    offset,
+                    &[vm.ctx.new_int(offset).into(), value.clone()],
+                    tools,
+                )?;
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
             Instruction::InstrumentedYieldValue => {
@@ -8333,9 +8648,12 @@ impl ExecutingFrame<'_> {
                         .all(|sr| !sr.is_borrowed()),
                     "borrowed refs on stack at yield point"
                 );
-                if self.yield_value_event(vm)? {
+                if self.yield_value_event(vm, mode)? {
                     return Ok(None);
                 }
+                // CPython advances frame->instr_ptr to RESUME before suspension.
+                // A later throw/close enters its handler without executing RESUME.
+                self.monitoring_current.set(Some(self.lasti()));
                 Ok(Some(ExecutionResult::Yield(self.pop_value())))
             }
             Instruction::InstrumentedCall => {
@@ -8391,30 +8709,42 @@ impl ExecutingFrame<'_> {
                     }
                 }
             }
-            Instruction::InstrumentedJumpForward => {
-                let src_offset = (self.lasti() - 1) * 2;
-                let target_idx = self.lasti() + u32::from(arg);
-                let target = bytecode::Label::from_u32(target_idx);
-                self.jump(target);
-                if self.monitoring_mask & MonitoringEvent::Jump.mask() != 0 {
-                    monitoring::fire_jump(vm, self.code, src_offset, target.as_u32() * 2)?;
+            Instruction::InstrumentedJumpForward | Instruction::InstrumentedJumpBackward => {
+                let before = self.lasti();
+                let source = (before - 1) * 2;
+                let backward = matches!(instruction, Instruction::InstrumentedJumpBackward);
+                let target = if backward {
+                    before + 1 - u32::from(arg)
+                } else {
+                    before + u32::from(arg)
+                };
+                let tools =
+                    monitoring::snapshot_tools(vm, MonitoringEvent::Jump, self.code, source);
+                if backward {
+                    self.trace_virtual_jump(before - 1, target, vm)?;
                 }
-                Ok(None)
-            }
-            Instruction::InstrumentedJumpBackward => {
-                let src_offset = (self.lasti() - 1) * 2;
-                let from_idx = self.lasti().saturating_sub(1) as usize;
-                let target_idx = self.lasti() + 1 - u32::from(arg);
-                let target = bytecode::Label::from_u32(target_idx);
-                self.jump(target);
-                if self.monitoring_mask & MonitoringEvent::Jump.mask() != 0 {
-                    monitoring::fire_jump(vm, self.code, src_offset, target.as_u32() * 2)?;
+                monitoring::fire_snapshot(
+                    vm,
+                    MonitoringEvent::Jump,
+                    self.code,
+                    source,
+                    source,
+                    &[
+                        vm.ctx.new_int(source).into(),
+                        vm.ctx.new_int(target * 2).into(),
+                    ],
+                    tools,
+                )?;
+                if self.lasti() == before && !self.has_pending_lineno_jump() {
+                    self.jump(bytecode::Label::from_u32(target));
+                } else {
+                    self.apply_pending_lineno_jump(vm);
                 }
-                self.trace_backward_same_line(from_idx, vm)?;
                 Ok(None)
             }
             Instruction::InstrumentedForIter => {
-                let src_offset = (self.lasti() - 1) * 2;
+                let before = self.lasti();
+                let src_offset = (before - 1) * 2;
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
                 let continued = self.execute_for_iter(vm, target)?;
                 if continued {
@@ -8428,11 +8758,9 @@ impl ExecutingFrame<'_> {
                             dest_offset,
                         )?;
                     }
-                } else if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
-                    // INSTRUMENTED_POP_ITER: dest is the instruction after
-                    // POP_ITER (FOR_ITER jumps over END_FOR onto POP_ITER).
-                    let dest_offset = (self.lasti() + 1) * 2;
-                    monitoring::fire_branch_right(vm, self.code, src_offset, dest_offset)?;
+                    if self.lasti() != before || self.has_pending_lineno_jump() {
+                        self.apply_pending_lineno_jump(vm);
+                    }
                 }
                 Ok(None)
             }
@@ -8470,247 +8798,296 @@ impl ExecutingFrame<'_> {
                 self.push_value(value);
                 Ok(None)
             }
-            Instruction::InstrumentedPopJumpIfTrue => {
-                let src_offset = (self.lasti() - 1) * 2;
-                let target_idx = self.lasti() + 1 + u32::from(arg);
-                let obj = self.pop_value();
-                let value = obj.try_to_bool(vm)?;
-                if value {
-                    self.jump(bytecode::Label::from_u32(target_idx));
-                    if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
-                        monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
-                    }
+            Instruction::InstrumentedPopJumpIfTrue
+            | Instruction::InstrumentedPopJumpIfFalse
+            | Instruction::InstrumentedPopJumpIfNone
+            | Instruction::InstrumentedPopJumpIfNotNone => {
+                let before = self.lasti();
+                let source = (before - 1) * 2;
+                let target = before + 1 + u32::from(arg);
+                let value = self.top_value();
+                let taken = match instruction {
+                    Instruction::InstrumentedPopJumpIfTrue => value.try_to_bool(vm)?,
+                    Instruction::InstrumentedPopJumpIfFalse => !value.try_to_bool(vm)?,
+                    Instruction::InstrumentedPopJumpIfNone => vm.is_none(value),
+                    Instruction::InstrumentedPopJumpIfNotNone => !vm.is_none(value),
+                    _ => unreachable!(),
+                };
+                // Canonical NOT_NONE closes its operand before the taken callback;
+                // the other three retain it until the callback has completed.
+                let preclosed = matches!(instruction, Instruction::InstrumentedPopJumpIfNotNone);
+                if preclosed || !taken {
+                    self.pop_stackref();
                 }
-                Ok(None)
-            }
-            Instruction::InstrumentedPopJumpIfFalse => {
-                let src_offset = (self.lasti() - 1) * 2;
-                let target_idx = self.lasti() + 1 + u32::from(arg);
-                let obj = self.pop_value();
-                let value = obj.try_to_bool(vm)?;
-                if !value {
-                    self.jump(bytecode::Label::from_u32(target_idx));
-                    if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
-                        monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
-                    }
-                }
-                Ok(None)
-            }
-            Instruction::InstrumentedPopJumpIfNone => {
-                let src_offset = (self.lasti() - 1) * 2;
-                let target_idx = self.lasti() + 1 + u32::from(arg);
-                let value = self.pop_value();
-                if vm.is_none(&value) {
-                    self.jump(bytecode::Label::from_u32(target_idx));
-                    if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
-                        monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
-                    }
-                }
-                Ok(None)
-            }
-            Instruction::InstrumentedPopJumpIfNotNone => {
-                let src_offset = (self.lasti() - 1) * 2;
-                let target_idx = self.lasti() + 1 + u32::from(arg);
-                let value = self.pop_value();
-                if !vm.is_none(&value) {
-                    self.jump(bytecode::Label::from_u32(target_idx));
-                    if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
-                        monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
+                if taken {
+                    monitoring::fire_branch_right(vm, self.code, source, target * 2)?;
+                    if self.lasti() == before && !self.has_pending_lineno_jump() {
+                        if !preclosed {
+                            self.pop_stackref();
+                        }
+                        self.jump(bytecode::Label::from_u32(target));
+                    } else {
+                        // The setter models the actual callback-point stack.
+                        self.apply_pending_lineno_jump(vm);
                     }
                 }
                 Ok(None)
             }
             Instruction::InstrumentedNotTaken => {
-                if self.monitoring_mask & MonitoringEvent::BranchLeft.mask() != 0 {
-                    let not_taken_idx = self.lasti() as usize - 1;
-                    // Scan backwards past CACHE entries to find the branch instruction
-                    let mut branch_idx = not_taken_idx.saturating_sub(1);
-                    while branch_idx > 0
-                        && matches!(
-                            self.code.instructions.read_op(branch_idx),
-                            Instruction::Cache
-                        )
-                    {
-                        branch_idx -= 1;
-                    }
-                    let site = not_taken_idx as u32 * 2;
-                    let src_offset = if wrapper_dispatch {
-                        site
-                    } else {
-                        (branch_idx as u32) * 2
-                    };
-                    let dest_offset = self.lasti() * 2;
-                    monitoring::fire_branch_left(vm, self.code, site, src_offset, dest_offset)?;
+                let before = self.lasti();
+                let site = (before - 1) * 2;
+                if let Some(previous) = self.monitoring_previous {
+                    monitoring::fire_branch_left(vm, self.code, site, previous * 2, before * 2)?;
+                }
+                if self.lasti() != before || self.has_pending_lineno_jump() {
+                    self.apply_pending_lineno_jump(vm);
                 }
                 Ok(None)
             }
             Instruction::InstrumentedPopIter => {
-                // BRANCH_RIGHT is fired by InstrumentedForIter, not here.
-                self.pop_stackref_opt();
-                self.pop_stackref();
+                let before = self.lasti();
+                let site = (before - 1) * 2;
+                if let Some(previous) = self.monitoring_previous {
+                    let source = previous * 2;
+                    let tools = monitoring::snapshot_tools(
+                        vm,
+                        MonitoringEvent::BranchRight,
+                        self.code,
+                        site,
+                    );
+                    monitoring::fire_snapshot(
+                        vm,
+                        MonitoringEvent::BranchRight,
+                        self.code,
+                        site,
+                        source,
+                        &[
+                            vm.ctx.new_int(source).into(),
+                            vm.ctx.new_int(before * 2).into(),
+                        ],
+                        tools,
+                    )?;
+                }
+                // The callback observes the iterator pair; errors exit before
+                // normal pop/drop, leaving generic unwind to own cleanup.
+                if self.lasti() != before || self.has_pending_lineno_jump() {
+                    // The validated target's pending unwind includes any iterator
+                    // cleanup. A same-loop redirect can legitimately pop nothing.
+                    self.apply_pending_lineno_jump(vm);
+                } else {
+                    self.pop_stackref_opt();
+                    self.pop_stackref();
+                }
                 Ok(None)
             }
             Instruction::InstrumentedEndAsyncFor => {
-                if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
-                    let oparg_val = u32::from(arg);
-                    // src = next_instr - oparg (END_SEND position)
-                    let src_offset = (self.lasti() - oparg_val) * 2;
-                    // dest = this_instr + 1
-                    let dest_offset = self.lasti() * 2;
-                    monitoring::fire_branch_right(vm, self.code, src_offset, dest_offset)?;
-                }
-                let exc = self.pop_value();
-                let _awaitable = self.pop_value();
-                let exc = exc
+                let before = self.lasti();
+                let site = (before - 1) * 2;
+                // Report END_SEND as the source, but subscribe and disable at
+                // the actual END_ASYNC_FOR instruction.
+                let source = (before - u32::from(arg)) * 2;
+                let tools =
+                    monitoring::snapshot_tools(vm, MonitoringEvent::BranchRight, self.code, site);
+                monitoring::fire_snapshot(
+                    vm,
+                    MonitoringEvent::BranchRight,
+                    self.code,
+                    site,
+                    source,
+                    &[
+                        vm.ctx.new_int(source).into(),
+                        vm.ctx.new_int(before * 2).into(),
+                    ],
+                    tools,
+                )?;
+                let exc = self
+                    .top_value()
+                    .to_owned()
                     .downcast::<PyBaseException>()
                     .expect("EndAsyncFor expects exception on stack");
-                if exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration) {
-                    vm.set_exception(None);
-                    Ok(None)
-                } else {
-                    Err(exc)
+                if !exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration) {
+                    // A requested redirect cannot swallow the mandatory reraise.
+                    self.pop_value();
+                    self.pop_value();
+                    return Err(exc);
                 }
+                // Preserve an outer Except slot restored by the pending unwind.
+                vm.set_exception(None);
+                if self.lasti() != before || self.has_pending_lineno_jump() {
+                    self.apply_pending_lineno_jump(vm);
+                } else {
+                    self.pop_value();
+                    self.pop_value();
+                }
+                Ok(None)
             }
             Instruction::InstrumentedLine => {
-                let idx = self.lasti() as usize - 1;
-                let offset = idx as u32 * 2;
-
-                // Read the full side-table chain before firing any events,
-                // because a callback may de-instrument and clear the tables.
-                let (real_op_byte, also_instruction) = {
-                    let data = self.code.monitoring_data.lock();
-                    let line_op = data.as_ref().map_or(0, |d| d.line_opcodes[idx]);
-                    if line_op == u8::from(Instruction::InstrumentedInstruction) {
-                        // LINE wraps INSTRUCTION: resolve the INSTRUCTION side-table too
-                        let inst_op = data.as_ref().map_or(0, |d| d.per_instruction_opcodes[idx]);
-                        (inst_op, true)
-                    } else {
-                        (line_op, false)
-                    }
+                let index = self.lasti() as usize - 1;
+                let offset = index as u32 * 2;
+                let previous = self.monitoring_previous;
+                let Some(operation) = monitoring::known_operation(vm, self.code, index) else {
+                    return Err(vm.new_runtime_error("unsupported monitoring metadata"));
                 };
-                debug_assert!(
-                    real_op_byte != 0,
-                    "INSTRUMENTED_LINE at {idx} without stored opcode"
-                );
-
-                let line_active =
-                    monitoring::is_event_active_at(vm, self.code, offset, MonitoringEvent::Line);
-                let instruction_active = also_instruction
-                    && monitoring::is_event_active_at(
-                        vm,
-                        self.code,
-                        offset,
-                        MonitoringEvent::Instruction,
-                    );
-                let wrapper_dispatch = line_active || instruction_active;
-
-                // Fire LINE event only if line changed
-                if let Some((loc, _)) = self.code.locations.get(idx) {
-                    let line = loc.line.get() as u32;
-                    if line != self.prev_line.get() && line > 0 {
-                        self.prev_line.set(line);
-                        monitoring::fire_line(vm, self.code, offset, line)?;
-                        if self.lasti() != idx as u32 + 1 {
-                            self.apply_pending_lineno_jump(vm);
-                            // Restart at the callback's target without executing the
-                            // old opcode or carrying its EXTENDED_ARG prefix there.
-                            *do_extend_arg = false;
-                            return Ok(None);
+                if let Some(line) = operation.line {
+                    let previous_operation = previous
+                        .and_then(|i| monitoring::known_operation(vm, self.code, i as usize));
+                    let changed = previous_operation.is_some_and(|old| {
+                        old.line != Some(line) || matches!(old.base, Instruction::Resume { .. })
+                    });
+                    if changed && line >= 0 {
+                        let tools = monitoring::snapshot_tools(
+                            vm,
+                            MonitoringEvent::Line,
+                            self.code,
+                            offset,
+                        );
+                        if vm.use_tracing.get()
+                            && self.trace_is_set(vm)
+                            && self.trace_lines_is_set()
+                        {
+                            self.prev_line.set(line as u32);
+                            vm.trace_participant_what(
+                                crate::protocol::TraceEvent::Line,
+                                MonitoringEvent::Line,
+                                None,
+                                crate::protocol::TraceParticipant::Trace,
+                            )?;
                         }
+                        monitoring::fire_snapshot(
+                            vm,
+                            MonitoringEvent::Line,
+                            self.code,
+                            offset,
+                            offset,
+                            &[vm.ctx.new_int(line).into()],
+                            tools,
+                        )?;
                     }
                 }
-
-                // Removing the last LINE layer changes its saved opcode in CPython.
-                // That redispatch skips nested INSTRUCTION once, not on later visits.
-                let line_removed = line_active
-                    && !monitoring::is_event_active_at(
-                        vm,
-                        self.code,
-                        offset,
-                        MonitoringEvent::Line,
-                    );
-                if also_instruction && !line_removed {
-                    monitoring::fire_instruction(vm, self.code, offset)?;
+                if self.lasti() != index as u32 + 1 || self.has_pending_lineno_jump() {
+                    self.apply_pending_lineno_jump(vm);
+                    *do_extend_arg = false;
+                    return Ok(None);
                 }
-
-                // NOTE: prev_line is already up to date here -- the
-                // dedup check above (`if line != self.prev_line.get() ...`)
-                // reads the same `idx`/`loc` and, when the line changed,
-                // already set `prev_line` to that same value; no further
-                // write is needed (a prior unconditional re-write here was
-                // a dead duplicate of that one, and also isn't needed for
-                // `f_lineno`, which is derived lazily from `lasti`).
-
-                // Re-dispatch to the real original opcode
-                let original_op = Instruction::try_from(real_op_byte)
-                    .expect("invalid opcode in side-table chain");
-                let lasti_before_dispatch = self.lasti();
-                let result = if original_op.to_base().is_some() {
-                    self.execute_instrumented_from(
-                        original_op,
-                        arg,
-                        wrapper_dispatch,
-                        do_extend_arg,
-                        vm,
-                    )
-                } else {
-                    self.execute_instruction(original_op, arg, do_extend_arg, vm)
-                };
-                let orig_caches = original_op.to_base().unwrap_or(original_op).cache_entries();
-                if orig_caches > 0 && self.lasti() == lasti_before_dispatch {
-                    self.update_lasti(|i| *i += orig_caches as u32);
-                }
-                result
+                let next = monitoring::layer_site(vm, self.code, index)
+                    .map(|site| site.line_next)
+                    .expect("live monitored code retains its layer entry");
+                self.execute_instruction(
+                    next,
+                    arg,
+                    DispatchMode::Monitored {
+                        opcode_traced: false,
+                    },
+                    self.lasti().saturating_sub(1),
+                    do_extend_arg,
+                    vm,
+                )
             }
             Instruction::InstrumentedInstruction => {
-                let idx = self.lasti() as usize - 1;
-                let offset = idx as u32 * 2;
-
-                // Get original opcode from side-table
-                let original_op_byte = {
-                    let data = self.code.monitoring_data.lock();
-                    data.as_ref().map_or(0, |d| d.per_instruction_opcodes[idx])
+                let index = self.lasti() as usize - 1;
+                let offset = index as u32 * 2;
+                let Some(site) = monitoring::layer_site(vm, self.code, index) else {
+                    return Err(vm.new_runtime_error("unsupported monitoring metadata"));
                 };
-                debug_assert!(
-                    original_op_byte != 0,
-                    "INSTRUMENTED_INSTRUCTION at {idx} without stored opcode"
-                );
-
-                let wrapper_dispatch = monitoring::is_event_active_at(
+                let next = site.instruction_next;
+                let tools =
+                    monitoring::snapshot_tools(vm, MonitoringEvent::Instruction, self.code, offset);
+                self.trace_virtual_opcode(vm, next)?;
+                monitoring::fire_snapshot(
                     vm,
+                    MonitoringEvent::Instruction,
                     self.code,
                     offset,
-                    MonitoringEvent::Instruction,
-                );
-
-                // Fire INSTRUCTION event
-                monitoring::fire_instruction(vm, self.code, offset)?;
-
-                // Re-dispatch to original opcode
-                let original_op = Instruction::try_from(original_op_byte)
-                    .expect("invalid opcode in instruction side-table");
-                let lasti_before_dispatch = self.lasti();
-                let result = if original_op.to_base().is_some() {
-                    self.execute_instrumented_from(
-                        original_op,
-                        arg,
-                        wrapper_dispatch,
-                        do_extend_arg,
-                        vm,
-                    )
-                } else {
-                    self.execute_instruction(original_op, arg, do_extend_arg, vm)
-                };
-                let orig_caches = original_op.to_base().unwrap_or(original_op).cache_entries();
-                if orig_caches > 0 && self.lasti() == lasti_before_dispatch {
-                    self.update_lasti(|i| *i += orig_caches as u32);
-                }
-                result
+                    offset,
+                    &[vm.ctx.new_int(offset).into()],
+                    tools,
+                )?;
+                self.execute_instruction(
+                    next,
+                    arg,
+                    DispatchMode::Monitored {
+                        opcode_traced: true,
+                    },
+                    self.lasti().saturating_sub(1),
+                    do_extend_arg,
+                    vm,
+                )
             }
             _ => {
                 unreachable!("{instruction:?} instruction should not be executed")
             }
         }
+    }
+
+    fn trace_virtual_return(
+        &self,
+        vm: &VirtualMachine,
+        what: MonitoringEvent,
+        value: &PyObjectRef,
+    ) -> PyResult<()> {
+        if vm.use_tracing.get() {
+            let profile_selected = !vm.is_none(&vm.profile_func.borrow());
+            vm.trace_participant_what(
+                crate::protocol::TraceEvent::Return,
+                what,
+                Some(value.clone()),
+                crate::protocol::TraceParticipant::Trace,
+            )?;
+            if profile_selected {
+                vm.trace_participant_what(
+                    crate::protocol::TraceEvent::Return,
+                    what,
+                    Some(value.clone()),
+                    crate::protocol::TraceParticipant::Profile,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn trace_virtual_jump(&mut self, from: u32, target: u32, vm: &VirtualMachine) -> PyResult<()> {
+        if !(vm.use_tracing.get() && self.trace_is_set(vm) && self.trace_lines_is_set()) {
+            return Ok(());
+        }
+        let source_line = self.code.addr2line(from as i32 * 2);
+        let target_line = self.code.addr2line(target as i32 * 2);
+        if target_line >= 0 && source_line == target_line {
+            let before = self.lasti();
+            self.update_lasti(|i| *i = target + 1);
+            let result = vm.trace_participant_what(
+                crate::protocol::TraceEvent::Line,
+                MonitoringEvent::Jump,
+                None,
+                crate::protocol::TraceParticipant::Trace,
+            );
+            if self.lasti() == target + 1 && !self.has_pending_lineno_jump() {
+                self.update_lasti(|i| *i = before);
+            }
+            result?;
+        }
+        Ok(())
+    }
+
+    fn trace_virtual_opcode(&self, vm: &VirtualMachine, instruction: Instruction) -> PyResult<()> {
+        if vm.use_tracing.get()
+            && self.trace_is_set(vm)
+            && self.trace_opcodes_is_set()
+            && !matches!(
+                instruction,
+                Instruction::Resume { .. }
+                    | Instruction::InstrumentedResume
+                    | Instruction::ResumeCheck
+                    | Instruction::ExtendedArg
+            )
+        {
+            vm.trace_participant_what(
+                crate::protocol::TraceEvent::Opcode,
+                MonitoringEvent::Instruction,
+                None,
+                crate::protocol::TraceParticipant::Trace,
+            )?;
+        }
+        Ok(())
     }
 
     #[inline]
@@ -8863,6 +9240,7 @@ impl ExecutingFrame<'_> {
     /// Optionally returns an exception.
     #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
     fn unwind_blocks(&mut self, vm: &VirtualMachine, reason: UnwindReason) -> FrameResult {
+        self.clear_pending_lineno_jump();
         // use exception table for exception handling
         match reason {
             UnwindReason::Raising { exception, offset } => {
@@ -9417,7 +9795,7 @@ impl ExecutingFrame<'_> {
         exit_label: bytecode::Label,
     ) -> Option<GenCont> {
         let next_idx = self.lasti() as usize + 1;
-        let unit = self.code.instructions.get(next_idx)?;
+        let unit = monitoring::source_operation(self.code, next_idx)?;
         if !matches!(unit.op, Instruction::YieldValue { .. }) || u8::from(unit.arg) < 1 {
             return None;
         }
@@ -9593,6 +9971,7 @@ impl ExecutingFrame<'_> {
                 Instruction::NotTaken
             )
         {
+            self.monitoring_current.set(None);
             self.update_lasti(|i| *i = next + 1);
         }
     }
@@ -9667,7 +10046,7 @@ impl ExecutingFrame<'_> {
                 let stop_exc = vm.new_stop_iteration(None);
                 self.fire_exception_trace(&stop_exc, vm)?;
             }
-            self.jump(self.for_iter_jump_target(target));
+            self.jump(self.for_iter_jump_target(target, vm));
             return Ok(false);
         }
 
@@ -9683,7 +10062,7 @@ impl ExecutingFrame<'_> {
                 // _FOR_ITER / INSTRUMENTED_FOR_ITER: _PyEval_MonitorRaise
                 // then clear the StopIteration and jump over END_FOR.
                 self.monitor_for_iter_stop(value, vm)?;
-                self.jump(self.for_iter_jump_target(target));
+                self.jump(self.for_iter_jump_target(target, vm));
                 Ok(false)
             }
             Err(next_error) => Err(next_error),
@@ -9691,12 +10070,29 @@ impl ExecutingFrame<'_> {
     }
 
     /// Compute the jump target for FOR_ITER exhaustion: skip END_FOR and jump to POP_ITER.
-    fn for_iter_jump_target(&self, target: bytecode::Label) -> bytecode::Label {
-        let target_idx = target.as_usize();
-        if let Some(unit) = self.code.instructions.get(target_idx)
+    fn for_iter_jump_target(
+        &self,
+        target: bytecode::Label,
+        vm: &VirtualMachine,
+    ) -> bytecode::Label {
+        let index = target.as_usize();
+        if vm.state.monitoring_events.load() != 0 {
+            monitoring::prepare_code(vm, self.code);
+        }
+        if let Some(operation) = monitoring::known_operation(vm, self.code, index) {
+            if matches!(operation.base, Instruction::EndFor)
+                && let Some(next) = index.checked_add(1)
+                && monitoring::known_operation(vm, self.code, next).is_some()
+            {
+                return bytecode::Label::from_u32(target.as_u32() + 1);
+            }
+            return target;
+        }
+        // Unproven external suffix retains the pre-existing execution path.
+        if let Some(unit) = self.code.instructions.get(index)
             && matches!(
                 unit.op,
-                bytecode::Instruction::EndFor | bytecode::Instruction::InstrumentedEndFor
+                Instruction::EndFor | Instruction::InstrumentedEndFor
             )
         {
             return bytecode::Label::from_u32(target.as_u32() + 1);
@@ -10325,8 +10721,13 @@ impl ExecutingFrame<'_> {
             .find(|d| d.oparg == op && (d.guard)(lhs, rhs, vm))
     }
 
-    fn load_attr(&mut self, vm: &VirtualMachine, oparg: LoadAttr) -> FrameResult {
-        self.adaptive(|s, ii, cb| s.specialize_load_attr(vm, oparg, ii, cb));
+    fn load_attr(
+        &mut self,
+        vm: &VirtualMachine,
+        oparg: LoadAttr,
+        mode: DispatchMode,
+    ) -> FrameResult {
+        self.adaptive(mode, |s, ii, cb| s.specialize_load_attr(vm, oparg, ii, cb));
         self.load_attr_slow(vm, oparg)
     }
 
@@ -10980,7 +11381,10 @@ impl ExecutingFrame<'_> {
 
     /// Adaptive counter: trigger specialization at zero, otherwise advance countdown.
     #[inline]
-    fn adaptive(&mut self, specialize: impl FnOnce(&mut Self, usize, usize)) {
+    fn adaptive(&mut self, mode: DispatchMode, specialize: impl FnOnce(&mut Self, usize, usize)) {
+        if !matches!(mode, DispatchMode::Physical) {
+            return;
+        }
         let instr_idx = self.lasti() as usize - 1;
         let cache_base = instr_idx + 1;
         let counter = self.code.instructions.read_adaptive_counter(cache_base);
@@ -11720,7 +12124,7 @@ impl ExecutingFrame<'_> {
             return None;
         }
 
-        // One Acquire load for opcode and delta together. A jump needing
+        // Read opcode and immutable delta with byte-sized loads. A jump needing
         // EXTENDED_ARG has that prefix at `jump_idx` instead, so the match
         // rejects it and this single byte is the whole delta.
         let jump = self.code.instructions.read_unit(jump_idx);
@@ -11743,6 +12147,7 @@ impl ExecutingFrame<'_> {
     /// taken, keeping the taken edge to a single instruction-array read.
     #[inline]
     fn take_fused_bool_jump(&mut self, jump: FusedBoolJump, result: bool) {
+        self.monitoring_current.set(None);
         let target = if result == jump.jump_on {
             jump.taken
         } else {
@@ -11879,7 +12284,7 @@ impl ExecutingFrame<'_> {
 
     #[inline]
     fn specialization_eval_frame_active(&self, vm: &VirtualMachine) -> bool {
-        vm.use_tracing.get()
+        vm.use_tracing.get() || vm.state.monitoring_events.load() != 0
     }
 
     #[inline]
@@ -12463,7 +12868,7 @@ impl ExecutingFrame<'_> {
     /// # Safety
     /// The object must remain alive until the borrowed ref is consumed.
     /// The compiler guarantees consumption within the same basic block.
-    #[inline]
+    #[inline(always)]
     #[track_caller]
     unsafe fn push_borrowed(&mut self, obj: &PyObject) {
         self.push_stackref_opt(Some(unsafe { PyStackRef::new_borrowed(obj) }));
@@ -12750,7 +13155,7 @@ impl ExecutingFrame<'_> {
     fn pop_multiple(&mut self, count: usize) -> impl ExactSizeIterator<Item = PyObjectRef> + '_ {
         let stack_len = self.localsplus.stack_len();
         if count > stack_len {
-            let instr = self.code.instructions.get(self.lasti() as usize);
+            let instr = monitoring::source_operation(self.code, self.lasti() as usize);
             let op_name = instr.map_or_else(|| "None".to_string(), |i| format!("{:?}", i.op));
             panic!(
                 "Stack underflow in pop_multiple: trying to pop {} elements from stack with {} elements. lasti={}, code={}, op={}, source_path={}",
@@ -12937,7 +13342,11 @@ fn suspended_delegate<'a>(
         return None;
     }
     let lasti = lasti as usize;
-    if let Some(unit) = code.instructions.get(lasti) {
+    // Both offsets belong to the same code object; inspect its base operations
+    // in one bounded walk; the caller maintains the frame access contract.
+    let [previous_unit, current_unit] =
+        monitoring::source_operations_sorted(code, [lasti.saturating_sub(1), lasti]);
+    if let Some(unit) = current_unit {
         match &unit.op {
             Instruction::Send { .. } | Instruction::SendGen => {
                 return localsplus
@@ -12948,7 +13357,7 @@ fn suspended_delegate<'a>(
                 // Check if previous instruction was YIELD_VALUE with arg >= 1
                 // This indicates yield-from/await context
                 if lasti > 0
-                    && let Some(prev_unit) = code.instructions.get(lasti - 1)
+                    && let Some(prev_unit) = previous_unit
                     && matches!(
                         &prev_unit.op.into(),
                         Opcode::YieldValue | Opcode::InstrumentedYieldValue

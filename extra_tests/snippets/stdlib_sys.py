@@ -232,6 +232,68 @@ finally:
         monitoring.register_callback(2, event, None)
     monitoring.free_tool_id(2)
 
+
+# Disabling monitoring on EXTENDED_ARG must preserve its operand prefix when
+# the following instruction moves back to ordinary dispatch.
+import dis
+
+prefixes = {
+    instruction.offset
+    for instruction in dis.get_instructions(large_loop)
+    if instruction.opname == "EXTENDED_ARG"
+}
+assert prefixes
+prefix_hits = []
+
+
+def disable_at_prefix(code, offset):
+    if offset in prefixes:
+        prefix_hits.append(offset)
+        monitoring.set_local_events(2, code, 0)
+
+
+monitoring.use_tool_id(2, "dispatch-transition")
+try:
+    monitoring.register_callback(2, monitoring.events.INSTRUCTION, disable_at_prefix)
+    for _ in range(10):
+        monitoring.set_local_events(
+            2, large_loop.__code__, monitoring.events.INSTRUCTION
+        )
+        assert large_loop() == 300
+    assert len(prefix_hits) == 10
+finally:
+    monitoring.set_local_events(2, large_loop.__code__, 0)
+    monitoring.register_callback(2, monitoring.events.INSTRUCTION, None)
+    monitoring.free_tool_id(2)
+
+
+# A nested frame cannot consume an enable notification needed by its caller.
+def enable_outer_monitoring():
+    monitoring.set_local_events(
+        2, resume_after_nested_monitoring.__code__, monitoring.events.LINE
+    )
+    monitored_loop()
+
+
+def resume_after_nested_monitoring():
+    enable_outer_monitoring()
+    result = monitored_loop()
+    return result
+
+
+outer_lines = []
+monitoring.use_tool_id(2, "nested-dispatch-transition")
+try:
+    monitoring.register_callback(
+        2, monitoring.events.LINE, lambda code, line: outer_lines.append(line)
+    )
+    assert resume_after_nested_monitoring() == 3
+    assert outer_lines
+finally:
+    monitoring.set_local_events(2, resume_after_nested_monitoring.__code__, 0)
+    monitoring.register_callback(2, monitoring.events.LINE, None)
+    monitoring.free_tool_id(2)
+
 assert sys.exc_info() == (None, None, None)
 
 try:
@@ -487,3 +549,90 @@ if os.name == "posix" and sys.platform not in ("wasi", "emscripten"):
                 str(plain),
                 str(prefix),
             ]
+
+
+# Legacy profiling excludes constructors and callable instances, and binds a
+# method descriptor independently for each event (legacy_tracing.c).
+def check_profile_callables():
+    class Constructor:
+        pass
+
+    class CallableInstance:
+        def __call__(self):
+            pass
+
+    import _lsprof
+
+    # cProfile's table width includes the profiler's disable descriptor label.
+    assert (
+        repr(_lsprof.Profiler.disable)
+        == "<method 'disable' of '_lsprof.Profiler' objects>"
+    )
+
+    events = []
+
+    def record(frame, event, arg):
+        if event.startswith("c_") and arg is not sys.setprofile:
+            events.append((event, arg))
+
+    def capture(func):
+        events.clear()
+        sys.setprofile(record)
+        try:
+            func()
+        except TypeError:
+            pass
+        finally:
+            sys.setprofile(None)
+        return list(events)
+
+    assert capture(Constructor) == []
+    assert capture(list) == []
+    assert capture(CallableInstance()) == []
+    assert capture(lambda: list.append()) == []
+    assert capture(lambda: list.append(1, 2)) == []
+    receiver = []
+    result = capture(lambda: list.append(receiver, 1))
+    assert [event for event, _ in result] == ["c_call", "c_return"]
+    assert all(type(arg) is type(len) and arg.__self__ is receiver for _, arg in result)
+    assert result[0][1] is not result[1][1]
+    result = capture(lambda: list.append(receiver))
+    assert [event for event, _ in result] == ["c_call", "c_exception"]
+    assert all(type(arg) is type(len) and arg.__self__ is receiver for _, arg in result)
+    result = capture(lambda: len(1))
+    assert result == [("c_call", len), ("c_exception", len)]
+
+    def native_calls():
+        values = []
+        for value in range(20):
+            values.append(value)
+            len(values)
+            isinstance(value, int)
+            values.count(value)
+            "aaa".replace("a", "b")
+            values.sort(reverse=True)
+            values.clear()
+
+    native_calls()  # Warm native-call specializations before profiling.
+    result = capture(native_calls)
+    assert len(result) == 280
+    assert [event for event, _ in result] == ["c_call", "c_return"] * 140
+
+    # Enabling profiling inside an unprofiled native call must not invent an
+    # unmatched c_return, even when sys.settrace was already active.
+    events.clear()
+
+    def enable_profile(value):
+        sys.setprofile(record)
+        return value
+
+    sys.settrace(lambda *args: None)
+    try:
+        sorted([1], key=enable_profile)
+    finally:
+        sys.setprofile(None)
+        sys.settrace(None)
+    assert not any(arg is sorted for _, arg in events)
+
+
+check_profile_callables()

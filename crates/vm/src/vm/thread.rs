@@ -62,6 +62,61 @@ impl ThreadState {
     }
 }
 
+/// Coalesced per-slot requests. STW owns only STOP; monitoring publication owns
+/// only MONITORING. Neither consumer may clear another owner's bit.
+#[cfg(feature = "threading")]
+pub struct ThreadDispatchRequests(core::sync::atomic::AtomicU8);
+
+#[cfg(feature = "threading")]
+impl ThreadDispatchRequests {
+    const STOP: u8 = 1;
+    const MONITORING: u8 = 2;
+
+    fn with_monitoring(active: bool) -> Self {
+        Self(core::sync::atomic::AtomicU8::new(if active {
+            Self::MONITORING
+        } else {
+            0
+        }))
+    }
+
+    /// Preserve the existing stop-request API, without clearing monitoring.
+    pub fn store(&self, requested: bool, ordering: Ordering) {
+        if requested {
+            self.0.fetch_or(Self::STOP, ordering);
+        } else {
+            self.0.fetch_and(!Self::STOP, ordering);
+        }
+    }
+
+    pub fn load(&self, ordering: Ordering) -> bool {
+        self.0.load(ordering) & Self::STOP != 0
+    }
+
+    pub(crate) fn set_monitoring(&self, active: bool) {
+        if active {
+            self.0.fetch_or(Self::MONITORING, Ordering::Release);
+        } else {
+            self.0.fetch_and(!Self::MONITORING, Ordering::Release);
+        }
+    }
+}
+
+#[cfg(feature = "threading")]
+#[derive(Clone, Copy)]
+pub(crate) struct DispatchRequestsSnapshot(u8);
+
+#[cfg(feature = "threading")]
+impl DispatchRequestsSnapshot {
+    pub(crate) fn monitoring_active(self) -> bool {
+        self.0 & ThreadDispatchRequests::MONITORING != 0
+    }
+
+    pub(crate) fn stop_requested(self) -> bool {
+        self.0 & ThreadDispatchRequests::STOP != 0
+    }
+}
+
 /// Per-thread shared state for sys._current_frames() and sys._current_exceptions().
 /// The exception field uses atomic operations for lock-free cross-thread reads.
 #[cfg(feature = "threading")]
@@ -95,7 +150,7 @@ pub struct ThreadSlot {
     /// Thread state for stop-the-world: DETACHED / ATTACHED / SUSPENDED / SHUTTING_DOWN
     pub state: core::sync::atomic::AtomicI32,
     /// Per-thread stop request bit (eval breaker equivalent).
-    pub stop_requested: core::sync::atomic::AtomicBool,
+    pub stop_requested: ThreadDispatchRequests,
     /// Handle for waking this thread from park in stop-the-world paths.
     pub thread: std::thread::Thread,
     /// QSBR state for deferred memory reclamation.
@@ -193,7 +248,7 @@ thread_local! {
     /// thread-local memory — where this costs one relaxed load. The slot's Arc
     /// keeps the pointee alive, as with the frame pointers above.
     #[cfg(feature = "threading")]
-    static CURRENT_STOP_REQUESTED: Cell<*const core::sync::atomic::AtomicBool> =
+    static CURRENT_STOP_REQUESTED: Cell<*const ThreadDispatchRequests> =
         const { Cell::new(core::ptr::null()) };
 
 }
@@ -526,10 +581,10 @@ fn init_thread_slot_if_needed(vm: &VirtualMachine) {
 #[cfg(feature = "threading")]
 fn ensure_thread_slot(vm: &VirtualMachine) -> CurrentFrameSlot {
     let interp_id = vm.state.interpreter_id;
-    INTERP_THREAD_SLOTS.with(|slots| {
+    let (slot, _retired) = INTERP_THREAD_SLOTS.with(|slots| {
         let mut slots = slots.borrow_mut();
         if let Some(existing) = slots.get(&interp_id) {
-            return existing.clone();
+            return (existing.clone(), None);
         }
 
         let thread_id = crate::stdlib::_thread::get_ident();
@@ -571,7 +626,9 @@ fn ensure_thread_slot(vm: &VirtualMachine) -> CurrentFrameSlot {
                     ThreadState::Detached as i32
                 },
             ),
-            stop_requested: core::sync::atomic::AtomicBool::new(false),
+            stop_requested: ThreadDispatchRequests::with_monitoring(
+                vm.state.monitoring_events.load() != 0,
+            ),
             thread: std::thread::current(),
             qsbr: crate::object::qsbr::QSBR.register(),
             critical_section: AtomicUsize::new(
@@ -580,11 +637,15 @@ fn ensure_thread_slot(vm: &VirtualMachine) -> CurrentFrameSlot {
                     .unwrap_or(0),
             ),
         });
-        registry.insert(thread_id, new_slot.clone());
+        // A reused OS thread id can displace the last owner of Python callbacks.
+        let retired = registry.insert(thread_id, new_slot.clone());
         drop(registry);
         slots.insert(interp_id, new_slot.clone());
-        new_slot
-    })
+        (new_slot, retired)
+    });
+    // The displaced slot remains owned until after the registry mutex and
+    // INTERP_THREAD_SLOTS RefCell borrow have been released.
+    slot
 }
 
 /// The current thread's `ThreadSlot` for the entered interpreter, if any.
@@ -1078,6 +1139,24 @@ pub fn stop_requested_for_current_thread() -> bool {
     })
 }
 
+/// Sample stop and monitoring once for an inactive dispatch. The owning Arc
+/// and interpreter-slot selection have the same contract as the STOP accessor.
+#[cfg(feature = "threading")]
+#[inline]
+pub(crate) fn current_dispatch_requests() -> Option<DispatchRequestsSnapshot> {
+    CURRENT_STOP_REQUESTED.with(|cached| {
+        let flag = cached.get();
+        if flag.is_null() {
+            None
+        } else {
+            // SAFETY: CURRENT_THREAD_SLOT retains the current interpreter slot.
+            Some(DispatchRequestsSnapshot(
+                unsafe { &*flag }.0.load(Ordering::Acquire),
+            ))
+        }
+    })
+}
+
 #[cfg(all(test, feature = "threading"))]
 pub(crate) fn set_stop_requested_for_current_thread(value: bool) -> bool {
     CURRENT_STOP_REQUESTED.with(|cached| {
@@ -1238,10 +1317,22 @@ pub fn update_thread_exception(exc: Option<PyBaseExceptionRef>) {
 /// Acquires the global registry lock briefly, then reads each slot's exception atomically.
 #[cfg(feature = "threading")]
 pub fn get_all_current_exceptions(vm: &VirtualMachine) -> Vec<(u64, Option<PyBaseExceptionRef>)> {
-    let registry = vm.state.thread_frames.lock();
-    registry
+    #[expect(
+        clippy::needless_collect,
+        reason = "release the registry guard before owned exception loads can run finalizers"
+    )]
+    let slots: Vec<_> = vm
+        .state
+        .thread_frames
+        .lock()
         .iter()
-        .map(|(id, slot)| (*id, slot.exception.load_owned()))
+        .map(|(id, slot)| (*id, slot.clone()))
+        .collect();
+    // load_owned can drop a successfully increfed value when its snapshot
+    // validation loses a race. That drop may run a Python finalizer.
+    slots
+        .into_iter()
+        .map(|(id, slot)| (id, slot.exception.load_owned()))
         .collect()
 }
 
@@ -1373,7 +1464,9 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
         trace_func: PyMutex::new(vm.trace_func.borrow().clone()),
         profile_func: PyMutex::new(vm.profile_func.borrow().clone()),
         state: core::sync::atomic::AtomicI32::new(ThreadState::Attached as i32),
-        stop_requested: core::sync::atomic::AtomicBool::new(false),
+        stop_requested: ThreadDispatchRequests::with_monitoring(
+            vm.state.monitoring_events.load() != 0,
+        ),
         thread: std::thread::current(),
         qsbr: crate::object::qsbr::QSBR.register(),
         critical_section: AtomicUsize::new(critical_section),
@@ -1662,5 +1755,42 @@ impl VirtualMachine {
             trampoline_stack: core::cell::UnsafeCell::new(Vec::new()),
             async_exception: super::async_exception::PendingAsyncException::default(),
         }
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "threading")]
+mod dispatch_request_tests {
+    use super::{DispatchRequestsSnapshot, ThreadDispatchRequests};
+    use core::sync::atomic::Ordering;
+
+    #[test]
+    fn stop_and_monitoring_preserve_each_others_requests() {
+        let requests = ThreadDispatchRequests::with_monitoring(true);
+        requests.store(true, Ordering::Release);
+        requests.store(false, Ordering::Release);
+        let snapshot = DispatchRequestsSnapshot(requests.0.load(Ordering::Acquire));
+        assert!(snapshot.monitoring_active());
+        assert!(!snapshot.stop_requested());
+        requests.store(true, Ordering::Release);
+        requests.set_monitoring(false);
+        let snapshot = DispatchRequestsSnapshot(requests.0.load(Ordering::Acquire));
+        assert!(!snapshot.monitoring_active());
+        assert!(snapshot.stop_requested());
+        requests.set_monitoring(true);
+        assert!(requests.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn inactive_interpreter_slot_is_independent() {
+        let active = ThreadDispatchRequests::with_monitoring(true);
+        let other = ThreadDispatchRequests::with_monitoring(false);
+        active.store(true, Ordering::Release);
+        assert_eq!(other.0.load(Ordering::Acquire), 0);
+        // Reads do not consume the active hint, including nested dispatch.
+        let first = DispatchRequestsSnapshot(active.0.load(Ordering::Acquire));
+        let second = DispatchRequestsSnapshot(active.0.load(Ordering::Acquire));
+        assert!(first.monitoring_active());
+        assert!(second.monitoring_active());
     }
 }

@@ -55,9 +55,11 @@ use crate::{
 use alloc::collections::BTreeMap;
 #[cfg(all(not(unix), feature = "threading"))]
 use core::ptr::NonNull;
+#[cfg(feature = "threading")]
+use core::sync::atomic::AtomicU64;
 use core::{
     cell::{Cell, OnceCell, RefCell},
-    sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(feature = "threading")]
@@ -939,9 +941,6 @@ pub struct PyGlobalState {
     pub monitoring: PyMutex<stdlib::sys::monitoring::MonitoringState>,
     /// Fast-path mask: OR of all tools' events. 0 means no monitoring overhead.
     pub monitoring_events: stdlib::sys::monitoring::MonitoringEventsMask,
-    /// Incremented on every monitoring state change. Code objects compare their
-    /// local version against this to decide whether re-instrumentation is needed.
-    pub instrumentation_version: AtomicU64,
     /// Stop-the-world state for pre-fork thread suspension
     #[cfg(feature = "threading")]
     pub stop_the_world: StopTheWorldState,
@@ -3869,13 +3868,26 @@ impl VirtualMachine {
     /// `check_signals` and never park, so `stop_the_world` waits forever.
     #[inline]
     pub(crate) fn eval_breaker_tripped(&self) -> bool {
+        #[cfg(feature = "threading")]
+        let stop = thread::stop_requested_for_current_thread();
+        #[cfg(not(feature = "threading"))]
+        let stop = false;
+        self.eval_breaker_tripped_with_stop(stop)
+    }
+
+    /// The inactive loop already sampled STOP before decoding this opcode.
+    /// Signal/GC/async-exception checks and callbacks remain at their old phase.
+    #[inline]
+    pub(crate) fn eval_breaker_tripped_with_stop(&self, stop: bool) -> bool {
         if self.async_exception.is_pending() {
             return true;
         }
         #[cfg(feature = "threading")]
-        if thread::stop_requested_for_current_thread() || self.state.gc.collection_ready() {
+        if stop || self.state.gc.collection_ready() {
             return true;
         }
+        #[cfg(not(feature = "threading"))]
+        let _ = stop;
         #[cfg(not(target_arch = "wasm32"))]
         {
             crate::signal::eval_breaker_pending()

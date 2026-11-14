@@ -1,8 +1,8 @@
 use crate::{
-    builtins::{PyBoundMethod, PyFunction},
+    builtins::{builtin_func::PyNativeFunction, descriptor::PyMethodDescriptor},
     function::{FuncArgs, IntoFuncArgs},
-    types::{GenericMethod, PyTypeFlags, VectorCallFunc},
-    {PyObject, PyObjectRef, PyResult, VirtualMachine},
+    types::{GenericMethod, GetDescriptor, PyTypeFlags, VectorCallFunc},
+    {AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine},
 };
 
 impl PyObject {
@@ -111,21 +111,68 @@ impl PyObject {
         if !vm.use_tracing.get() {
             return vc(self, args, nargs, kwnames, vm);
         }
-        let is_python_callable = self.downcast_ref::<PyFunction>().is_some()
-            || self.downcast_ref::<PyBoundMethod>().is_some();
-        if is_python_callable {
-            vc(self, args, nargs, kwnames, vm)
+        let first_arg = self.profile_first_arg(args[..nargs].first(), vm);
+        let Some(callable) = self.profile_callable(first_arg.as_ref(), vm)? else {
+            return vc(self, args, nargs, kwnames, vm);
+        };
+        vm.trace_event(TraceEvent::CCall, Some(callable))?;
+        let result = vc(self, args, nargs, kwnames, vm);
+        if result.is_ok() {
+            self.profile_event(TraceEvent::CReturn, first_arg.as_ref(), vm)?;
         } else {
-            let callable = self.to_owned();
-            vm.trace_event(TraceEvent::CCall, Some(callable.clone()))?;
-            let result = vc(self, args, nargs, kwnames, vm);
-            if result.is_ok() {
-                vm.trace_event(TraceEvent::CReturn, Some(callable))?;
-            } else {
-                let _ = vm.trace_event(TraceEvent::CException, Some(callable));
-            }
-            result
+            let _ = self.profile_event(TraceEvent::CException, first_arg.as_ref(), vm);
         }
+        result
+    }
+
+    #[cold]
+    fn profile_event(
+        &self,
+        event: TraceEvent,
+        first_arg: Option<&PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let Some(callable) = self.profile_callable(first_arg, vm)? {
+            vm.trace_event(event, Some(callable))?;
+        }
+        Ok(())
+    }
+
+    #[cold]
+    fn profile_first_arg(
+        &self,
+        first_arg: Option<&PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> Option<PyObjectRef> {
+        // Only method descriptors need a receiver for legacy profile callbacks.
+        // Keep it available for binding independently at call and return.
+        if self.class().is(vm.ctx.types.method_descriptor_type) {
+            first_arg.cloned()
+        } else {
+            None
+        }
+    }
+
+    // CPython legacy_tracing.c: sys_profile_call_or_return. This filter is
+    // specific to sys.setprofile, not sys.monitoring's general CALL events.
+    #[cold]
+    fn profile_callable(
+        &self,
+        first_arg: Option<&PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        if vm.tracing_is_suppressed() || vm.is_none(&vm.profile_func.borrow()) {
+            return Ok(None);
+        }
+        if self.downcast_ref::<PyNativeFunction>().is_some() {
+            return Ok(Some(self.to_owned()));
+        }
+        if self.class().is(vm.ctx.types.method_descriptor_type)
+            && let Some(first_arg) = first_arg
+        {
+            return PyMethodDescriptor::descr_get(self, Some(first_arg), None, vm).map(Some);
+        }
+        Ok(None)
     }
 }
 
@@ -165,24 +212,21 @@ impl<'a> PyCallable<'a> {
         if !vm.use_tracing.get() {
             return (self.call)(self.obj, args, vm);
         }
-        // Python functions get 'call'/'return' events from with_frame().
-        // Bound methods delegate to the inner callable, which fires its own events.
-        // All other callables (built-in functions, etc.) get 'c_call'/'c_return'/'c_exception'.
-        let is_python_callable = self.obj.downcast_ref::<PyFunction>().is_some()
-            || self.obj.downcast_ref::<PyBoundMethod>().is_some();
-        if is_python_callable {
-            (self.call)(self.obj, args, vm)
+        let first_arg = self.obj.profile_first_arg(args.args.first(), vm);
+        let Some(callable) = self.obj.profile_callable(first_arg.as_ref(), vm)? else {
+            return (self.call)(self.obj, args, vm);
+        };
+        vm.trace_event(TraceEvent::CCall, Some(callable))?;
+        let result = (self.call)(self.obj, args, vm);
+        if result.is_ok() {
+            self.obj
+                .profile_event(TraceEvent::CReturn, first_arg.as_ref(), vm)?;
         } else {
-            let callable = self.obj.to_owned();
-            vm.trace_event(TraceEvent::CCall, Some(callable.clone()))?;
-            let result = (self.call)(self.obj, args, vm);
-            if result.is_ok() {
-                vm.trace_event(TraceEvent::CReturn, Some(callable))?;
-            } else {
-                let _ = vm.trace_event(TraceEvent::CException, Some(callable));
-            }
-            result
+            let _ = self
+                .obj
+                .profile_event(TraceEvent::CException, first_arg.as_ref(), vm);
         }
+        result
     }
 
     /// Use automatic vectorcall if available, else fall back to FuncArgs.
@@ -230,6 +274,15 @@ pub(crate) enum TraceEvent {
     CCall,
     CReturn,
     CException,
+}
+
+// Existing callers retain their combined hook behavior. Virtual monitoring
+// dispatch can resolve each participant separately at its invocation turn.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum TraceParticipant {
+    ExistingBoth,
+    Trace,
+    Profile,
 }
 
 impl TraceEvent {
@@ -320,9 +373,19 @@ impl VirtualMachine {
         what: crate::stdlib::sys::monitoring::MonitoringEvent,
         arg: Option<PyObjectRef>,
     ) -> PyResult<Option<PyObjectRef>> {
+        self.trace_participant_what(event, what, arg, TraceParticipant::ExistingBoth)
+    }
+
+    pub(crate) fn trace_participant_what(
+        &self,
+        event: TraceEvent,
+        what: crate::stdlib::sys::monitoring::MonitoringEvent,
+        arg: Option<PyObjectRef>,
+        participant: TraceParticipant,
+    ) -> PyResult<Option<PyObjectRef>> {
         if self.use_tracing.get() && !self.tracing_is_suppressed() {
             let old = self.what_event.replace(Some(what));
-            let result = self._trace_event_inner(event, arg);
+            let result = self._trace_event_inner(event, arg, participant);
             self.what_event.set(old);
             result
         } else {
@@ -333,15 +396,23 @@ impl VirtualMachine {
         &self,
         event: TraceEvent,
         arg: Option<PyObjectRef>,
+        participant: TraceParticipant,
     ) -> PyResult<Option<PyObjectRef>> {
-        let trace_func = self.trace_func.borrow().to_owned();
-        let profile_func = self.profile_func.borrow().to_owned();
-        if self.is_none(&trace_func) && self.is_none(&profile_func) {
+        if self.is_none(&self.trace_func.borrow()) && self.is_none(&self.profile_func.borrow()) {
             return Ok(None);
         }
-
-        let is_trace_event = event.is_trace_event();
-        let is_profile_event = event.is_profile_event();
+        let trace_func = if participant != TraceParticipant::Profile {
+            self.trace_func.borrow().to_owned()
+        } else {
+            self.ctx.none()
+        };
+        let profile_func = if participant != TraceParticipant::Trace {
+            self.profile_func.borrow().to_owned()
+        } else {
+            self.ctx.none()
+        };
+        let is_trace_event = participant != TraceParticipant::Profile && event.is_trace_event();
+        let is_profile_event = participant != TraceParticipant::Trace && event.is_profile_event();
         let is_opcode_event = event.is_opcode_event();
 
         let Some(frame_ref) = crate::frame::current_complete_frame_for_trace(self) else {
