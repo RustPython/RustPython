@@ -179,6 +179,19 @@ pub fn name_for_namereplace(code: u32) -> Option<String> {
     char::from_u32(code).and_then(character_name)
 }
 
+/// The private Unicode-name API can return a named-sequence pseudo codepoint.
+#[must_use]
+pub fn lookup_name_code(name: &str, with_named_seq: bool) -> Option<u32> {
+    match lookup_name(name)? {
+        LookupResult::Character(ch) => Some(ch as u32),
+        LookupResult::Sequence(_) if with_named_seq => CAPI_SEQUENCE_NAMES
+            .iter()
+            .position(|candidate| cmp_caseless(candidate, name) == Ordering::Equal)
+            .map(|i| 0xF0200 + i as u32),
+        LookupResult::Sequence(_) => None,
+    }
+}
+
 fn lookup_alias(name: &str) -> Option<char> {
     NAME_ALIASES
         .binary_search_by(|(a, _)| cmp_caseless(a, name))

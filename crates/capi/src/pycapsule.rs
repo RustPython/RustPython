@@ -10,7 +10,7 @@ use rustpython_vm::{PyObjectRef, PyResult, VirtualMachine};
 pub type PyCapsule_Destructor = unsafe extern "C" fn(capsule: *mut PyObject);
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyCapsule_New(
+pub unsafe extern "C" fn PyCapsule_New(
     pointer: *mut c_void,
     name: *const c_char,
     destructor: Option<PyCapsule_Destructor>,
@@ -20,7 +20,8 @@ pub extern "C" fn PyCapsule_New(
             return Err(vm.new_value_error("PyCapsule_New called with null pointer"));
         }
         let name = NonNull::new(name.cast_mut()).map(|ptr| unsafe { CStr::from_ptr(ptr.as_ptr()) });
-        Ok(vm.ctx.new_capsule(pointer, name, destructor))
+        // SAFETY: the C API caller provides a value valid for its capsule protocol.
+        Ok(unsafe { vm.ctx.new_capsule(pointer, name, destructor) })
     })
 }
 
@@ -66,7 +67,8 @@ pub unsafe extern "C" fn PyCapsule_SetContext(
         let capsule = unsafe { capsule.assume_borrowed() }
             .downcast_ref_if_exact::<PyCapsule>(vm)
             .ok_or_else(|| vm.new_value_error("Invalid capsule"))?;
-        let _: () = capsule.set_context(context);
+        // SAFETY: the C API caller must preserve the capsule protocol.
+        unsafe { capsule.set_context(context) };
         Ok(())
     })
 }
@@ -80,7 +82,8 @@ pub unsafe extern "C" fn PyCapsule_SetPointer(
         let capsule = unsafe { capsule.assume_borrowed() }
             .downcast_ref_if_exact::<PyCapsule>(vm)
             .ok_or_else(|| vm.new_value_error("Invalid capsule"))?;
-        let _: () = capsule.set_pointer(pointer);
+        // SAFETY: the C API caller must preserve the capsule protocol.
+        unsafe { capsule.set_pointer(pointer) };
         Ok(())
     })
 }

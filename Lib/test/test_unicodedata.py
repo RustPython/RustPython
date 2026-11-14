@@ -1137,7 +1137,6 @@ class UnicodeMiscTest(unittest.TestCase):
             "(can't load unicodedata module)"
         self.assertIn(error, result.err.decode("ascii"))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError Process return code is 1
     def test_unicodedata_unload_reload(self):
         # gh-149449: dropping unicodedata and running gc must not leave the
         # cached _ucnhash_CAPI pointer dangling.

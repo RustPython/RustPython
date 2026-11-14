@@ -172,6 +172,7 @@ where
         audit_hooks: PyMutex::default(),
         codec_registry,
         filesystem_codec_ready: AtomicBool::new(false),
+        unicode_names: core::sync::atomic::AtomicPtr::new(core::ptr::null_mut()),
         import_time_header: AtomicBool::new(false),
         lazy_imports,
         struct_format_cache: crate::buffer::FormatSpecCache::default(),
