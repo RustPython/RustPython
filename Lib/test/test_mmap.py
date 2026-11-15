@@ -320,7 +320,6 @@ class MmapTests(unittest.TestCase):
         # Try opening a bad file descriptor...
         self.assertRaises(OSError, mmap.mmap, -2, 4096)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_tougher_find(self):
         # Do a tougher .find() test.  SF bug 515943 pointed out that, in 2.2,
         # searching for data with embedded \0 bytes didn't work.
@@ -380,7 +379,6 @@ class MmapTests(unittest.TestCase):
                     fm.find(b"fo", -2)
 
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_rfind(self):
         # test the new 'end' parameter works as expected
         with open(TESTFN, 'wb+') as f:
@@ -441,7 +439,6 @@ class MmapTests(unittest.TestCase):
             self.assertRaises(ValueError, mmap.mmap, f.fileno(), 0,
                               offset=2147418112)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_move(self):
         # make move works everywhere (64-bit format problem earlier)
         with open(TESTFN, 'wb+') as f:
@@ -502,7 +499,6 @@ class MmapTests(unittest.TestCase):
             self.assertEqual(m[x], b)
         self.assertEqual(m.size(), PAGESIZE)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_read_all(self):
         m = mmap.mmap(-1, 16)
         self.addCleanup(m.close)
@@ -524,7 +520,6 @@ class MmapTests(unittest.TestCase):
         m.seek(9)
         self.assertEqual(m.read(-42), bytes(range(9, 16)))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_read_invalid_arg(self):
         m = mmap.mmap(-1, 16)
         self.addCleanup(m.close)
@@ -637,7 +632,6 @@ class MmapTests(unittest.TestCase):
             except OSError:
                 pass
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_subclass(self):
         class anon_mmap(mmap.mmap):
             def __new__(klass, *args, **kwargs):
@@ -690,7 +684,6 @@ class MmapTests(unittest.TestCase):
         self.assertEqual(m[:], b"012barbaz9")
         self.assertRaises(ValueError, m.write, b"ba")
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_non_ascii_byte(self):
         for b in (129, 200, 255): # > 128
             m = mmap.mmap(-1, 1)
@@ -700,7 +693,6 @@ class MmapTests(unittest.TestCase):
             self.assertEqual(m.read_byte(), b)
             m.close()
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(os.name == 'nt', 'requires Windows')
     def test_tagname(self):
         data1 = b"0123456789"
@@ -793,7 +785,6 @@ class MmapTests(unittest.TestCase):
                               "wrong exception raised in context manager")
         self.assertTrue(m.closed, "context manager failed")
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_weakref(self):
         # Check mmap objects are weakrefable
         mm = mmap.mmap(-1, 16)
@@ -803,7 +794,6 @@ class MmapTests(unittest.TestCase):
         gc_collect()
         self.assertIs(wr(), None)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_write_returning_the_number_of_bytes_written(self):
         mm = mmap.mmap(-1, 16)
         self.assertEqual(mm.write(b""), 0)
@@ -811,7 +801,6 @@ class MmapTests(unittest.TestCase):
         self.assertEqual(mm.write(b"yz"), 2)
         self.assertEqual(mm.write(b"python"), 6)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(hasattr(mmap.mmap, 'resize'), 'requires mmap.resize')
     def test_resize_past_pos(self):
         m = mmap.mmap(-1, 8192)
@@ -844,7 +833,6 @@ class MmapTests(unittest.TestCase):
             # See bpo-34754 for details.
             self.assertRaises(OSError, mm.flush, 1, len(b'python'))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_repr(self):
         open_mmap_repr_pat = re.compile(
             r"<mmap.mmap closed=False, "
@@ -946,7 +934,6 @@ class MmapTests(unittest.TestCase):
             self.assertEqual(m[:start_size], data)
             self.assertEqual(m[start_size:], b'\0' * (new_size - start_size))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(hasattr(mmap.mmap, 'resize'), 'requires mmap.resize')
     def test_resize_down_anonymous_mapping(self):
         """If the mmap is backed by the pagefile ensure a resize down up can happen
@@ -1009,7 +996,6 @@ class MmapTests(unittest.TestCase):
                 m[0:size] = value
             self.assertEqual(len(m), new_size)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(os.name == 'nt', 'requires Windows')
     def test_resize_fails_if_mapping_held_elsewhere(self):
         """If more than one mapping is held against a named file on Windows, neither
@@ -1034,7 +1020,6 @@ class MmapTests(unittest.TestCase):
         finally:
             f.close()
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(os.name == 'nt', 'requires Windows')
     def test_resize_succeeds_with_error_for_second_named_mapping(self):
         """If a more than one mapping exists of the same name, none of them can
