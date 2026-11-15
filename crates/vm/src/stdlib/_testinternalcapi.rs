@@ -723,15 +723,16 @@ mod _testinternalcapi {
         {
             if args.main.into_bool() {
                 crate::vm::crossinterp::with_interpreter(id, vm, |target| {
-                    run_interpreter_source(source, target)
+                    Ok(run_interpreter_source(source, target))
                 })
             } else if id == vm.state.interpreter_id {
-                vm.new_thread()
-                    .run(|target| run_interpreter_source(source, target))
+                Ok(vm
+                    .new_thread()
+                    .run(|target| run_interpreter_source(source, target)))
             } else {
                 let thread = crate::vm::runtime::owned_new_thread(id)
                     .ok_or_else(|| crate::stdlib::_interpreters::interpreter_not_found(vm, id))?;
-                thread.run(|target| run_interpreter_source(source, target))
+                Ok(thread.run(|target| run_interpreter_source(source, target)))
             }
         }
         #[cfg(not(feature = "threading"))]
@@ -2079,27 +2080,24 @@ fn run_string_in_new_subinterp(
         thread.run(|target| run_interpreter_source(source, target))
     };
     let _ = crate::vm::runtime::destroy_owned_interpreter(id);
-    outcome
+    Ok(outcome)
 }
 
 #[cfg(feature = "threading")]
-fn run_interpreter_source(source: &str, target: &VirtualMachine) -> PyResult<i32> {
-    match target.compile(source, crate::compiler::Mode::Exec, "<string>") {
-        Ok(code) => {
-            let ns = target.main_namespace()?;
-            let scope = crate::scope::Scope::with_builtins(None, ns, target);
-            match target.run_code_obj(code, scope) {
-                Ok(_) => Ok(0),
-                Err(exc) => {
-                    target.print_exception(&exc);
-                    Ok(-1)
-                }
-            }
-        }
-        Err(err) => {
-            let exc = err.into_pyexception(target, Some(source));
-            target.print_exception(&exc);
-            Ok(-1)
+fn run_interpreter_source(source: &str, target: &VirtualMachine) -> i32 {
+    let result = (|| {
+        let ns = target.add_main_module()?.dict();
+        let code = target
+            .compile(source, crate::compiler::Mode::Exec, "<string>")
+            .map_err(|err| err.into_pyexception(target, Some(source)))?;
+        let scope = crate::scope::Scope::with_builtins(None, ns, target);
+        target.run_code_obj(code, scope)
+    })();
+    match result {
+        Ok(_) => 0,
+        Err(exc) => {
+            target.print_uncaught_exception(&exc);
+            -1
         }
     }
 }

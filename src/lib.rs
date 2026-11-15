@@ -90,7 +90,6 @@ compile_error!(
 /// **Note**: This function provides no way to further initialize the VM after the builder is applied.
 /// All VM initialization (adding native modules, init hooks, etc.) must be done through the
 /// [`InterpreterBuilder`] parameter before calling this function.
-#[must_use]
 pub fn run(builder: InterpreterBuilder) -> ExitCode {
     run_impl(builder, false)
 }
@@ -102,7 +101,6 @@ pub fn run(builder: InterpreterBuilder) -> ExitCode {
 /// Call only during single-threaded startup, before other threads or libraries
 /// can read the environment or use the process-global locale. Embedded callers
 /// that cannot guarantee this should use `run` or build an interpreter directly.
-#[must_use]
 pub unsafe fn run_with_locale(builder: InterpreterBuilder) -> ExitCode {
     run_impl(builder, true)
 }
