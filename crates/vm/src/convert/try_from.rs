@@ -16,6 +16,15 @@ pub trait TryFromObject: Sized {
     /// Attempt to convert a Python object to a value of this type.
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
 
+    /// Convert a native method receiver after descriptor binding. Most custom
+    /// receivers use their ordinary conversion; payload receivers avoid repeating
+    /// the Python class check while still validating their Rust representation.
+    #[doc(hidden)]
+    #[inline]
+    fn try_from_method_receiver(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+        Self::try_from_object(vm, obj.to_owned())
+    }
+
     /// Convert a call argument. `PyRef<T>` turns an isinstance failure into
     /// `_PyArg_BadArgument`; other types keep `try_from_object`.
     #[inline]
@@ -108,6 +117,11 @@ where
         } else {
             Err(vm.new_downcast_type_error(class, &obj))
         }
+    }
+
+    #[inline]
+    fn try_from_method_receiver(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+        obj.try_downcast_ref::<T>(vm).map(ToOwned::to_owned)
     }
 
     #[inline]

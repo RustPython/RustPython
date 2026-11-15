@@ -1,6 +1,7 @@
 import builtins
 import inspect
 import os
+import sys
 
 from testutils import assert_raises
 
@@ -487,3 +488,131 @@ for pickle_type in (
     parameters = inspect.signature(reduce_ex).parameters
     assert list(parameters) == ["self", "protocol"]
     assert parameters["protocol"].kind == inspect.Parameter.POSITIONAL_ONLY
+# Clinic wraps whole parameter chunks at column 72, including the function
+# name and trailing comma in the width. Preserve the raw spelling, including
+# spaces inside defaults; inspect.signature equivalence alone cannot check it.
+import importlib
+
+clinic_wrapped_signatures = {
+    "builtins": {
+        "__import__": "($module, /, name, globals=None, locals=None, fromlist=(),\n           level=0)",
+        "__lazy_import__": "($module, /, name, globals=None, locals=None,\n                fromlist=(), level=0)",
+        "compile": "($module, /, source, filename, mode, flags=0,\n        dont_inherit=False, optimize=-1, *, module=None,\n        _feature_version=-1)",
+    },
+    "array": {
+        "_array_reconstructor": "($module, arraytype, typecode, mformat_code, items,\n                     /)"
+    },
+    "binascii": {
+        "a2b_ascii85": "($module, data, /, *, foldspaces=False, adobe=False,\n            ignorechars=b'', canonical=False)",
+        "a2b_base32": "($module, data, /, *, padded=True, alphabet=BASE32_ALPHABET,\n           ignorechars=b'', canonical=False)",
+        "a2b_base64": "($module, data, /, *, strict_mode=<unrepresentable>,\n           padded=True, alphabet=BASE64_ALPHABET,\n           ignorechars=<unrepresentable>, canonical=False)",
+        "a2b_base85": "($module, data, /, *, alphabet=BASE85_ALPHABET,\n           ignorechars=b'', canonical=False)",
+        "b2a_ascii85": "($module, data, /, *, foldspaces=False, wrapcol=0,\n            pad=False, adobe=False)",
+        "b2a_base32": "($module, data, /, *, padded=True, wrapcol=0,\n           alphabet=BASE32_ALPHABET)",
+        "b2a_base64": "($module, data, /, *, padded=True, wrapcol=0, newline=True,\n           alphabet=BASE64_ALPHABET)",
+        "b2a_base85": "($module, data, /, *, pad=False, wrapcol=0,\n           alphabet=BASE85_ALPHABET)",
+    },
+    "_codecs": {
+        "utf_16_ex_decode": "($module, data, errors=None, byteorder=0, final=False,\n                 /)",
+        "utf_32_ex_decode": "($module, data, errors=None, byteorder=0, final=False,\n                 /)",
+    },
+    "datetime": {
+        "datetime": "(year, month, day, hour=0, minute=0, second=0, microsecond=0,\n         tzinfo=None, *, fold=0)",
+        "timedelta": "(days=0, seconds=0, microseconds=0, milliseconds=0, minutes=0,\n          hours=0, weeks=0)",
+        "datetime.replace": "($self, /, year=unchanged, month=unchanged, day=unchanged,\n        hour=unchanged, minute=unchanged, second=unchanged,\n        microsecond=unchanged, tzinfo=unchanged, *, fold=unchanged)",
+        "time.replace": "($self, /, hour=unchanged, minute=unchanged, second=unchanged,\n        microsecond=unchanged, tzinfo=unchanged, *, fold=unchanged)",
+    },
+    "_functools": {
+        "reduce": "($module, function, iterable, /,\n       initial=functools._initial_missing)"
+    },
+    "_hashlib": {
+        "openssl_sha224": "($module, /, data=b'', *, usedforsecurity=True,\n               string=None)",
+        "openssl_sha256": "($module, /, data=b'', *, usedforsecurity=True,\n               string=None)",
+        "openssl_sha384": "($module, /, data=b'', *, usedforsecurity=True,\n               string=None)",
+        "openssl_sha3_224": "($module, /, data=b'', *, usedforsecurity=True,\n                 string=None)",
+        "openssl_sha3_256": "($module, /, data=b'', *, usedforsecurity=True,\n                 string=None)",
+        "openssl_sha3_384": "($module, /, data=b'', *, usedforsecurity=True,\n                 string=None)",
+        "openssl_sha3_512": "($module, /, data=b'', *, usedforsecurity=True,\n                 string=None)",
+        "openssl_sha512": "($module, /, data=b'', *, usedforsecurity=True,\n               string=None)",
+        "openssl_shake_128": "($module, /, data=b'', *, usedforsecurity=True,\n                  string=None)",
+        "openssl_shake_256": "($module, /, data=b'', *, usedforsecurity=True,\n                  string=None)",
+        "pbkdf2_hmac": "($module, /, hash_name, password, salt, iterations,\n            dklen=None)",
+    },
+    "_io": {
+        "TextIOWrapper": "(buffer, encoding=None, errors=None, newline=None,\n              line_buffering=False, write_through=False)",
+        "open": "($module, /, file, mode='r', buffering=-1, encoding=None,\n     errors=None, newline=None, closefd=True, opener=None)",
+        "TextIOWrapper.reconfigure": "($self, /, *, encoding=None, errors=None, newline=None,\n            line_buffering=None, write_through=None)",
+    },
+    "_lsprof": {
+        "Profiler._creturn_callback": "($self, code, instruction_offset, callable, self_arg,\n                  /)"
+    },
+    "_pickle": {
+        "Unpickler": "(file, *, fix_imports=True, encoding='ASCII', errors='strict',\n          buffers=())",
+        "dump": "($module, /, obj, file, protocol=None, *, fix_imports=True,\n     buffer_callback=None)",
+        "dumps": "($module, /, obj, protocol=None, *, fix_imports=True,\n      buffer_callback=None)",
+        "load": "($module, /, file, *, fix_imports=True, encoding='ASCII',\n     errors='strict', buffers=())",
+        "loads": "($module, data, /, *, fix_imports=True, encoding='ASCII',\n      errors='strict', buffers=())",
+    },
+    "posix": {
+        "access": "($module, /, path, mode, *, dir_fd=None, effective_ids=False,\n       follow_symlinks=True)",
+        "chmod": "($module, /, path, mode, *, dir_fd=None,\n      follow_symlinks=(os.name != 'nt'))",
+        "copy_file_range": "($module, /, src, dst, count, offset_src=None,\n                offset_dst=None)",
+        "link": "($module, /, src, dst, *, src_dir_fd=None, dst_dir_fd=None,\n     follow_symlinks=(os.name != 'nt'))",
+        "posix_spawn": "($module, path, argv, env, /, *, file_actions=(),\n            setpgroup=None, resetids=False, setsid=False,\n            setsigmask=(), setsigdef=(), scheduler=None)",
+        "posix_spawnp": "($module, path, argv, env, /, *, file_actions=(),\n             setpgroup=None, resetids=False, setsid=False,\n             setsigmask=(), setsigdef=(), scheduler=None)",
+        "register_at_fork": "($module, /, *, before=<unrepresentable>,\n                 after_in_child=<unrepresentable>,\n                 after_in_parent=<unrepresentable>)",
+        "utime": "($module, /, path, times=None, *, ns=<unrepresentable>,\n      dir_fd=None, follow_symlinks=True)",
+    },
+    "_posixsubprocess": {
+        "fork_exec": "($module, args, executable_list, close_fds, pass_fds, cwd,\n          env, p2cread, p2cwrite, c2pread, c2pwrite, errread, errwrite,\n          errpipe_read, errpipe_write, restore_signals, call_setsid,\n          pgid_to_set, gid, extra_groups, uid, child_umask, preexec_fn,\n          /)"
+    },
+    "pyexpat": {
+        "ParserCreate": "($module, /, encoding=None, namespace_separator=None,\n             intern=<unrepresentable>)"
+    },
+    "_remote_debugging": {
+        "BinaryWriter.set_stats": "($self, /, duration_sec, sample_rate, error_rate=None,\n          missed_samples=None)"
+    },
+    "_sre": {
+        "compile": "($module, /, pattern, flags, code, groups, groupindex,\n        indexgroup)"
+    },
+    "_ssl": {
+        "_SSLContext._wrap_bio": "($self, /, incoming, outgoing, server_side,\n          server_hostname=None, *, owner=None, session=None)",
+        "_SSLContext._wrap_socket": "($self, /, sock, server_side, server_hostname=None, *,\n             owner=None, session=None)",
+    },
+    "syslog": {
+        "openlog": "($module, /, ident=<unrepresentable>, logoption=0,\n        facility=LOG_USER)"
+    },
+    "_warnings": {
+        "warn": "($module, /, message, category=None, stacklevel=1, source=None, *,\n     skip_file_prefixes=())"
+    },
+    "zlib": {
+        "compressobj": "($module, /, level=Z_DEFAULT_COMPRESSION, method=DEFLATED,\n            wbits=MAX_WBITS, memLevel=DEF_MEM_LEVEL,\n            strategy=Z_DEFAULT_STRATEGY, zdict=<unrepresentable>)"
+    },
+}
+for module_name, signatures in clinic_wrapped_signatures.items():
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError:
+        # Native modules vary with the platform and build features.
+        continue
+    for attribute_path, expected in signatures.items():
+        if module_name == "posix":
+            if attribute_path == "copy_file_range" and sys.platform != "linux":
+                # copy_file_range is a Linux-only syscall.
+                continue
+            if sys.platform == "wasi" and attribute_path in (
+                "posix_spawn",
+                "posix_spawnp",
+                "register_at_fork",
+            ):
+                # WASI does not provide process creation or fork hooks.
+                continue
+        function = module
+        for component in attribute_path.split("."):
+            function = getattr(function, component)
+        assert function.__text_signature__ == expected, (
+            module_name,
+            attribute_path,
+            function.__text_signature__,
+            expected,
+        )

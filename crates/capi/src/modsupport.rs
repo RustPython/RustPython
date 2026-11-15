@@ -64,8 +64,8 @@ pub unsafe extern "C" fn PyModule_AddFunctions(
         for def in PyMethodDef::iter(functions) {
             let name = unsafe { def.ml_name.try_as_str(vm) }?;
             let function = def
-                .build_method_def(vm, true)?
-                .build_function(vm, Some(module.as_object().to_owned()));
+                .build_method_def(vm)?
+                .build_function(vm, Some(module.to_owned().into()));
             function
                 .as_object()
                 .set_attr("__module__", module_name.clone(), vm)?;

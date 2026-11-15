@@ -201,7 +201,7 @@ pub unsafe extern "C" fn PyDescr_NewMethod(
     method: *mut PyMethodDef,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let method = unsafe { &*method }.build_method_def(vm, true)?;
+        let method = unsafe { &*method }.build_method_def(vm)?;
         Ok(method.build_method(unsafe { typ.assume_borrowed() }, vm))
     })
 }
@@ -212,8 +212,8 @@ pub unsafe extern "C" fn PyDescr_NewClassMethod(
     method: *mut PyMethodDef,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let method = unsafe { &*method }.build_method_def(vm, true)?;
-        Ok(method.build_method(unsafe { typ.assume_borrowed() }, vm))
+        let method = unsafe { &*method }.build_method_def(vm)?;
+        Ok(method.build_classmethod(unsafe { typ.assume_borrowed() }, vm))
     })
 }
 
