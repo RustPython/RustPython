@@ -585,7 +585,6 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest, CTestCase):
         # checking this is not so easy.
         self.assertRaises(OSError, bufio.read, 10)
 
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; cyclic GC not supported, causes file locking")
     def test_garbage_collection(self):
         # C BufferedReader objects are collected.
         # The Python version has __del__, so it ends into gc.garbage instead
@@ -956,7 +955,6 @@ class CBufferedWriterTest(BufferedWriterTest, SizeofTest, CTestCase):
         self.assertRaises(ValueError, bufio.__init__, rawio, buffer_size=-1)
         self.assertRaises(ValueError, bufio.write, b"def")
 
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; cyclic GC not supported, causes file locking")
     def test_garbage_collection(self):
         # C BufferedWriter objects are collected, and collecting them flushes
         # all data to disk.
@@ -1486,7 +1484,6 @@ class BufferedRandomTest(BufferedReaderTest, BufferedWriterTest):
 class CBufferedRandomTest(BufferedRandomTest, SizeofTest, CTestCase):
     tp = io.BufferedRandom
 
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; cyclic GC not supported, causes file locking")
     def test_garbage_collection(self):
         CBufferedReaderTest.test_garbage_collection(self)
         CBufferedWriterTest.test_garbage_collection(self)

@@ -1458,7 +1458,6 @@ class CTextIOWrapperTest(TextIOWrapperTest, CTestCase):
         t = self.TextIOWrapper.__new__(self.TextIOWrapper)
         self.assertRaises(Exception, repr, t)
 
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; cyclic GC not supported, causes file locking")
     def test_garbage_collection(self):
         # C TextIOWrapper objects are collected, and collecting them flushes
         # all data to disk.
