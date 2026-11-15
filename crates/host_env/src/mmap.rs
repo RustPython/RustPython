@@ -139,15 +139,15 @@ use std::os::windows::io::{AsRawHandle, IntoRawHandle};
 #[cfg(windows)]
 use windows_sys::Win32::{
     Foundation::{
-        CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, GetLastError, HANDLE,
-        INVALID_HANDLE_VALUE,
+        CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_ALREADY_EXISTS,
+        ERROR_USER_MAPPED_FILE, GetLastError, HANDLE, INVALID_HANDLE_VALUE,
     },
     Storage::FileSystem::{FILE_BEGIN, GetFileSize, SetEndOfFile, SetFilePointerEx},
     System::{
         Memory::{
             CreateFileMappingW, FILE_MAP_COPY, FILE_MAP_READ, FILE_MAP_WRITE, FlushViewOfFile,
-            MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile, PAGE_READONLY, PAGE_READWRITE,
-            PAGE_WRITECOPY, UnmapViewOfFile,
+            MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile, OpenFileMappingW, PAGE_READONLY,
+            PAGE_READWRITE, PAGE_WRITECOPY, UnmapViewOfFile,
         },
         Threading::GetCurrentProcess,
     },
@@ -168,8 +168,9 @@ pub enum AccessMode {
 
 #[cfg(windows)]
 #[derive(Debug)]
-pub struct NamedMmap {
+pub struct WindowsMmap {
     map_handle: Handle,
+    tag: Option<Vec<u16>>,
     view_ptr: *mut u8,
     len: usize,
 }
@@ -267,12 +268,112 @@ pub fn set_mapping_name(address: usize, size: usize, name: &core::ffi::CStr) -> 
 }
 
 #[cfg(windows)]
-unsafe impl Send for NamedMmap {}
+unsafe impl Send for WindowsMmap {}
 #[cfg(windows)]
-unsafe impl Sync for NamedMmap {}
+unsafe impl Sync for WindowsMmap {}
 
 #[cfg(windows)]
-impl NamedMmap {
+impl WindowsMmap {
+    pub fn is_valid(&self) -> bool {
+        !self.map_handle.is_null() && !self.view_ptr.is_null()
+    }
+
+    pub fn size(&self) -> usize {
+        self.len
+    }
+
+    /// Resize like CPython's Windows mmap: retain the old anonymous view until
+    /// its contents have been copied, but release file views before truncation.
+    ///
+    /// # Safety
+    /// No exported pointers may remain live, and the caller must discard an
+    /// invalid mapping after an error before exposing its contents again.
+    pub unsafe fn resize(&mut self, file: Handle, offset: i64, new_size: usize) -> io::Result<()> {
+        let old_data = self.view_ptr;
+        let mut new_size = new_size;
+        let mut max_size = offset as u64 + new_size as u64;
+        let mut file_resize_error = None;
+        unsafe { CloseHandle(self.map_handle) };
+        self.map_handle = core::ptr::null_mut();
+        if let Some(tag) = &self.tag {
+            self.map_handle = unsafe { OpenFileMappingW(FILE_MAP_WRITE, 0, tag.as_ptr()) };
+            if !self.map_handle.is_null() {
+                return Err(io::Error::from_raw_os_error(ERROR_USER_MAPPED_FILE as i32));
+            }
+        }
+        if file != INVALID_HANDLE {
+            unsafe {
+                UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS {
+                    Value: self.view_ptr.cast(),
+                })
+            }
+            .check_win32_bool()?;
+            self.view_ptr = core::ptr::null_mut();
+            if let Err(err) = extend_file(file, max_size as i64) {
+                file_resize_error = Some(err);
+                max_size = self.len as u64;
+                new_size = self.len;
+            }
+        }
+        self.map_handle = unsafe {
+            CreateFileMappingW(
+                file,
+                core::ptr::null(),
+                PAGE_READWRITE,
+                (max_size >> 32) as u32,
+                max_size as u32,
+                self.tag
+                    .as_ref()
+                    .map_or(core::ptr::null(), |tag| tag.as_ptr()),
+            )
+        };
+        let error = unsafe { GetLastError() };
+        // A different mapping may have taken this name between close and create.
+        if error == ERROR_ALREADY_EXISTS {
+            unsafe { CloseHandle(self.map_handle) };
+            self.map_handle = core::ptr::null_mut();
+            return Err(io::Error::from_raw_os_error(error as i32));
+        }
+        if self.map_handle.is_null() {
+            return Err(io::Error::from_raw_os_error(error as i32));
+        }
+        let view = unsafe {
+            MapViewOfFile(
+                self.map_handle,
+                FILE_MAP_WRITE,
+                (offset as u64 >> 32) as u32,
+                offset as u32,
+                new_size,
+            )
+        };
+        if view.Value.is_null() {
+            let err = io::Error::last_os_error();
+            unsafe { CloseHandle(self.map_handle) };
+            self.map_handle = core::ptr::null_mut();
+            return Err(err);
+        }
+        self.view_ptr = view.Value.cast();
+        if file == INVALID_HANDLE {
+            unsafe {
+                core::ptr::copy_nonoverlapping(old_data, self.view_ptr, self.len.min(new_size))
+            };
+            let result = unsafe {
+                UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS {
+                    Value: old_data.cast(),
+                })
+            }
+            .check_win32_bool();
+            self.len = new_size;
+            result?;
+        } else {
+            self.len = new_size;
+        }
+        if let Some(err) = file_resize_error {
+            return Err(err);
+        }
+        Ok(())
+    }
+
     pub fn as_slice(&self) -> &[u8] {
         unsafe { core::slice::from_raw_parts(self.view_ptr, self.len) }
     }
@@ -291,7 +392,7 @@ impl NamedMmap {
 }
 
 #[cfg(windows)]
-impl Drop for NamedMmap {
+impl Drop for WindowsMmap {
     fn drop(&mut self) {
         unsafe {
             if !self.view_ptr.is_null() {
@@ -380,6 +481,13 @@ pub fn prepare_file_mapping(fd: i32) {
 }
 
 #[cfg(windows)]
+pub fn prepare_file_mapping(fd: i32) {
+    // Match CPython's historical Windows constructor side effect. Seek errors
+    // are intentionally ignored; CreateFileMapping reports unusable handles.
+    let _ = unsafe { crate::suppress_iph!(libc::lseek(fd, 0, libc::SEEK_SET)) };
+}
+
+#[cfg(windows)]
 pub fn is_invalid_handle_value(handle: isize) -> bool {
     handle == INVALID_HANDLE as isize
 }
@@ -420,7 +528,7 @@ pub fn create_mapping(
     access: AccessMode,
     offset: i64,
     map_size: usize,
-) -> io::Result<NamedMmap> {
+) -> io::Result<WindowsMmap> {
     let (fl_protect, desired_access) = match access {
         AccessMode::Default | AccessMode::Write => (PAGE_READWRITE, FILE_MAP_WRITE),
         AccessMode::Read => (PAGE_READONLY, FILE_MAP_READ),
@@ -466,8 +574,9 @@ pub fn create_mapping(
         return Err(io::Error::last_os_error());
     }
 
-    Ok(NamedMmap {
+    Ok(WindowsMmap {
         map_handle: map_handle.into_raw_handle() as Handle,
+        tag: tag_wide,
         view_ptr: view.Value as *mut u8,
         len: map_size,
     })
