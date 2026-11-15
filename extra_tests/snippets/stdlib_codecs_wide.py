@@ -262,6 +262,8 @@ def test_encode_handler_restart_validation():
         encoders.append(
             lambda handler: _codecs.code_page_encode(65001, "\ud800", handler)
         )
+        encoders.append(lambda handler: _codecs.mbcs_encode("\ud800", handler))
+        encoders.append(lambda handler: _codecs.oem_encode("\ud800", handler))
     name = "test_encode_restart_validation"
     try:
         for encode in encoders:
