@@ -196,7 +196,7 @@ where
                 out.push_wtf8(replace.as_ref());
             }
             b'N' => {
-                let names = ctx.unicode_names()?;
+                ctx.load_unicode_names()?;
                 if rest.len() == 2 && !final_decode {
                     consumed = ctx.position();
                     break;
@@ -233,10 +233,10 @@ where
                         out.push_wtf8(replace.as_ref());
                         continue;
                     }
-                    let name = &rest[name_start..look];
-                    match names.character(name) {
+                    let name = core::str::from_utf8(&rest[name_start..look]).ok();
+                    match name.and_then(rustpython_unicode::lookup_character) {
                         Some(ch) => {
-                            out.push(ch);
+                            out.push_char(ch);
                             ctx.advance(look + 1);
                             continue;
                         }

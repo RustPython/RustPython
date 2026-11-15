@@ -1133,8 +1133,10 @@ pub(crate) mod module {
         let wide = path.to_wide_cstring(vm)?;
         let cookie = host_winapi::add_dll_directory(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?;
-        // SAFETY: cookie is the live native DLL-directory handle returned above.
-        Ok(unsafe { vm.ctx.new_capsule(cookie, Some(DLL_DIRECTORY_COOKIE), None) }.into())
+        Ok(vm
+            .ctx
+            .new_capsule(cookie, Some(DLL_DIRECTORY_COOKIE), None)
+            .into())
     }
 
     #[derive(FromArgs)]
@@ -1156,8 +1158,7 @@ pub(crate) mod module {
         }
         host_winapi::remove_dll_directory(capsule.pointer())
             .map_err(|err| err.to_pyexception(vm))?;
-        // SAFETY: null marks the native handle as closed and prevents reuse.
-        unsafe { capsule.set_pointer(core::ptr::null_mut()) };
+        capsule.set_pointer(core::ptr::null_mut());
         Ok(())
     }
 

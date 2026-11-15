@@ -213,8 +213,7 @@ mod _testinternalcapi {
             return;
         }
         let data = capsule.pointer().cast::<CrossinterpData>();
-        // SAFETY: null marks the transferred allocation as already released.
-        unsafe { capsule.set_pointer(core::ptr::null_mut()) };
+        capsule.set_pointer(core::ptr::null_mut());
         if !data.is_null() {
             // SAFETY: get_crossinterp_data transferred this Box to the capsule.
             // Clearing the pointer above prevents a second release.
@@ -234,15 +233,10 @@ mod _testinternalcapi {
         let mode = args.mode.into_option();
         let data = CrossinterpData::from_object(&args.obj, mode.as_deref(), vm)?;
         let data = Box::into_raw(Box::new(data)).cast();
-        // SAFETY: data is the owned CrossinterpData allocation expected by the
-        // destructor and restore_crossinterp_data; the tag identifies this type.
-        let capsule = unsafe {
-            let capsule = vm
-                .ctx
-                .new_capsule(data, None, Some(release_crossinterp_data));
-            capsule.set_context(crossinterp_data_tag());
-            capsule
-        };
+        let capsule = vm
+            .ctx
+            .new_capsule(data, None, Some(release_crossinterp_data));
+        capsule.set_context(crossinterp_data_tag());
         Ok(capsule.into())
     }
 

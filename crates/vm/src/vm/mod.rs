@@ -888,7 +888,7 @@ pub struct PyGlobalState {
     pub(crate) audit_hooks: PyMutex<Vec<PyObjectRef>>,
     pub codec_registry: CodecsRegistry,
     pub(crate) filesystem_codec_ready: AtomicBool,
-    pub(crate) unicode_names: core::sync::atomic::AtomicPtr<crate::unicode_names::UnicodeNameCapi>,
+    pub(crate) unicode_names_loaded: AtomicBool,
     pub(crate) import_time_header: AtomicBool,
     pub(crate) lazy_imports: crate::lazy_import::LazyImportsState,
     pub struct_format_cache: crate::buffer::FormatSpecCache,

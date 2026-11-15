@@ -1,4 +1,3 @@
-use alloc::borrow::Cow;
 use core::ops::{self, Range};
 
 use num_traits::ToPrimitive;
@@ -28,23 +27,6 @@ pub trait StrBuffer: AsRef<Wtf8> {
     }
 }
 
-/// Name services used by Unicode codecs. Runtime contexts can import a provider
-/// lazily; standalone codecs use the bundled database.
-pub trait UnicodeNames {
-    fn name<'a>(&self, code: u32, buffer: &'a mut [u8; 256]) -> Option<Cow<'a, str>>;
-    fn character(&self, name: &[u8]) -> Option<CodePoint>;
-}
-
-struct BundledUnicodeNames;
-impl UnicodeNames for BundledUnicodeNames {
-    fn name<'a>(&self, code: u32, _buffer: &'a mut [u8; 256]) -> Option<Cow<'a, str>> {
-        rustpython_unicode::data::name_for_namereplace(code).map(Cow::Owned)
-    }
-    fn character(&self, name: &[u8]) -> Option<CodePoint> {
-        rustpython_unicode::lookup_character(core::str::from_utf8(name).ok()?).map(CodePoint::from)
-    }
-}
-
 pub trait CodecContext: Sized {
     type Error;
     type StrBuf: StrBuffer;
@@ -53,8 +35,9 @@ pub trait CodecContext: Sized {
     fn string(&self, s: Wtf8Buf) -> Self::StrBuf;
     fn bytes(&self, b: Vec<u8>) -> Self::BytesBuf;
 
-    fn unicode_names(&self) -> Result<&dyn UnicodeNames, Self::Error> {
-        Ok(&BundledUnicodeNames)
+    /// Runtime contexts may need to load the Unicode name database before `\N` escapes are decoded.
+    fn load_unicode_names(&self) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
 
@@ -433,23 +416,21 @@ pub mod errors {
     }
 
     #[derive(Clone, Copy)]
-    pub struct NameReplace<'a>(pub &'a dyn UnicodeNames);
+    pub struct NameReplace;
 
-    impl<Ctx: EncodeContext> EncodeErrorHandler<Ctx> for NameReplace<'_> {
+    impl<Ctx: EncodeContext> EncodeErrorHandler<Ctx> for NameReplace {
         fn handle_encode_error(
             &self,
             ctx: &mut Ctx,
             range: Range<StrSize>,
             _reason: Option<&str>,
         ) -> Result<(EncodeReplace<Ctx>, StrSize), Ctx::Error> {
-            let names = self.0;
-            let mut name_buffer = [0; 256];
             let err_str = &ctx.full_data()[range.start.bytes..range.end.bytes];
             let num_chars = range.end.chars - range.start.chars;
             let mut out = String::with_capacity(num_chars * 4);
             for c in err_str.code_points() {
                 let c_u32 = c.to_u32();
-                if let Some(c_name) = names.name(c_u32, &mut name_buffer) {
+                if let Some(c_name) = rustpython_unicode::data::name_for_namereplace(c_u32) {
                     write!(out, "\\N{{{c_name}}}").unwrap();
                 } else if c_u32 >= 0x10000 {
                     write!(out, "\\U{c_u32:08x}").unwrap();

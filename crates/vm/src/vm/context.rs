@@ -773,16 +773,13 @@ impl Context {
         PyRef::new_ref(object::PyBaseObject, class, dict).into()
     }
 
-    /// # Safety
-    /// See [`PyCapsule::new`]: the native value must satisfy its capsule protocol.
-    pub unsafe fn new_capsule(
+    pub fn new_capsule(
         &self,
         ptr: *mut c_void,
         name: Option<&'static CStr>,
         destructor: Option<unsafe extern "C" fn(_: *mut PyObject)>,
     ) -> PyRef<PyCapsule> {
-        // SAFETY: forwarded from this function's caller.
-        unsafe { PyCapsule::new(ptr, name, destructor) }.into_ref(self)
+        PyCapsule::new(ptr, name, destructor).into_ref(self)
     }
 }
 
