@@ -3869,7 +3869,6 @@ dependencies = [
  "libloading 0.9.0",
  "mac_address",
  "mach2 0.7.0",
- "memchr",
  "memmap2",
  "nix",
  "num-traits",
