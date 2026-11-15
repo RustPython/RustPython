@@ -1670,7 +1670,7 @@ mod _pyexpat {
                         .store(standalone == Some(true), Ordering::Relaxed);
                     let declaration = self.declaration.write().take();
                     if let Some(declaration) = declaration {
-                        invoke_handler(
+                        self.invoke_buffered_handler(
                             vm,
                             &self.xml_decl,
                             (

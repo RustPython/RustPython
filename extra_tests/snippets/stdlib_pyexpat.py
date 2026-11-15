@@ -327,3 +327,22 @@ else:
     raise AssertionError("non-integer external handler result accepted")
 assert parser.ExternalEntityRefHandler is invalid_result
 assert parser.Parse(b"", True) == 1
+
+# Declaration callbacks participate in the same non-resumable error cleanup.
+parser = expat.ParserCreate()
+
+
+def fail_declaration(*args):
+    raise ValueError("declaration failure")
+
+
+parser.XmlDeclHandler = fail_declaration
+parser.StartElementHandler = lambda *args: None
+try:
+    parser.Parse(b'<?xml version="1.0"?><r/>', True)
+except ValueError as exc:
+    assert str(exc) == "declaration failure"
+else:
+    raise AssertionError("declaration exception swallowed")
+assert parser.XmlDeclHandler is None
+assert parser.StartElementHandler is None
