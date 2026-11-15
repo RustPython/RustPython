@@ -844,7 +844,7 @@ mod _sre {
             let (_, code, _) = unsafe { zelf.code.align_to::<u8>() };
             let hash = hash ^ crate::vm::hash_secret().hash_bytes(code);
             let hash = hash ^ (zelf.flags as PyHash);
-            let hash = hash ^ (zelf.isbytes as i64);
+            let hash = hash ^ (zelf.isbytes as PyHash);
             Ok(hash)
         }
     }

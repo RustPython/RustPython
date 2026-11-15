@@ -31,7 +31,7 @@ use num_traits::ToPrimitive;
 /// hash value of an object returned by __hash__
 type HashValue = hash::PyHash;
 /// index calculated by resolving collision
-type HashIndex = hash::PyHash;
+type HashIndex = hash::PyUHash;
 /// index into dict.indices
 type IndexIndex = usize;
 /// index into dict.entries
@@ -282,13 +282,13 @@ pub(crate) struct DictChanged;
 
 struct GenIndexes {
     idx: HashIndex,
-    perturb: HashValue,
+    perturb: hash::PyUHash,
     mask: HashIndex,
 }
 
 impl GenIndexes {
     const fn new(hash: HashValue, mask: HashIndex) -> Self {
-        let hash = hash.abs();
+        let hash = hash as hash::PyUHash;
         Self {
             idx: hash,
             perturb: hash,
@@ -303,7 +303,7 @@ impl GenIndexes {
             .wrapping_add(self.perturb)
             .wrapping_add(1);
         self.perturb >>= 5;
-        (prev & self.mask) as usize
+        prev & self.mask
     }
 }
 
@@ -336,7 +336,7 @@ impl<T> DictInner<T> {
             self.entries = compacted;
         }
         self.indices = vec![IndexEntry::FREE; new_size];
-        let mask = (new_size - 1) as i64;
+        let mask = (new_size - 1) as HashIndex;
         for (entry_idx, entry) in self.entries.iter_mut().enumerate() {
             // SAFETY: compaction above removed every hole, so every slot is
             // occupied here.
@@ -1192,7 +1192,7 @@ impl<T: Clone> Dict<T> {
         loop {
             let (entry_key, ret, indices_ptr, indices_len) = {
                 let inner = lock.take().unwrap_or_else(|| self.read());
-                let mask = (inner.indices.len() - 1) as i64;
+                let mask = (inner.indices.len() - 1) as HashIndex;
                 let idxs = idxs.get_or_insert_with(|| GenIndexes::new(hash_value, mask));
                 if idxs.mask != mask {
                     // Dict was resized since last probe, restart
@@ -1407,7 +1407,7 @@ impl<T: Clone> Dict<T> {
         let mut initial_guard = Some(self.write());
         {
             let inner = initial_guard.as_mut().unwrap();
-            let mut probes = GenIndexes::new(hash_value, (inner.indices.len() - 1) as i64);
+            let mut probes = GenIndexes::new(hash_value, (inner.indices.len() - 1) as HashIndex);
             // An identity-only update cannot run Python or invalidate a probe.
             // Avoid allocating witnesses for unrelated bucket collisions. Once
             // equality or key preparation may run Python, use the full path
@@ -1437,7 +1437,7 @@ impl<T: Clone> Dict<T> {
             // entry and bucket for a different key.
             let comparison = compared.take();
             let mut inner = initial_guard.take().unwrap_or_else(|| self.write());
-            let mask = (inner.indices.len() - 1) as i64;
+            let mask = (inner.indices.len() - 1) as HashIndex;
             let probes = idxs.get_or_insert_with(|| GenIndexes::new(hash_value, mask));
             if probes.mask != mask {
                 drop(inner);
@@ -1921,7 +1921,7 @@ impl DictKey for Wtf8 {
     #[inline]
     fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
-        Ok(crate::vm::hash_secret().hash_bytes(self.as_bytes()))
+        Ok(crate::vm::hash_secret().hash_wtf8(self))
     }
 
     #[inline(always)]
@@ -2075,6 +2075,27 @@ mod tests {
         key.key_hash(vm).unwrap()
     }
 
+    #[test]
+    fn unicode_key_adapters_match_python_strings() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            for text in ["é", "∑", "𐀀"] {
+                let string = vm.ctx.new_str(text);
+                assert_eq!(hash_key(vm, text), string.hash(vm));
+                assert_eq!(hash_key(vm, <&Wtf8>::from(text)), string.hash(vm));
+            }
+        });
+    }
+
+    #[test]
+    fn minimum_hash_probing_terminates() {
+        let mut probes = GenIndexes::new(hash::PyHash::MIN, 7);
+        let mut seen = 0u8;
+        for _ in 0..usize::BITS + 8 {
+            seen |= 1 << probes.next();
+        }
+        assert_eq!(seen, u8::MAX);
+    }
+
     fn assert_table_invariants<T: Clone>(dict: &Dict<T>) {
         let inner = dict.read();
         assert_eq!(inner.entries.iter().flatten().count(), inner.used);
@@ -2097,7 +2118,7 @@ mod tests {
         for (index, entry) in inner.entries.iter().enumerate() {
             let Some(entry) = entry else { continue };
             assert_eq!(inner.indices[entry.index].index(), Some(index));
-            let mut probes = GenIndexes::new(entry.hash, (inner.indices.len() - 1) as i64);
+            let mut probes = GenIndexes::new(entry.hash, (inner.indices.len() - 1) as HashIndex);
             let mut reached = false;
             // After the finite perturb prefix, probing visits the entire table.
             for _ in 0..inner.indices.len() + 64 {
