@@ -453,8 +453,12 @@ class _Stream:
                                          self.zlib.DEF_MEM_LEVEL,
                                          0)
         if mtime is None:
-            mtime = int(time.time())
-        timestamp = struct.pack("<L", mtime)
+            mtime = time.time()
+        # gh-133998: substitute 0 for an out-of-range mtime and coerce to int,
+        # mirroring gzip (RFC 1952), so struct.pack cannot raise struct.error.
+        if not 0 <= mtime < 2**32:
+            mtime = 0
+        timestamp = struct.pack("<L", int(mtime))
         self.__write(b"\037\213\010\010" + timestamp + b"\002\377")
         if self.name.endswith(".gz"):
             self.name = self.name[:-3]
@@ -844,6 +848,12 @@ def _get_filtered_attrs(member, dest_path, for_data=True):
                                    strict=os.path.ALLOW_MISSING)
     if os.path.commonpath([target_path, dest_path]) != dest_path:
         raise OutsideDestinationError(member, target_path)
+    # A link member named after the destination directory itself
+    # would replace it with a (sym)link, redirecting the destination
+    # for all subsequent members.
+    if ((member.islnk() or member.issym())
+            and os.path.normpath(name) == os.curdir):
+        raise OutsideDestinationError(member, target_path)
     # Limit permissions (no high bits, and go-w)
     mode = member.mode
     if mode is not None:
@@ -879,11 +889,6 @@ def _get_filtered_attrs(member, dest_path, for_data=True):
         if member.islnk() or member.issym():
             if os.path.isabs(member.linkname):
                 raise AbsoluteLinkError(member)
-            # A link member that resolves to the destination directory itself
-            # would replace it with a (sym)link, redirecting the destination
-            # for all subsequent members.
-            if target_path == dest_path:
-                raise OutsideDestinationError(member, target_path)
             normalized = os.path.normpath(member.linkname)
             if normalized != member.linkname:
                 new_attrs['linkname'] = normalized
@@ -1637,16 +1642,21 @@ class TarInfo(object):
         if self.type in (XHDTYPE, SOLARIS_XHDTYPE):
             # Patch the TarInfo object with the extended header info.
             next._apply_pax_info(pax_headers, tarfile.encoding, tarfile.errors)
-            next.offset = self.offset
 
             if "size" in pax_headers:
                 # If the extended header replaces the size field,
                 # we need to recalculate the offset where the next
                 # header starts.
-                offset = next.offset_data
+                offset = next.offset + BLOCKSIZE
                 if next.isreg() or next.type not in SUPPORTED_TYPES:
-                    offset += next._block(next.size)
+                    try:
+                        size = PAX_NUMBER_FIELDS["size"](pax_headers["size"])
+                    except ValueError:
+                        size = 0
+                    offset += next._block(size)
                 tarfile.offset = offset
+
+            next.offset = self.offset
 
         return next
 
@@ -2200,7 +2210,9 @@ class TarFile(object):
            than once in the archive, its last occurrence is assumed to be the
            most up-to-date version.
         """
-        tarinfo = self._getmember(name.rstrip('/'))
+        tarinfo = self._getmember(name)
+        if tarinfo is None and name.endswith('/'):
+            tarinfo = self._getmember(name.rstrip('/'))
         if tarinfo is None:
             raise KeyError("filename %r not found" % name)
         return tarinfo
@@ -2818,7 +2830,11 @@ class TarFile(object):
                     if os.path.lexists(targetpath):
                         # Avoid FileExistsError on following os.link.
                         os.unlink(targetpath)
-                    os.link(tarinfo._link_target, targetpath)
+                    # Resolve the target so the hard link points to the file
+                    # itself. Otherwise os.link() may duplicate a symlink to a
+                    # shallower location, where its relative target escapes the
+                    # destination directory. (CVE-2026-82049)
+                    os.link(os.path.realpath(tarinfo._link_target), targetpath)
                     return
         except symlink_exception:
             keyerror_to_extracterror = True
