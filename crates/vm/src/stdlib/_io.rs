@@ -2910,9 +2910,19 @@ mod _io {
     }
 
     // TODO: implement legit fast-paths for other encodings
-    type EncodeFunc = fn(PyStrRef) -> PendingWrite;
-    const fn textio_encode_utf8(s: PyStrRef) -> PendingWrite {
-        PendingWrite::Utf8(s)
+    type EncodeFunc = fn(PyStrRef, &Py<PyUtf8Str>, &VirtualMachine) -> PyResult<PendingWrite>;
+    fn textio_encode_utf8(
+        text: PyStrRef,
+        errors: &Py<PyUtf8Str>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PendingWrite> {
+        use crate::codecs::{ErrorsHandler, PyEncodeContext};
+        use crate::common::encodings::utf8;
+
+        let context = PyEncodeContext::new(utf8::ENCODING_NAME, &text, vm);
+        let errors = ErrorsHandler::new(Some(errors), vm);
+        let bytes = utf8::encode(context, &errors)?;
+        Ok(PendingWrite::Bytes(vm.ctx.new_bytes(bytes)))
     }
 
     #[derive(Debug)]
@@ -3621,7 +3631,7 @@ mod _io {
                         }
                         Err(err) => return Err(err),
                     };
-                let encoding_name = vm.get_attribute_opt(&incremental_encoder, "name")?;
+                let encoding_name = vm.get_attribute_opt(codec.as_tuple().as_object(), "name")?;
                 let encode_func = encoding_name.and_then(|name| {
                     let name = name.downcast_ref::<PyStr>()?;
                     match name.to_str()? {
@@ -4302,26 +4312,40 @@ mod _io {
                 text
             };
             let chunk = if let Some(encode_func) = *encode_func {
-                encode_func(chunk)
+                // UTF-8 is ASCII-compatible, so short ASCII text can be retained
+                // directly. All other text uses the native codec with errors.
+                if chunk.kind().is_ascii() && chunk.char_len() <= textio.chunk_size {
+                    PendingWrite::Utf8(chunk)
+                } else {
+                    let encoded = {
+                        let errors = textio.errors.clone();
+                        // Registered error handlers may reenter or reinitialize us.
+                        drop(textio);
+                        encode_func(chunk, &errors, vm)?
+                    };
+                    textio = self.lock(vm)?;
+                    encoded
+                }
             } else {
-                let encoder = encoder.clone();
-                drop(textio);
-                let b = vm.call_method(&encoder, "encode", (chunk.clone(),))?;
-                let encoded = b
-                    .downcast::<PyBytes>()
-                    .map(PendingWrite::Bytes)
-                    .or_else(|obj| {
-                        // TODO: not sure if encode() returning the str it was passed is officially
-                        // supported or just a quirk of how the CPython code is written
-                        if obj.is(&chunk) {
-                            Ok(PendingWrite::Utf8(chunk))
-                        } else {
-                            Err(vm.new_type_error(format!(
-                                "encoder should return a bytes object, not '{}'",
-                                obj.class().name()
-                            )))
-                        }
-                    })?;
+                let encoded = {
+                    let encoder = encoder.clone();
+                    drop(textio);
+                    let b = vm.call_method(&encoder, "encode", (chunk.clone(),))?;
+                    b.downcast::<PyBytes>()
+                        .map(PendingWrite::Bytes)
+                        .or_else(|obj| {
+                            // TODO: not sure if encode() returning the str it was passed is officially
+                            // supported or just a quirk of how the CPython code is written
+                            if obj.is(&chunk) {
+                                Ok(PendingWrite::Utf8(chunk))
+                            } else {
+                                Err(vm.new_type_error(format!(
+                                    "encoder should return a bytes object, not '{}'",
+                                    obj.class().name()
+                                )))
+                            }
+                        })?
+                };
                 textio = self.lock(vm)?;
                 encoded
             };
@@ -4330,16 +4354,20 @@ mod _io {
             {
                 let pending = core::mem::take(&mut textio.pending);
                 drop(textio);
-                let pending = pending.into_bytes(vm);
-                let buffer = text_buffer(&self.buffer, vm)?;
-                vm.call_method(&buffer, "write", (pending,))?;
+                {
+                    let pending = pending.into_bytes(vm);
+                    let buffer = text_buffer(&self.buffer, vm)?;
+                    vm.call_method(&buffer, "write", (pending,))?;
+                }
                 textio = self.lock(vm)?;
                 if textio.pending.num_bytes > 0 {
                     let pending = core::mem::take(&mut textio.pending);
                     drop(textio);
-                    let pending = pending.into_bytes(vm);
-                    let buffer = text_buffer(&self.buffer, vm)?;
-                    vm.call_method(&buffer, "write", (pending,))?;
+                    {
+                        let pending = pending.into_bytes(vm);
+                        let buffer = text_buffer(&self.buffer, vm)?;
+                        vm.call_method(&buffer, "write", (pending,))?;
+                    }
                     textio = self.lock(vm)?;
                 }
             }
