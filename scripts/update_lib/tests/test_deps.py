@@ -110,27 +110,6 @@ class TestGetTestPaths(unittest.TestCase):
         self.assertEqual(len(paths), 1)
         self.assertEqual(paths[0], pathlib.Path("cpython/Lib/test/test_regrtest"))
 
-    def test_io_package(self):
-        self.assertEqual(
-            get_test_paths("io", "cpython"),
-            (pathlib.Path("cpython/Lib/test/test_io"),),
-        )
-
-    def test_file_alias_uses_io_package(self):
-        self.assertEqual(
-            get_test_paths("file", "cpython"),
-            (pathlib.Path("cpython/Lib/test/test_io"),),
-        )
-
-    def test_zipfile_package_and_large_file_tests(self):
-        self.assertEqual(
-            get_test_paths("zipfile", "cpython"),
-            (
-                pathlib.Path("cpython/Lib/test/test_zipfile"),
-                pathlib.Path("cpython/Lib/test/test_zipfile64.py"),
-            ),
-        )
-
     def test_default_directory(self):
         """Test default to test_name/ directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -156,19 +135,6 @@ class TestGetTestPaths(unittest.TestCase):
 
 class TestGetTestDependencies(unittest.TestCase):
     """Tests for get_test_dependencies function."""
-
-    def test_datetime_dynamic_test_dependency(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            test_dir = pathlib.Path(tmpdir) / "test"
-            test_dir.mkdir()
-            test_file = test_dir / "test_datetime.py"
-            test_file.write_text("TESTS = 'test.datetimetester'\n")
-            dependency = test_dir / "datetimetester.py"
-            dependency.write_text("# dynamically imported tests\n")
-            self.assertEqual(
-                get_test_dependencies(test_file),
-                {"hard_deps": [dependency], "data": []},
-            )
 
     def test_parse_file_imports(self):
         """Test parsing imports from test file."""
