@@ -857,3 +857,37 @@ if os.name == "nt":
         for invalid in (b"\xff", b"\xed\xa0", b"\xc0\x80"):
             with assert_raises(UnicodeDecodeError):
                 os.mkdir(os.fsencode(directory) + b"\\" + invalid)
+
+    # CreateProcess must preserve UTF-16 environment keys and values, including
+    # lone surrogates. Its environment normalization keeps the last caseless key.
+    import subprocess
+
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "RUSTPYTHON_SURROGATE_VALUE": "\ud800\udcff\udfff",
+            "RUSTPYTHON_\ud800_KEY": "surrogate key",
+            "\u00e9_FIRST": "non-ASCII initial",
+            "RustPython_Case_Test": "first",
+            "RUSTPYTHON_CASE_TEST": "last",
+            "=Z:": "Z:\\",
+        }
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            "-c",
+            "import os; "
+            "assert os.environ['RUSTPYTHON_SURROGATE_VALUE'] == '\\ud800\\udcff\\udfff'; "
+            "assert os.environ['RUSTPYTHON_\\ud800_KEY'] == 'surrogate key'; "
+            "assert os.environ['\\u00e9_FIRST'] == 'non-ASCII initial'; "
+            "assert os.environ['RUSTPYTHON_CASE_TEST'] == 'last'; "
+            "assert os.environ['=Z:'] == 'Z:\\\\'",
+        ],
+        env=environment,
+        check=True,
+    )
+    for key, value in (("", "x"), ("a=b", "x"), ("a\0b", "x"), ("a", "b\0c")):
+        with assert_raises(ValueError):
+            subprocess.run([sys.executable, "-S", "-c", "pass"], env={key: value})

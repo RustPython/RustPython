@@ -396,9 +396,9 @@ mod _winapi {
         let mut entries = Vec::with_capacity(keys.len());
         for (k, v) in keys.into_iter().zip(values) {
             let k = PyStrRef::try_from_object(vm, k)?;
-            let k = k.expect_str().to_owned();
+            let k = k.as_wtf8().encode_wide().collect();
             let v = PyStrRef::try_from_object(vm, v)?;
-            let v = v.expect_str().to_owned();
+            let v = v.as_wtf8().encode_wide().collect();
             entries.push((k, v));
         }
 
