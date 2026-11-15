@@ -2004,8 +2004,16 @@ mod _io {
             vm.call_method(data.check_init(zelf.raw_cell(), vm)?, "seekable", ())
         }
 
-        /// Get raw stream without holding the lock (for calling Python code safely)
+        /// These forwarding operations do not enter CPython's buffered I/O
+        /// lock. A raw callback may query closed or flush a read-only buffer
+        /// while readinto holds that lock. RawCell supplies an owned reference
+        /// without borrowing the mutable BufferedData used by the active read.
         fn get_raw_unlocked(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            if let Some(raw) = self.raw_cell().load_owned() {
+                return Ok(raw);
+            }
+            // Keep the distinct detached/uninitialized diagnostics. Retry the
+            // raw lookup under the lock in case initialization raced us.
             let data = self.lock(vm)?;
             data.raw_owned(self.raw_cell(), vm)
         }
@@ -2240,13 +2248,9 @@ mod _io {
 
         #[pymethod]
         fn flush(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
-            // For read-only buffers, flush just calls raw.flush()
-            // Don't hold the lock while calling Python code to avoid reentrant lock issues
-            let raw = {
-                let data = zelf.reader().lock(vm)?;
-                data.raw_owned(zelf.reader().raw_cell(), vm)?
-            };
-            ensure_unclosed(&raw, "flush of closed file", vm)?;
+            // BufferedReader uses _Buffered_simple_flush, not the writer's
+            // flush-and-rewind operation. The raw stream handles closed errors.
+            let raw = zelf.reader().get_raw_unlocked(vm)?;
             vm.call_method(&raw, "flush", ())?;
             Ok(())
         }
@@ -3213,16 +3217,7 @@ mod _io {
             TextIOWrapperInitArgs { buffer, args }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            zelf.buffer.store(None);
-            zelf.encoding.store(None);
-            zelf.line_buffering.store(false, Ordering::Relaxed);
-            zelf.write_through.store(false, Ordering::Relaxed);
-            if let Some(data) = {
-                let mut data = zelf.lock_opt(vm)?;
-                data.take()
-            } {
-                data.clear();
-            }
+            zelf.clear_for_init(vm)?;
 
             let encoding = Self::resolve_encoding(args.encoding, vm)?;
 
@@ -3248,7 +3243,6 @@ mod _io {
                 None => false,
             };
 
-            zelf.buffer.store(Some(buffer));
             zelf.encoding.store(Some(encoding.into()));
             zelf.line_buffering.store(line_buffering, Ordering::Relaxed);
             zelf.write_through.store(write_through, Ordering::Relaxed);
@@ -3269,34 +3263,59 @@ mod _io {
                 decoded_chars_used: Utf8size::default(),
                 b2cratio: 0.0,
             };
+            let previous_data;
             let _ = {
                 let mut data = zelf.lock_opt(vm)?;
-                data.replace(new_data)
+                previous_data = data.replace(new_data);
+                // Publish the buffer last: an owned non-null buffer is the
+                // fast-path witness that initialization finished. A slow-path
+                // reader waits for this guard and rechecks the buffer.
+                zelf.buffer.store(Some(buffer))
             };
+            if let Some(data) = previous_data {
+                data.clear();
+            }
 
             Ok(())
         }
 
         fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let zelf_ref: &Py<Self> = zelf.try_to_ref(vm)?;
-            {
-                zelf_ref.buffer.store(None);
-                zelf_ref.encoding.store(None);
-                zelf_ref.line_buffering.store(false, Ordering::Relaxed);
-                zelf_ref.write_through.store(false, Ordering::Relaxed);
-                if let Some(data) = {
-                    let mut data = zelf_ref.lock_opt(vm)?;
-                    data.take()
-                } {
-                    data.clear();
-                }
-            }
+            zelf_ref.clear_for_init(vm)?;
             let parsed = args.bind_for(vm, Self::NAME)?;
             Self::init(zelf_ref, parsed, vm)
         }
     }
 
     impl TextIOWrapper {
+        fn clear_for_init(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let previous_data;
+            let _ = {
+                let mut data = self.lock_opt(vm)?;
+                previous_data = data.take();
+                // Invalidate both under the same guard. Returned references
+                // are released outside it, with the buffer released first.
+                self.buffer.store(None)
+            };
+            self.encoding.store(None);
+            self.line_buffering.store(false, Ordering::Relaxed);
+            self.write_through.store(false, Ordering::Relaxed);
+            if let Some(data) = previous_data {
+                data.clear();
+            }
+            Ok(())
+        }
+
+        fn initialized_buffer(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            if let Some(buffer) = self.buffer.load_owned() {
+                return Ok(buffer);
+            }
+            // None may mean initialization, detachment, or a racing init.
+            // Checking data first preserves uninitialized-before-detached.
+            let _data = self.lock(vm)?;
+            text_buffer(&self.buffer, vm)
+        }
+
         fn lock_opt(
             &self,
             vm: &VirtualMachine,
@@ -4173,10 +4192,7 @@ mod _io {
 
         #[pymethod]
         fn read(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            let buffer = {
-                let _data = self.lock(vm)?;
-                text_buffer(&self.buffer, vm)?
-            };
+            let buffer = self.initialized_buffer(vm)?;
             check_closed(&buffer, vm)?;
             let mut textio = self.lock(vm)?;
             if textio.decoder.is_none() {
@@ -4252,10 +4268,7 @@ mod _io {
 
         #[pymethod]
         fn write(&self, text: PyStrRef, vm: &VirtualMachine) -> PyResult<usize> {
-            let buffer = {
-                let _data = self.lock(vm)?;
-                text_buffer(&self.buffer, vm)?
-            };
+            let buffer = self.initialized_buffer(vm)?;
             check_closed(&buffer, vm)?;
             let mut textio = self.lock(vm)?;
 
@@ -4395,10 +4408,7 @@ mod _io {
         #[pymethod]
         fn readline(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             let limit = size.to_usize();
-            let buffer = {
-                let _data = self.lock(vm)?;
-                text_buffer(&self.buffer, vm)?
-            };
+            let buffer = self.initialized_buffer(vm)?;
             check_closed(&buffer, vm)?;
             let mut textio = self.lock(vm)?;
             if textio.pending.num_bytes > 0 {
@@ -4414,6 +4424,19 @@ mod _io {
             struct SlicedStr(PyStrRef, Range<usize>);
 
             impl SlicedStr {
+                fn substring(line: &PyStrRef, range: Range<usize>, vm: &VirtualMachine) -> Self {
+                    if line.class().is(vm.ctx.types.str_type) {
+                        Self(line.clone(), range)
+                    } else {
+                        // CPython's PyUnicode_Substring returns an exact str,
+                        // not a view retaining the original subclass. Retaining
+                        // it would delay its finalizer until after the next read.
+                        let string = PyStr::from(&line.as_wtf8()[range]).into_ref(&vm.ctx);
+                        let length = string.byte_len();
+                        Self(string, 0..length)
+                    }
+                }
+
                 #[inline]
                 fn byte_len(&self) -> usize {
                     self.1.len()
@@ -4541,18 +4564,18 @@ mod _io {
                     break Some(line);
                 }
                 if end_pos.bytes > start.bytes {
-                    let chunk = SlicedStr(line.clone(), start.bytes..end_pos.bytes);
+                    let chunk = SlicedStr::substring(&line, start.bytes..end_pos.bytes, vm);
                     chunked += chunk.utf8_len();
                     chunks.push(chunk);
                 }
                 let line_len = line.byte_len();
                 drop(textio);
                 if end_pos.bytes < line_len {
-                    remaining = Some(SlicedStr(line, end_pos.bytes..line_len));
-                } else {
-                    // This can be the last reference to a str subclass.
-                    drop(line);
+                    remaining = Some(SlicedStr::substring(&line, end_pos.bytes..line_len, vm));
                 }
+                // Match Py_CLEAR(line) before clearing decoded_chars. A
+                // subclass must not be kept alive by a deferred slice.
+                drop(line);
                 self.set_decoded_chars(None, vm)?;
                 textio = self.lock(vm)?;
             };
