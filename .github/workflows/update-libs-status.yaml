@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - "Lib/**"
-      - ".python-version"
+      - ".github/workflows/update-libs-status.yaml"
   workflow_dispatch:
 
 permissions:
@@ -14,7 +14,9 @@ permissions:
   issues: write
 
 env:
-  ISSUE_ID: "6839"
+  ISSUE_ID: "9852"
+  # Library source baseline, independent of the CI interpreter in .python-version.
+  PYTHON_VERSION: "3.15.2"
 
 jobs:
   update-issue:
@@ -29,20 +31,13 @@ jobs:
           sparse-checkout: |-
               Lib
               scripts/update_lib
-              .python-version
-
-      - name: Get target CPython version
-        id: cpython-version
-        run: |
-          version=$(cat rustpython/.python-version)
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Clone CPython
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: python/cpython
           path: cpython
-          ref: "v${{ steps.cpython-version.outputs.version }}"
+          ref: "v${{ env.PYTHON_VERSION }}"
           persist-credentials: false
           sparse-checkout: |
             Lib
@@ -63,14 +58,15 @@ jobs:
 
           ## Summary
 
-          Check \`scripts/update_lib\` for tools. As a note, the current latest Python version is \`${{ steps.cpython-version.outputs.version }}\`.
+          Check \`scripts/update_lib\` for tools. As a note, the current latest Python version is \`${{ env.PYTHON_VERSION }}\`.
 
           Previous versions' issues as reference
+          - 3.14: #6839
           - 3.13: #5529 
 
           <!-- 
           Quick guideline for Copilot:
-          # Clone \`github.com/python/cpython\` \`${{ steps.cpython-version.outputs.version }}\` tag under RustPython working dir with depth 1 option; never 3.14.0 or 3.14.1 or 3.14.2
+          # Clone \`github.com/python/cpython\` \`${{ env.PYTHON_VERSION }}\` tag under RustPython working dir with depth 1 option; never 3.14.0 or 3.14.1 or 3.14.2
           # Pick a library or test to update. Probably user give one.
           # Run \`python3 scripts/update_lib quick <name>\`
           # A commit is automatically created. push the commit.
