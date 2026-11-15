@@ -1948,7 +1948,6 @@ class MappingTestCase(TestBase):
         dict = weakref.WeakKeyDictionary()
         self.assertRegex(repr(dict), '<WeakKeyDictionary at 0x.*>')
 
-    @unittest.skip("TODO: RUSTPYTHON; occasionally crash (malloc corruption)")
     @threading_helper.requires_working_threading()
     def test_threaded_weak_valued_setdefault(self):
         d = weakref.WeakValueDictionary()
@@ -1967,7 +1966,6 @@ class MappingTestCase(TestBase):
                 x = d.pop(10, 10)
                 self.assertIsNot(x, None)  # we never put None in there!
 
-    @unittest.skip("TODO: RUSTPYTHON; race condition between GC and WeakValueDictionary callback")
     @threading_helper.requires_working_threading()
     def test_threaded_weak_valued_consistency(self):
         # Issue #28427: old keys should not remove new values from
@@ -2061,7 +2059,6 @@ class MappingTestCase(TestBase):
         if exc:
             raise exc[0]
 
-    @unittest.skip("TODO: RUSTPYTHON; occasionally crash (malloc corruption)")
     @threading_helper.requires_working_threading()
     @support.requires_resource('cpu')
     def test_threaded_weak_key_dict_copy(self):
@@ -2069,7 +2066,6 @@ class MappingTestCase(TestBase):
         # copying should not result in a crash.
         self.check_threaded_weak_dict_copy(weakref.WeakKeyDictionary, False)
 
-    @unittest.skip("TODO: RUSTPYTHON; occasionally crash (malloc corruption)")
     @threading_helper.requires_working_threading()
     @support.requires_resource('cpu')
     def test_threaded_weak_key_dict_deepcopy(self):
@@ -2077,7 +2073,6 @@ class MappingTestCase(TestBase):
         # copying should not result in a crash.
         self.check_threaded_weak_dict_copy(weakref.WeakKeyDictionary, True)
 
-    @unittest.skip("TODO: RUSTPYTHON; occasionally crash (malloc corruption)")
     @threading_helper.requires_working_threading()
     @support.requires_resource('cpu')
     def test_threaded_weak_value_dict_copy(self):
@@ -2085,7 +2080,6 @@ class MappingTestCase(TestBase):
         # copying should not result in a crash.
         self.check_threaded_weak_dict_copy(weakref.WeakValueDictionary, False)
 
-    @unittest.skip("TODO: RUSTPYTHON; occasionally crash (malloc corruption)")
     @threading_helper.requires_working_threading()
     @support.requires_resource('cpu')
     def test_threaded_weak_value_dict_deepcopy(self):
