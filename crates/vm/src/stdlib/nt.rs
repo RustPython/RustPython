@@ -46,24 +46,15 @@ pub(crate) mod module {
         EX_OK, O_SHORT_LIVED, P_DETACH, P_NOWAIT, P_NOWAITO, P_OVERLAY, P_WAIT, TMP_MAX,
     };
 
-    fn utf8_from_bytes<'a>(bytes: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a str> {
-        core::str::from_utf8(bytes).map_err(|err| {
-            let reason = match err.error_len() {
-                None => "unexpected end of data",
-                Some(_) => match bytes[err.valid_up_to()] {
-                    0xc2..=0xf4 => "invalid continuation byte",
-                    _ => "invalid start byte",
-                },
-            };
-            vm.new_unicode_decode_error(
-                vm.ctx.new_str("utf-8"),
-                vm.ctx.new_bytes(bytes.to_vec()),
-                err.valid_up_to(),
-                err.error_len()
-                    .map_or(bytes.len(), |len| err.valid_up_to() + len),
-                vm.ctx.new_str(reason),
-            )
-        })
+    fn fsdecode_bytes(bytes: &Py<PyBytes>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        // Match path_converter(make_wide=True): Windows paths use the
+        // filesystem codec, including its surrogatepass error handler.
+        vm.state.codec_registry.decode_text(
+            bytes.to_owned().into(),
+            vm.fs_encoding().as_ref(),
+            Some(vm.fs_encode_errors().to_owned()),
+            vm,
+        )
     }
 
     #[pyattr]
@@ -715,15 +706,14 @@ pub(crate) mod module {
             path
         };
 
-        // Convert to wide string, validating UTF-8 for bytes input
+        // Convert through the filesystem codec for bytes input
         let (wide, is_bytes): (Vec<u16>, bool) = if let Some(s) = path.downcast_ref::<PyStr>() {
             // Use encode_wide which handles WTF-8 (including surrogates)
             let wide: Vec<u16> = s.as_wtf8().encode_wide().collect();
             (wide, false)
         } else if let Some(b) = path.downcast_ref::<PyBytes>() {
-            // On Windows, bytes must be valid UTF-8 - this raises UnicodeDecodeError if not
-            let s = utf8_from_bytes(b.as_bytes(), vm)?;
-            let wide: Vec<u16> = s.encode_utf16().collect();
+            let s = fsdecode_bytes(b, vm)?;
+            let wide: Vec<u16> = s.as_wtf8().encode_wide().collect();
             (wide, true)
         } else {
             return Err(vm.new_type_error(format!(
@@ -939,8 +929,8 @@ pub(crate) mod module {
             let wide: Vec<u16> = s.as_wtf8().encode_wide().collect();
             (wide, false)
         } else if let Some(b) = path.downcast_ref::<PyBytes>() {
-            let s = utf8_from_bytes(b.as_bytes(), vm)?;
-            let wide: Vec<u16> = s.encode_utf16().collect();
+            let s = fsdecode_bytes(b, vm)?;
+            let wide: Vec<u16> = s.as_wtf8().encode_wide().collect();
             (wide, true)
         } else {
             return Err(vm.new_type_error(format!(

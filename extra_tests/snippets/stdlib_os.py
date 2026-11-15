@@ -817,3 +817,21 @@ def nonblocking_windows_pipe():
 
 if os.name == "nt":
     nonblocking_windows_pipe()
+
+
+if os.name == "nt":
+    # Windows filesystem bytes preserve lone surrogates via surrogatepass.
+    import nt
+
+    for character in ("\ud800", "\udcff", "\udfff"):
+        path = "C:\\" + character + "\\leaf"
+        encoded = os.fsencode(path)
+        assert nt._path_splitroot_ex(encoded) == (
+            b"C:",
+            b"\\",
+            os.fsencode(character + "\\leaf"),
+        )
+        assert nt._path_normpath(encoded) == encoded
+    for operation in (nt._path_splitroot_ex, nt._path_normpath):
+        with assert_raises(UnicodeDecodeError):
+            operation(b"\xff")
