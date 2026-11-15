@@ -306,3 +306,4 @@ xmlcharrefreplace
 xoptions
 xopts
 yieldfrom
+issubnormal
