@@ -1211,15 +1211,6 @@ impl CodecContext for PyDecodeContext<'_> {
     fn bytes(&self, b: Vec<u8>) -> Self::BytesBuf {
         self.vm.ctx.new_bytes(b)
     }
-
-    fn load_unicode_names(&self) -> Result<(), Self::Error> {
-        self.vm.load_unicode_names().map_err(|_| {
-            self.vm.new_exception_msg(
-                self.vm.ctx.exceptions.unicode_error.to_owned(),
-                "\\N escapes not supported (can't load unicodedata module)".into(),
-            )
-        })
-    }
 }
 
 impl DecodeContext for PyDecodeContext<'_> {
@@ -1247,6 +1238,15 @@ impl DecodeContext for PyDecodeContext<'_> {
         }
         self.pos = pos;
         Ok(())
+    }
+
+    fn load_unicode_names(&self) -> Result<(), Self::Error> {
+        self.vm.load_unicode_names().map_err(|_| {
+            self.vm.new_exception_msg(
+                self.vm.ctx.exceptions.unicode_error.to_owned(),
+                "\\N escapes not supported (can't load unicodedata module)".into(),
+            )
+        })
     }
 
     fn error_decoding(&self, byte_range: Range<usize>, reason: Option<&str>) -> Self::Error {

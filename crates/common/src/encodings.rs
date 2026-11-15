@@ -34,11 +34,6 @@ pub trait CodecContext: Sized {
 
     fn string(&self, s: Wtf8Buf) -> Self::StrBuf;
     fn bytes(&self, b: Vec<u8>) -> Self::BytesBuf;
-
-    /// Runtime contexts may need to load the Unicode name database before `\N` escapes are decoded.
-    fn load_unicode_names(&self) -> Result<(), Self::Error> {
-        Ok(())
-    }
 }
 
 pub trait EncodeContext: CodecContext {
@@ -76,6 +71,9 @@ pub trait DecodeContext: CodecContext {
     fn advance(&mut self, by: usize);
 
     fn restart_from(&mut self, pos: usize) -> Result<(), Self::Error>;
+
+    /// Load the Unicode name database when a `\N` escape is reached.
+    fn load_unicode_names(&self) -> Result<(), Self::Error>;
 
     fn error_decoding(&self, byte_range: Range<usize>, reason: Option<&str>) -> Self::Error;
 
