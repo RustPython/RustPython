@@ -175,6 +175,7 @@ mod _pyexpat {
         },
         types::Constructor,
     };
+    use alloc::borrow::Cow;
     use alloc::collections::VecDeque;
     use alloc::rc::Rc;
     use core::cell::RefCell;
@@ -220,6 +221,107 @@ mod _pyexpat {
 
     type MutableObject = PyRwLock<PyObjectRef>;
 
+    // Do not use Encoding::from_str here: xml-rs also accepts name prefixes.
+    fn native_encoding(name: &str) -> Option<xml::Encoding> {
+        match name.to_ascii_uppercase().as_str() {
+            "UTF-8" => Some(xml::Encoding::Utf8),
+            "UTF-16" => Some(xml::Encoding::Utf16),
+            "UTF-16LE" => Some(xml::Encoding::Utf16Le),
+            "UTF-16BE" => Some(xml::Encoding::Utf16Be),
+            "ISO-8859-1" => Some(xml::Encoding::Latin1),
+            "US-ASCII" => Some(xml::Encoding::Ascii),
+            _ => None,
+        }
+    }
+
+    /// xml-rs emits StartDocument even without a declaration and fills in
+    /// omitted values. Retain only the initial declaration to recover that
+    /// information; the backend still validates it before any callback.
+    #[derive(Debug, Default)]
+    struct DeclarationPrefix {
+        bytes: Vec<u8>,
+        complete: bool,
+    }
+
+    impl DeclarationPrefix {
+        fn text(&self) -> String {
+            let bytes = &self.bytes;
+            let (little, offset) = if bytes.starts_with(&[0xff, 0xfe]) {
+                (true, 2)
+            } else if bytes.starts_with(&[0xfe, 0xff]) {
+                (false, 2)
+            } else if bytes.starts_with(&[b'<', 0]) {
+                (true, 0)
+            } else if bytes.starts_with(&[0, b'<']) {
+                (false, 0)
+            } else {
+                return String::from_utf8_lossy(
+                    bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes),
+                )
+                .into_owned();
+            };
+            let units = bytes[offset..].as_chunks::<2>().0.iter().map(|&pair| {
+                if little {
+                    u16::from_le_bytes(pair)
+                } else {
+                    u16::from_be_bytes(pair)
+                }
+            });
+            char::decode_utf16(units)
+                .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
+                .collect()
+        }
+
+        fn record(&mut self, chunk: &[u8]) {
+            if self.complete {
+                return;
+            }
+            for &byte in chunk {
+                self.bytes.push(byte);
+                if self.bytes.len() >= 2
+                    && self.bytes.len() <= 16
+                    && ![0xef, 0xbb, 0xbf].starts_with(&self.bytes)
+                {
+                    let text = self.text();
+                    if (!"<?xml".starts_with(&text) && !text.starts_with("<?xml"))
+                        || text.strip_prefix("<?xml").is_some_and(|tail| {
+                            !tail.is_empty() && !tail.starts_with([' ', '\t', '\r', '\n'])
+                        })
+                    {
+                        self.bytes.clear();
+                        self.complete = true;
+                        break;
+                    }
+                }
+                if self.bytes.ends_with(b"?>")
+                    || (self.bytes.len().is_multiple_of(2)
+                        && (self.bytes.ends_with(&[b'?', 0, b'>', 0])
+                            || self.bytes.ends_with(&[0, b'?', 0, b'>'])))
+                {
+                    self.complete = true;
+                    break;
+                }
+            }
+        }
+
+        fn take(&mut self) -> Option<String> {
+            let text = self.text();
+            self.bytes.clear();
+            self.complete = true;
+            text.strip_prefix("<?xml")
+                .filter(|tail| tail.starts_with([' ', '\t', '\r', '\n']))
+                .map(str::to_owned)
+        }
+    }
+
+    // Called only after xml-rs validated the declaration's attribute grammar.
+    fn declaration_value<'a>(text: &'a str, name: &str) -> Option<&'a str> {
+        let (_, value) = text.split_once(name)?;
+        let value = value.trim_start().strip_prefix('=')?.trim_start();
+        let quote = value.chars().next()?;
+        value.get(1..)?.split(quote).next()
+    }
+
     #[pyattr(name = "version_info")]
     pub(super) const VERSION_INFO: (u32, u32, u32) = (2, 7, 1);
 
@@ -237,6 +339,14 @@ mod _pyexpat {
     pub(super) struct PyExpatLikeXmlParser {
         #[pytraverse(skip)]
         namespace_separator: Option<String>,
+        #[pytraverse(skip)]
+        encoding: Option<String>,
+        #[pytraverse(skip)]
+        declaration: PyRwLock<DeclarationPrefix>,
+        #[pytraverse(skip)]
+        initial_bytes: PyRwLock<Vec<u8>>,
+        #[pytraverse(skip)]
+        input_unicode: PyRwLock<Option<bool>>,
         #[pytraverse(skip)]
         base: PyRwLock<Option<String>>,
         // Position of the last event produced, exposed as CurrentLineNumber /
@@ -928,6 +1038,7 @@ mod _pyexpat {
     #[pyclass]
     impl PyExpatLikeXmlParser {
         fn new(
+            encoding: Option<String>,
             namespace_separator: Option<String>,
             intern: OptionalOption<PyObjectRef>,
             parent: Option<PyExpatLikeXmlParserRef>,
@@ -940,6 +1051,10 @@ mod _pyexpat {
                 OptionalArg::Present(None) => vm.ctx.none(),
             };
             Self {
+                encoding,
+                declaration: PyRwLock::new(DeclarationPrefix::default()),
+                initial_bytes: PyRwLock::new(Vec::new()),
+                input_unicode: PyRwLock::new(None),
                 namespace_separator,
                 base: PyRwLock::new(None),
                 current_line: PyRwLock::new(1),
@@ -1128,10 +1243,24 @@ mod _pyexpat {
             );
         }
 
-        fn create_config(&self, unicode_input: bool) -> xml::ParserConfig {
+        fn create_config(
+            &self,
+            unicode_input: bool,
+            sniffed: Option<xml::Encoding>,
+        ) -> xml::ParserConfig {
+            let encoding = if unicode_input {
+                Some(xml::Encoding::Utf8)
+            } else {
+                self.encoding
+                    .as_deref()
+                    .and_then(native_encoding)
+                    .or(sniffed)
+            };
             xml::ParserConfig::new()
-                .override_encoding(unicode_input.then_some(xml::Encoding::Utf8))
-                .ignore_invalid_encoding_declarations(unicode_input)
+                .override_encoding(encoding)
+                .ignore_invalid_encoding_declarations(
+                    unicode_input || self.encoding.as_deref().and_then(native_encoding).is_some(),
+                )
                 .cdata_to_characters(false)
                 .coalesce_characters(false)
                 .ignore_comments(false)
@@ -1195,6 +1324,7 @@ mod _pyexpat {
                 return Err(vm.new_value_error("embedded null character"));
             }
             let child = Self::new(
+                encoding.clone(),
                 zelf.namespace_separator.clone(),
                 OptionalArg::Present(Some(zelf.intern.clone())),
                 Some(zelf.clone()),
@@ -1321,6 +1451,18 @@ mod _pyexpat {
                 XmlEvent::StartDocument { standalone, .. } => {
                     self.standalone
                         .store(standalone == Some(true), Ordering::Relaxed);
+                    let declaration = self.declaration.write().take();
+                    if let Some(declaration) = declaration {
+                        invoke_handler(
+                            vm,
+                            &self.xml_decl,
+                            (
+                                declaration_value(&declaration, "version"),
+                                declaration_value(&declaration, "encoding"),
+                                standalone.map_or(-1, i32::from),
+                            ),
+                        )?;
+                    }
                     Ok(())
                 }
                 XmlEvent::Doctype { .. } => {
@@ -1824,17 +1966,34 @@ mod _pyexpat {
             }
             self.started.store(true, Ordering::Relaxed);
             self.check_completed(vm)?;
+            self.declaration.write().record(chunk);
             if self.finished.load(Ordering::SeqCst) {
                 return Ok(());
             }
-            {
-                let mut guard = self.backend.write();
-                if guard.is_none() {
-                    // CPython selects UTF-8 for str input with XML_SetEncoding;
-                    // that call cannot change the encoding after parsing starts.
-                    *guard = Some(Backend::new(self.create_config(unicode_input)));
+            let mut input = Cow::Borrowed(chunk);
+            if self.backend.read().is_none() {
+                let unicode_input = *self.input_unicode.write().get_or_insert(unicode_input);
+                // xml-rs detects a UTF-16 BOM, but unlike Expat does not
+                // recognize UTF-16 XML without one. Two initial bytes suffice
+                // to distinguish the endian form; retain only a split prefix.
+                let mut initial = self.initial_bytes.write();
+                if !initial.is_empty() {
+                    initial.extend_from_slice(chunk);
+                    input = Cow::Owned(core::mem::take(&mut *initial));
                 }
+                if !unicode_input && self.encoding.is_none() && input.len() < 2 && !isfinal {
+                    initial.extend_from_slice(&input);
+                    return Ok(());
+                }
+                let sniffed = match input.as_ref() {
+                    [0, _, ..] => Some(xml::Encoding::Utf16Be),
+                    [_, 0, ..] => Some(xml::Encoding::Utf16Le),
+                    _ => None,
+                };
+                *self.backend.write() =
+                    Some(Backend::new(self.create_config(unicode_input, sniffed)));
             }
+            let chunk = input.as_ref();
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let is_threaded = matches!(*self.backend.read(), Some(Backend::Threaded(_)));
@@ -1969,10 +2128,8 @@ mod _pyexpat {
             return Err(vm.new_type_error("intern must be a dictionary"));
         }
 
-        // Encoding selection is still handled by the xml-rs backend.
-        let _ = encoding;
-
         Ok(PyExpatLikeXmlParser::new(
+            encoding.map(|encoding| encoding.as_str().to_owned()),
             ns_sep.map(|sep| sep.as_str().to_owned()),
             args.intern,
             None,

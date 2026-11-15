@@ -96,3 +96,58 @@ for first, tail, expected in (
     parser.Parse(first, False)
     parser.Parse(tail, True)
     assert "".join(text) == expected
+
+# Declaration metadata is not the parser's effective encoding: omitted
+# encoding stays None, spelling is preserved, and no declaration means no event.
+for encoding in ("UTF-8", "UTF-16", "UTF-16LE", "UTF-16BE", "ISO-8859-1", "US-ASCII"):
+    for declaration, expected in (
+        ("", []),
+        ('<?xml version="1.0"?>', [("1.0", None, -1)]),
+        ('<?xml version="1.7" standalone="yes"?>', [("1.7", None, 1)]),
+        (
+            '<?xml version="1.0" encoding="uTf-8" standalone="no"?>',
+            [("1.0", "uTf-8", 0)],
+        ),
+    ):
+        # An explicit encoding wins over a conflicting declaration, even when
+        # BOMs, code units, and the declaration terminator cross Parse calls.
+        document = (declaration + "<r>abc</r>").encode(encoding)
+        for chunk_size in (1, len(document)):
+            parser = expat.ParserCreate(encoding)
+            declarations = []
+            text = []
+            parser.XmlDeclHandler = lambda *args: declarations.append(args)
+            parser.CharacterDataHandler = text.append
+            for offset in range(0, len(document), chunk_size):
+                parser.Parse(document[offset : offset + chunk_size], False)
+            parser.Parse(b"", True)
+            assert declarations == expected, (encoding, declaration, declarations)
+            assert "".join(text) == "abc"
+
+# Native byte decoding must be used rather than UTF-8 preprocessing.
+for encoding, character in (("ISO-8859-1", "£"), ("UTF-16LE", "𝄞"), ("UTF-16BE", "𝄞")):
+    parser = expat.ParserCreate(encoding)
+    text = []
+    parser.CharacterDataHandler = text.append
+    for byte in ("<r>" + character + "</r>").encode(encoding):
+        parser.Parse(bytes([byte]), False)
+    parser.Parse(b"", True)
+    assert "".join(text) == character
+
+# No declaration callback is allowed before the whole declaration is valid.
+for declaration in (
+    '<?xml encoding="UTF-8"?>',
+    '<?xml version="1.0" standalone="maybe"?>',
+):
+    parser = expat.ParserCreate()
+    declarations = []
+    parser.XmlDeclHandler = lambda *args: declarations.append(args)
+    try:
+        for byte in (declaration + "<r/>").encode():
+            parser.Parse(bytes([byte]), False)
+        parser.Parse(b"", True)
+    except expat.ExpatError:
+        pass
+    else:
+        raise AssertionError("malformed declaration accepted")
+    assert not declarations
