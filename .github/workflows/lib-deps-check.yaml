@@ -8,6 +8,10 @@ on:
 
 permissions: {}
 
+env:
+  # Keep aligned with the upgrade-pylib and update-libs-status source baseline.
+  PYTHON_VERSION: "3.15.2"
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -40,18 +44,12 @@ jobs:
           # Checkout only Lib/ directory from PR head for accurate comparison
           git checkout "$PR_HEAD_SHA" -- Lib/
 
-      - name: Get target CPython version
-        id: cpython-version
-        run: |
-          version=$(cat .python-version)
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
       - name: Checkout CPython
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: python/cpython
           path: cpython
-          ref: "v${{ steps.cpython-version.outputs.version }}"
+          ref: "v${{ env.PYTHON_VERSION }}"
           fetch-depth: 1
           persist-credentials: false
 

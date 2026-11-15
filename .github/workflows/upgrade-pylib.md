@@ -50,8 +50,8 @@ cache:
   path: cpython
 
 env:
-  PYTHON_VERSION: "v3.15.0"
-  ISSUE_ID: "6839"
+  PYTHON_VERSION: "v3.15.2"
+  ISSUE_ID: "9852"
 ---
 
 # Upgrade Python Library
