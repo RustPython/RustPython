@@ -157,6 +157,19 @@ class TestGetTestPaths(unittest.TestCase):
 class TestGetTestDependencies(unittest.TestCase):
     """Tests for get_test_dependencies function."""
 
+    def test_datetime_dynamic_test_dependency(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_dir = pathlib.Path(tmpdir) / "test"
+            test_dir.mkdir()
+            test_file = test_dir / "test_datetime.py"
+            test_file.write_text("TESTS = 'test.datetimetester'\n")
+            dependency = test_dir / "datetimetester.py"
+            dependency.write_text("# dynamically imported tests\n")
+            self.assertEqual(
+                get_test_dependencies(test_file),
+                {"hard_deps": [dependency], "data": []},
+            )
+
     def test_parse_file_imports(self):
         """Test parsing imports from test file."""
         with tempfile.TemporaryDirectory() as tmpdir:
