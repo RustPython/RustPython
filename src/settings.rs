@@ -6,6 +6,7 @@ use lexopt::ValueExt;
 use rustpython_vm::{Settings, vm::CheckHashPycsMode};
 use std::env;
 use std::ffi::OsString;
+use std::path::PathBuf;
 
 pub enum RunMode {
     Script(OsString),
@@ -606,17 +607,13 @@ fn parse_lazy_imports(value: Option<&str>, source: &str) -> i8 {
     }
 }
 
-fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
+fn get_paths(env_variable_name: &str) -> impl Iterator<Item = OsString> + '_ {
     env::var_os(env_variable_name)
         .filter(|v| !v.is_empty())
         .into_iter()
-        .flat_map(move |paths| {
+        .flat_map(|paths| {
             split_paths(&paths)
-                .map(|path| {
-                    path.into_os_string()
-                        .into_string()
-                        .unwrap_or_else(|_| panic!("{env_variable_name} isn't valid unicode"))
-                })
+                .map(PathBuf::into_os_string)
                 .collect::<Vec<_>>()
         })
 }

@@ -705,14 +705,13 @@ pub mod sys {
             .collect()
     }
 
-    #[pyattr]
-    fn path(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+    pub(super) fn path(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         vm.state
             .config
             .paths
             .module_search_paths
             .iter()
-            .map(|path| vm.ctx.new_str(path.clone()).into())
+            .map(|path| vm.fsdecode(path.clone()).map(Into::into))
             .collect()
     }
 
@@ -2198,6 +2197,7 @@ pub(crate) fn init_module(
     sys::module_exec(vm, module)?;
     // These values decode OS bytes and can fail before the codec registry is ready.
     // Initialize them outside infallible #[pyattr] functions so startup can report errors.
+    module.set_attr("path", vm.ctx.new_list(sys::path(vm)?), vm)?;
     module.set_attr("argv", vm.ctx.new_list(sys::argv(vm)?), vm)?;
     module.set_attr("orig_argv", vm.ctx.new_list(sys::orig_argv(vm)?), vm)?;
     module.set_attr(
