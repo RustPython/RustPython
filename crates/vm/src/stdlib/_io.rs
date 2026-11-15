@@ -3450,17 +3450,19 @@ mod _io {
             let decoded = check_decoded(decoded, vm)?;
             let char_len = decoded.char_len();
             self.set_decoded_chars(Some(decoded), vm)?;
-            let mut data = self.lock(vm)?;
-            data.b2cratio = if char_len > 0 {
-                nbytes as f64 / char_len as f64
-            } else {
-                0.0
+            let telling = {
+                let mut data = self.lock(vm)?;
+                data.b2cratio = if char_len > 0 {
+                    nbytes as f64 / char_len as f64
+                } else {
+                    0.0
+                };
+                data.telling
             };
-            if data.telling {
+            if telling {
                 if let Some((dec_buffer, dec_flags)) = dec_state {
                     let mut next_input = dec_buffer.as_bytes().to_vec();
                     next_input.extend_from_slice(&buf.borrow_buf());
-                    drop(data);
                     self.set_snapshot(
                         Some((dec_flags, PyBytes::from(next_input).into_ref(&vm.ctx))),
                         vm,
@@ -3729,20 +3731,20 @@ mod _io {
                 write_through = Some(TextIOWrapper::bool_from_index(&value, vm)?);
             }
 
-            let data = self.lock(vm)?;
-            if (encoding_changed || newline_changed)
-                && data.decoder.is_some()
-                && (data.decoded_chars.is_some()
-                    || data.snapshot.is_some()
-                    || data.decoded_chars_used.chars != 0)
             {
-                return Err(new_unsupported_operation(
-                    "cannot reconfigure encoding or newline after reading from the stream",
-                    vm,
-                ));
+                let data = self.lock(vm)?;
+                if (encoding_changed || newline_changed)
+                    && data.decoder.is_some()
+                    && (data.decoded_chars.is_some()
+                        || data.snapshot.is_some()
+                        || data.decoded_chars_used.chars != 0)
+                {
+                    return Err(new_unsupported_operation(
+                        "cannot reconfigure encoding or newline after reading from the stream",
+                        vm,
+                    ));
+                }
             }
-
-            drop(data);
             self.write_pending(vm)?;
             let buffer = text_buffer(&self.buffer, vm)?;
             vm.call_method(&buffer, "flush", ())?;
@@ -4073,13 +4075,13 @@ mod _io {
                 let decoded = check_decoded(decoded, vm)?;
                 Ok(Utf8size::len_pystr(&decoded))
             };
-            let saved_state = vm.call_method(&current_decoder()?, "getstate", ())?;
+            let saved_state = vm.call_method(current_decoder()?.as_object(), "getstate", ())?;
             let b2cratio = zelf.lock(vm)?.b2cratio;
             let mut num_to_skip = decoded_chars_used;
             let mut skip_bytes = (b2cratio * num_to_skip.chars as f64) as isize;
             let mut skip_back = 1;
             while skip_bytes > 0 {
-                cookie.set_decoder_state(&current_decoder()?, vm)?;
+                cookie.set_decoder_state(current_decoder()?.as_object(), vm)?;
                 let input = &next_input.as_bytes()[..skip_bytes as usize];
                 let n_decoded = decoder_decode(input)?;
                 if n_decoded.chars <= num_to_skip.chars {
@@ -4098,7 +4100,7 @@ mod _io {
             }
             if skip_bytes <= 0 {
                 skip_bytes = 0;
-                cookie.set_decoder_state(&current_decoder()?, vm)?;
+                cookie.set_decoder_state(current_decoder()?.as_object(), vm)?;
             }
             let skip_bytes = skip_bytes as usize;
 
@@ -4129,7 +4131,7 @@ mod _io {
                 }
                 if input.is_empty() {
                     let decoded = vm.call_method(
-                        &current_decoder()?,
+                        current_decoder()?.as_object(),
                         "decode",
                         (vm.ctx.new_bytes(vec![]), true),
                     )?;
@@ -4141,7 +4143,7 @@ mod _io {
                     }
                 }
             }
-            vm.call_method(&current_decoder()?, "setstate", (saved_state,))?;
+            vm.call_method(current_decoder()?.as_object(), "setstate", (saved_state,))?;
             cookie.set_num_to_skip(num_to_skip);
             Ok(cookie.build().to_pyobject(vm))
         }
@@ -4208,6 +4210,8 @@ mod _io {
                         break;
                     }
                 }
+                // Joining can release the last reference to a str subclass.
+                drop(textio);
                 if chunks.is_empty() {
                     vm.ctx.empty_str.to_owned()
                 } else if chunks.len() == 1 {
@@ -4327,19 +4331,21 @@ mod _io {
                 }
             }
             textio.pending.push(chunk);
-            if textio.pending.num_bytes > 0
+            let pending = if textio.pending.num_bytes > 0
                 && (flush
                     || self.write_through.load(Ordering::Relaxed)
                     || textio.pending.num_bytes >= textio.chunk_size)
             {
-                let pending = core::mem::take(&mut textio.pending);
-                drop(textio);
+                Some(core::mem::take(&mut textio.pending))
+            } else {
+                None
+            };
+            drop(textio);
+            if let Some(pending) = pending {
                 let pending = pending.into_bytes(vm);
                 let buffer = text_buffer(&self.buffer, vm)?;
                 vm.call_method(&buffer, "write", (pending,))?;
-                textio = self.lock(vm)?;
             }
-            drop(textio);
             if flush {
                 let buffer = text_buffer(&self.buffer, vm)?;
                 vm.call_method(&buffer, "flush", ())?;
@@ -4378,9 +4384,11 @@ mod _io {
 
         #[pymethod]
         fn isatty(&self, vm: &VirtualMachine) -> PyResult {
-            let textio = self.lock(vm)?;
-            let buffer = text_buffer(&self.buffer, vm)?;
-            textio.check_closed(&buffer, vm)?;
+            let buffer = {
+                let _data = self.lock(vm)?;
+                text_buffer(&self.buffer, vm)?
+            };
+            check_closed(&buffer, vm)?;
             vm.call_method(&buffer, "isatty", ())
         }
 
