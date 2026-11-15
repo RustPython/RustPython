@@ -48,6 +48,8 @@ pub struct InterpreterInfo {
 }
 
 struct RegistryEntry {
+    #[cfg(feature = "threading")]
+    thread_factory: alloc::sync::Weak<super::thread::InterpreterThreadFactory>,
     whence: InterpreterWhence,
     /// Weak handle so the registry does not keep interpreters alive.
     /// Type matches `PyRc` (Arc when threading, Rc otherwise).
@@ -338,6 +340,8 @@ fn insert_registry_entry(state: &PyRc<PyGlobalState>) {
     entries.insert(
         state.interpreter_id,
         RegistryEntry {
+            #[cfg(feature = "threading")]
+            thread_factory: alloc::sync::Weak::new(),
             whence: state.whence,
             state: PyRc::downgrade(state),
         },
@@ -373,6 +377,35 @@ pub(crate) fn register_interpreter(state: &PyRc<PyGlobalState>) {
 pub fn lookup_interpreter(id: i64) -> Option<PyRc<PyGlobalState>> {
     let entries = registry().entries.lock();
     entries.get(&id).and_then(|e| e.state.upgrade())
+}
+
+#[cfg(feature = "threading")]
+pub(crate) fn publish_thread_factory(
+    id: i64,
+    factory: &alloc::sync::Arc<super::thread::InterpreterThreadFactory>,
+) {
+    if let Some(entry) = registry().entries.lock().get_mut(&id) {
+        entry.thread_factory = alloc::sync::Arc::downgrade(factory);
+    }
+}
+
+/// Create a fresh thread state for any live, initialized interpreter, including
+/// an externally owned main interpreter. Never execute or drop Python roots
+/// while holding the registry lock.
+#[cfg(feature = "threading")]
+pub(crate) fn new_interpreter_thread(id: i64) -> Option<super::thread::ThreadedVirtualMachine> {
+    let (state, factory) = {
+        let entries = registry().entries.lock();
+        let entry = entries.get(&id)?;
+        (entry.state.clone(), entry.thread_factory.clone())
+    };
+    let state = state.upgrade()?;
+    if !state.ready.load(Ordering::Acquire) || state.finalizing.load(Ordering::Acquire) {
+        return None;
+    }
+    // Thread attachment checks finalization again, closing the race with a
+    // finalizer that starts after this lookup.
+    Some(factory.upgrade()?.new_thread(state))
 }
 
 /// List all currently registered (still-alive) interpreters.

@@ -247,9 +247,17 @@ where
     if whence != InterpreterWhence::Unknown {
         let _vm_guard = thread::VmBootstrapGuard::new(&vm);
         vm.initialize();
-        vm.state
-            .ready
-            .store(vm.startup_error.is_none(), Ordering::Release);
+    }
+
+    if whence != InterpreterWhence::Unknown && vm.startup_error.is_none() {
+        #[cfg(feature = "threading")]
+        {
+            let factory = alloc::sync::Arc::new(thread::InterpreterThreadFactory::new(&vm));
+            vm.thread_factory = Some(factory.clone());
+            runtime::publish_thread_factory(vm.state.interpreter_id, &factory);
+        }
+        // Publish readiness only after arbitrary-ID thread creation is available.
+        vm.state.ready.store(true, Ordering::Release);
     }
 
     // Clone global_state for Interpreter after all initialization is done

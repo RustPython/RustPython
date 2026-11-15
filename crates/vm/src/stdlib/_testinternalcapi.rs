@@ -730,7 +730,7 @@ mod _testinternalcapi {
                     .new_thread()
                     .run(|target| run_interpreter_source(source, target)))
             } else {
-                let thread = crate::vm::runtime::owned_new_thread(id)
+                let thread = crate::vm::runtime::new_interpreter_thread(id)
                     .ok_or_else(|| crate::stdlib::_interpreters::interpreter_not_found(vm, id))?;
                 Ok(thread.run(|target| run_interpreter_source(source, target)))
             }
@@ -2075,7 +2075,7 @@ fn run_string_in_new_subinterp(
         })?;
     let id = crate::vm::runtime::store_owned_interpreter(interp);
     let outcome = {
-        let thread = crate::vm::runtime::owned_new_thread(id)
+        let thread = crate::vm::runtime::new_interpreter_thread(id)
             .ok_or_else(|| crate::stdlib::_interpreters::interpreter_not_found(vm, id))?;
         thread.run(|target| run_interpreter_source(source, target))
     };
