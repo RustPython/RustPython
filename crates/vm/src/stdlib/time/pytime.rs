@@ -155,15 +155,6 @@ pub fn check_thread_timeout(nanoseconds: i64, vm: &VirtualMachine) -> PyResult<(
     }
 }
 
-#[cfg(all(feature = "capi", feature = "host_env"))]
-pub(crate) fn as_seconds_double(nanoseconds: i64) -> f64 {
-    if nanoseconds % SEC_TO_NS == 0 {
-        (nanoseconds / SEC_TO_NS) as f64
-    } else {
-        nanoseconds as f64 / SEC_TO_NS as f64
-    }
-}
-
 fn check_time_t(seconds: i64, vm: &VirtualMachine) -> PyResult<i64> {
     if !(TIME_T_MIN..=TIME_T_MAX).contains(&seconds) {
         return Err(vm.new_overflow_error(TIME_T_OVERFLOW));

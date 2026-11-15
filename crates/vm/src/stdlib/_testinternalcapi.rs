@@ -29,11 +29,11 @@ mod _testinternalcapi {
     use super::*;
     use crate::vm::crossinterp::test_support::CrossinterpData;
     use crate::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        atomic_func,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        VirtualMachine, atomic_func,
         builtins::{
             PyBytesRef, PyCapsule, PyCode, PyDict, PyDictRef, PyStrRef, PyType, PyTypeRef,
-            descriptor::PyWrapper,
+            PyUtf8StrRef, descriptor::PyWrapper,
         },
         common::{hash::PyHash, lock::LazyLock},
         dict_inner,
@@ -373,10 +373,37 @@ mod _testinternalcapi {
         )
     }
 
+    // PyArg_ParseTuple's "s" conversion must precede later arguments' callbacks.
+    // Keep a typed string without allocating a second copy of its UTF-8 data.
+    struct InterpreterSource(PyUtf8StrRef);
+
+    impl TryFromObject for InterpreterSource {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            let source = PyUtf8StrRef::try_from_object(vm, obj)?;
+            if source.as_str().contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
+            Ok(Self(source))
+        }
+    }
+
+    // The fixture parses whence as C long, including on Windows and 32-bit hosts.
+    struct InterpreterWhenceArg(core::ffi::c_long);
+
+    impl TryFromObject for InterpreterWhenceArg {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            obj.try_index(vm)?
+                .as_bigint()
+                .try_into()
+                .map(Self)
+                .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))
+        }
+    }
+
     #[derive(FromArgs)]
     struct RunInSubinterpArgs {
         #[pyarg(any)]
-        code: PyStrRef,
+        code: InterpreterSource,
         #[pyarg(any)]
         config: PyObjectRef,
         #[pyarg(named, default = false)]
@@ -389,13 +416,7 @@ mod _testinternalcapi {
         vm: &VirtualMachine,
     ) -> PyResult<i32> {
         let config = crate::stdlib::_interpreters::config_from_pyobject(&args.config, vm)?;
-        let source = args
-            .code
-            .to_str()
-            .ok_or_else(|| vm.new_value_error("surrogates not allowed in interpreter source"))?;
-        if source.contains('\0') {
-            return Err(vm.new_value_error("embedded null character"));
-        }
+        let source = args.code.0.as_str();
         let whence = if args.xi.into_bool() {
             crate::vm::InterpreterWhence::Xi
         } else {
@@ -586,25 +607,15 @@ mod _testinternalcapi {
     struct CreateInterpreterArgs {
         #[pyarg(any, optional)]
         config: OptionalArg<PyObjectRef>,
-        #[pyarg(named, default = 4)]
-        whence: i64,
+        #[pyarg(named, default = InterpreterWhenceArg(4), py_default = "4")]
+        whence: InterpreterWhenceArg,
     }
 
     #[pyfunction]
     fn create_interpreter(args: CreateInterpreterArgs, vm: &VirtualMachine) -> PyResult<i64> {
         use crate::vm::{InterpreterConfig, InterpreterWhence};
-        let whence = match args.whence {
-            0 => InterpreterWhence::Unknown,
-            2 => InterpreterWhence::LegacyCapi,
-            3 => InterpreterWhence::Capi,
-            4 => InterpreterWhence::Xi,
-            value => return Err(vm.new_value_error(format!("unsupported whence {value}"))),
-        };
         let config = args.config.into_option().filter(|obj| !vm.is_none(obj));
-        let cfg = if matches!(
-            whence,
-            InterpreterWhence::Unknown | InterpreterWhence::LegacyCapi
-        ) {
+        let cfg = if matches!(args.whence.0, 0 | 2) {
             if config.is_some() {
                 return Err(vm.new_value_error("got unexpected config"));
             }
@@ -613,6 +624,14 @@ mod _testinternalcapi {
             crate::stdlib::_interpreters::config_from_pyobject(&config, vm)?
         } else {
             InterpreterConfig::ISOLATED
+        };
+        // CPython resolves the config before _new_interpreter validates whence.
+        let whence = match args.whence.0 {
+            0 => InterpreterWhence::Unknown,
+            2 => InterpreterWhence::LegacyCapi,
+            3 => InterpreterWhence::Capi,
+            4 => InterpreterWhence::Xi,
+            value => return Err(vm.new_value_error(format!("unsupported whence {value}"))),
         };
         #[cfg(feature = "threading")]
         {
@@ -683,20 +702,14 @@ mod _testinternalcapi {
         #[pyarg(any)]
         id: PyObjectRef,
         #[pyarg(any)]
-        code: PyStrRef,
+        code: InterpreterSource,
         #[pyarg(named, default = false)]
         main: ArgIntoBool,
     }
 
     #[pyfunction]
     fn exec_interpreter(args: ExecInterpreterArgs, vm: &VirtualMachine) -> PyResult<i32> {
-        let source = args
-            .code
-            .to_str()
-            .ok_or_else(|| vm.new_value_error("surrogates not allowed in interpreter source"))?;
-        if source.contains('\0') {
-            return Err(vm.new_value_error("embedded null character"));
-        }
+        let source = args.code.0.as_str();
         let id = crate::stdlib::_interpreters::parse_id(&args.id, vm)?;
         let state = crate::vm::runtime::lookup_interpreter(id)
             .ok_or_else(|| crate::stdlib::_interpreters::interpreter_not_found(vm, id))?;
@@ -784,20 +797,27 @@ mod _testinternalcapi {
         pytime::from_seconds_object(object, round, vm)
     }
 
+    fn pytime_as_subseconds(
+        args: FuncArgs,
+        name: &str,
+        divisor: i64,
+        vm: &VirtualMachine,
+    ) -> PyResult<i64> {
+        let [ns, round] = pytime_args::<2>(&args, name, vm)?;
+        let round = pytime_c_int(round, vm)?;
+        // These two C wrappers convert the timestamp before validating the mode.
+        let ns = pytime_i64(ns, vm)?;
+        Ok(Round::from_int(round, vm)?.divide(ns, divisor))
+    }
+
     #[pyfunction(name = "_PyTime_AsMilliseconds")]
     fn pytime_as_milliseconds(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
-        let [ns, round] = pytime_args::<2>(&args, "_PyTime_AsMilliseconds", vm)?;
-        let round = pytime_c_int(round, vm)?;
-        let ns = pytime_i64(ns, vm)?;
-        Ok(Round::from_int(round, vm)?.divide(ns, 1_000_000))
+        pytime_as_subseconds(args, "_PyTime_AsMilliseconds", 1_000_000, vm)
     }
 
     #[pyfunction(name = "_PyTime_AsMicroseconds")]
     fn pytime_as_microseconds(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
-        let [ns, round] = pytime_args::<2>(&args, "_PyTime_AsMicroseconds", vm)?;
-        let round = pytime_c_int(round, vm)?;
-        let ns = pytime_i64(ns, vm)?;
-        Ok(Round::from_int(round, vm)?.divide(ns, 1_000))
+        pytime_as_subseconds(args, "_PyTime_AsMicroseconds", 1_000, vm)
     }
 
     #[pyfunction(name = "_PyTime_AsTimespec")]
@@ -833,18 +853,25 @@ mod _testinternalcapi {
         pytime::object_to_time_t(object, round, vm)
     }
 
-    #[pyfunction(name = "_PyTime_ObjectToTimespec")]
-    fn pytime_object_to_timespec(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
-        let [object, round] = pytime_args::<2>(&args, "_PyTime_ObjectToTimespec", vm)?;
+    fn pytime_object_to_denominator(
+        args: FuncArgs,
+        name: &str,
+        denominator: i64,
+        vm: &VirtualMachine,
+    ) -> PyResult<(i64, i64)> {
+        let [object, round] = pytime_args::<2>(&args, name, vm)?;
         let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
-        pytime::object_to_denominator(object, 1_000_000_000, round, vm)
+        pytime::object_to_denominator(object, denominator, round, vm)
     }
 
     #[pyfunction(name = "_PyTime_ObjectToTimeval")]
     fn pytime_object_to_timeval(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
-        let [object, round] = pytime_args::<2>(&args, "_PyTime_ObjectToTimeval", vm)?;
-        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
-        pytime::object_to_denominator(object, 1_000_000, round, vm)
+        pytime_object_to_denominator(args, "_PyTime_ObjectToTimeval", 1_000_000, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_ObjectToTimespec")]
+    fn pytime_object_to_timespec(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        pytime_object_to_denominator(args, "_PyTime_ObjectToTimespec", 1_000_000_000, vm)
     }
 
     #[pyfunction]
@@ -2029,7 +2056,7 @@ fn sep_or_end(path: &[char], idx: usize, size: usize) -> bool {
 }
 
 #[cfg(feature = "threading")]
-pub(crate) fn run_string_in_new_subinterp(
+fn run_string_in_new_subinterp(
     source: &str,
     config: crate::vm::InterpreterConfig,
     whence: crate::vm::InterpreterWhence,

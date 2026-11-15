@@ -211,7 +211,6 @@ prec
 preds
 preinitialized
 pybuilddir
-pycfunction
 pycore
 PYGC
 pyinner
@@ -312,4 +311,3 @@ xibufferview
 xstat
 XXPRIME
 ENOTCAPABLE
-unmarshalled

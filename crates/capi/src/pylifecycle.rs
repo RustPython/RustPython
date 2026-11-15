@@ -45,10 +45,8 @@ pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
         unsafe { init_exception_statics(&Context::genesis().exceptions) };
         let builder = Interpreter::builder(Default::default());
         let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
-        let testcapi = rustpython_vm::stdlib::capi_test_module_def(&builder.ctx);
         *interp = builder
             .add_native_modules(&defs)
-            .add_native_module(testcapi)
             .init_hook(|vm| {
                 let state = PyRc::get_mut(&mut vm.state).unwrap();
                 let path = rustpython_pylib::LIB_PATH.to_owned();
