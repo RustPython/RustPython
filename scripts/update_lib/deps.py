@@ -659,7 +659,7 @@ DEPENDENCIES = {
     },
     "zipfile": {
         "test": [
-            "test_zipfile.py",
+            "test_zipfile/",
             "test_zipfile64.py",
         ],
     },

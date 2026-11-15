@@ -122,6 +122,15 @@ class TestGetTestPaths(unittest.TestCase):
             (pathlib.Path("cpython/Lib/test/test_io"),),
         )
 
+    def test_zipfile_package_and_large_file_tests(self):
+        self.assertEqual(
+            get_test_paths("zipfile", "cpython"),
+            (
+                pathlib.Path("cpython/Lib/test/test_zipfile"),
+                pathlib.Path("cpython/Lib/test/test_zipfile64.py"),
+            ),
+        )
+
     def test_default_directory(self):
         """Test default to test_name/ directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
