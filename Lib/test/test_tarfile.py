@@ -254,6 +254,19 @@ class UstarReadTest(ReadTest, unittest.TestCase):
         self.add_dir_and_getmember('bar')
         self.add_dir_and_getmember('a'*101)
 
+    def test_extract_name_with_trailing_slash(self):
+        # gh-127636: './mydir/' is deliberately a regular-file member
+        # (REGTYPE, not DIRTYPE) whose stored name ends in a slash.  It
+        # extracts as a file.  Do not "fix" this by setting DIRTYPE; the
+        # trailing-slash name on a non-directory is what is being tested.
+        with tarfile.open(tmpname, 'w') as tar:
+            tar.addfile(tarfile.TarInfo('./mydir/'))
+        with os_helper.temp_dir() as tmpdir, tarfile.open(tmpname) as tar:
+            names = tar.getnames()
+            self.assertEqual(names, ['./mydir/'])
+            tar.extract(names[0], tmpdir, filter='fully_trusted')
+            self.assertTrue(os.path.isfile(os.path.join(tmpdir, 'mydir')))
+
     @unittest.skipUnless(hasattr(os, "getuid") and hasattr(os, "getgid"),
                          "Missing getuid or getgid implementation")
     def add_dir_and_getmember(self, name):
@@ -1367,6 +1380,37 @@ class GNUReadTest(LongnameTest, ReadTest, unittest.TestCase):
     def test_sparse_file_10(self):
         self._test_sparse_file("gnu/sparse-1.0")
 
+    def test_sparse_file_10_pax_size(self):
+        # gh-83869: when the pax header replaces the size field, the offset
+        # of the next header must be computed from the size of the data in
+        # the archive, not from the apparent size of the sparse file.
+        data = b"payload!" * 4
+        realsize = 1 << 20
+        smap = b"1\n%d\n%d\n" % (realsize - len(data), len(data))
+        smap += b"\0" * (-len(smap) % tarfile.BLOCKSIZE)
+
+        sparse = tarfile.TarInfo("sparse")
+        sparse.size = len(smap) + len(data)
+        sparse.pax_headers = {
+            "GNU.sparse.major": "1",
+            "GNU.sparse.minor": "0",
+            "GNU.sparse.name": "sparse",
+            "GNU.sparse.realsize": str(realsize),
+            "size": str(sparse.size),
+        }
+        buf = sparse.tobuf(tarfile.PAX_FORMAT)
+        buf += smap + data + b"\0" * (-len(data) % tarfile.BLOCKSIZE)
+
+        last = tarfile.TarInfo("last")
+        last.size = len(data)
+        buf += last.tobuf(tarfile.PAX_FORMAT)
+        buf += data + b"\0" * (-len(data) % tarfile.BLOCKSIZE)
+        buf += b"\0" * (tarfile.BLOCKSIZE * 2)
+
+        with tarfile.open(fileobj=io.BytesIO(buf)) as tar:
+            self.assertEqual(tar.getnames(), ["sparse", "last"])
+            self.assertEqual(tar.extractfile("last").read(), data)
+
     @staticmethod
     def _fs_supports_holes():
         # Return True if the platform knows the st_blocks stat attribute and
@@ -1418,6 +1462,31 @@ class PaxReadTest(LongnameTest, ReadTest, unittest.TestCase):
                              "\xc4\xd6\xdc\xe4\xf6\xfc\xdf")
         finally:
             tar.close()
+
+    def test_offset_after_global_header(self):
+        # gh-83869: a global header is a member of its own, the member which
+        # follows it keeps the offset of its own header.
+        rec = b"30 comment=global header here\n"
+        glob = tarfile.TarInfo("././@PaxHeader")
+        glob.type = tarfile.XGLTYPE
+        glob.size = len(rec)
+        buf = glob.tobuf(tarfile.USTAR_FORMAT)
+        buf += rec + b"\0" * (-len(rec) % tarfile.BLOCKSIZE)
+
+        member = tarfile.TarInfo("member")
+        data = b"hello\n"
+        member.size = len(data)
+        offset = len(buf)
+        buf += member.tobuf(tarfile.USTAR_FORMAT)
+        buf += data + b"\0" * (-len(data) % tarfile.BLOCKSIZE)
+        buf += b"\0" * (tarfile.BLOCKSIZE * 2)
+
+        with tarfile.open(fileobj=io.BytesIO(buf)) as tar:
+            tarinfo = tar.getmember("member")
+            self.assertEqual(tarinfo.offset, offset)
+            self.assertEqual(tarinfo.pax_headers.get("comment"),
+                             "global header here")
+            self.assertEqual(tar.extractfile(tarinfo).read(), data)
 
     def test_pax_number_fields(self):
         # All following number fields are read from the pax header.
@@ -1926,6 +1995,44 @@ class GzipStreamWriteTest(GzipTest, StreamWriteTest):
         with self.open(tmpname, 'r') as fobj:
             fobj.read()
             self.assertEqual(fobj.mtime, 0)
+
+    def test_create_with_mtime_out_of_range(self):
+        # gh-133998: an mtime outside the gzip header's 32-bit range is
+        # stored as 0 rather than raising struct.error.
+        self.addCleanup(os_helper.unlink, tmpname)
+        for mtime in (-1, 2**32):
+            with self.subTest(mtime=mtime):
+                tarfile.open(tmpname, self.mode, mtime=mtime).close()
+                with self.open(tmpname, 'r') as fobj:
+                    fobj.read()
+                    self.assertEqual(fobj.mtime, 0)
+
+    def test_create_with_mtime_at_boundary(self):
+        # gh-133998: the largest in-range mtime is preserved, not clamped.
+        mtime = 2**32 - 1
+        tarfile.open(tmpname, self.mode, mtime=mtime).close()
+        with self.open(tmpname, 'r') as fobj:
+            fobj.read()
+            self.assertEqual(fobj.mtime, mtime)
+
+    def test_create_with_out_of_range_clock(self):
+        # gh-133998: an out-of-range system clock (mtime defaulting to
+        # time.time()) is stored as 0 rather than raising struct.error.
+        for clock in (-1, 2**32):
+            with self.subTest(clock=clock):
+                with unittest.mock.patch('time.time', return_value=float(clock)):
+                    tarfile.open(tmpname, self.mode).close()
+                with self.open(tmpname, 'r') as fobj:
+                    fobj.read()
+                    self.assertEqual(fobj.mtime, 0)
+                os_helper.unlink(tmpname)
+
+    def test_create_with_float_mtime(self):
+        # gh-133998: a float mtime is truncated like gzip, not rejected.
+        tarfile.open(tmpname, self.mode, mtime=123456789.9).close()
+        with self.open(tmpname, 'r') as fobj:
+            fobj.read()
+            self.assertEqual(fobj.mtime, 123456789)
 
     def test_create_without_mtime(self):
         before = int(time.time())
@@ -4337,8 +4444,10 @@ class TestExtractionFilters(unittest.TestCase):
                 t.linkname = '.'
                 arc.tar_w.addfile(t)
 
-            with self.check_context(arc.open(), 'data'):
-                self.expect_exception(tarfile.OutsideDestinationError)
+            for filter in 'tar', 'data':
+                with self.subTest(name=name, filter=filter):
+                    with self.check_context(arc.open(), filter):
+                        self.expect_exception(tarfile.OutsideDestinationError)
 
     @symlink_test
     @os_helper.skip_unless_symlink
@@ -4490,6 +4599,24 @@ class TestExtractionFilters(unittest.TestCase):
                 else:
                     self.expect_file("a/b/s", symlink_to=os.path.join('..', 'escape'))
                     self.expect_file("s", symlink_to=os.path.join('..', 'escape'))
+
+    @symlink_test
+    @os_helper.skip_unless_hardlink
+    def test_sneaky_hardlink_relocation(self):
+        with ArchiveMaker() as arc:
+            arc.add("a/escape", content="decoy")
+            arc.add("a/b/s", symlink_to=os.path.join("..", "escape"))
+            arc.add("s", hardlink_to=os.path.join("a", "b", "s"))
+
+        for filter in 'data', 'tar':
+            with self.subTest(filter), self.check_context(arc.open(), filter):
+                self.expect_file("a/escape", content="decoy")
+                if os_helper.can_symlink():
+                    self.expect_file("a/b/s", symlink_to=os.path.join('..', 'escape'))
+                else:
+                    self.expect_file("a/b/s", content="decoy")
+                self.expect_file("s", content="decoy")
+                self.assertFalse((self.destdir / "s").is_symlink())
 
     @symlink_test
     def test_exfiltration_via_symlink(self):
