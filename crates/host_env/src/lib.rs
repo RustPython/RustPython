@@ -13,6 +13,7 @@ pub mod errno;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 #[path = "errno_wasm.rs"]
 pub mod errno;
+mod file_mode;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod io;
 #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]

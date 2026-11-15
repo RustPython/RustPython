@@ -6253,16 +6253,19 @@ mod _io {
 #[pymodule]
 mod fileio {
     use super::{_io::*, Offset, iobase_finalize};
-    use crate::host_env::{crt_fd, os::ErrorExt};
+    use crate::host_env::{
+        crt_fd,
+        errno::errors::{EBADF, EINTR},
+        os::ErrorExt,
+    };
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyUtf8Str, PyUtf8StrRef},
         common::wtf8::Wtf8Buf,
         convert::{IntoPyException, ToPyException},
-        exceptions::{OSErrorBuilder, ToOSErrorBuilder},
+        exceptions::ToOSErrorBuilder,
         function::{ArgBytesLike, ArgMemoryBuffer},
-        ospath::{OsPath, OsPathOrFd},
-        stdlib::os,
+        ospath::OsPath,
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -6342,9 +6345,9 @@ mod fileio {
             zelf.mode.store(mode);
             vm.audit("open", || (name.clone(), mode_str, flags))?;
 
-            let (fd, _filename) = if let Some(fd) = arg_fd {
+            let fd = if let Some(fd) = arg_fd {
                 zelf.closefd.store(args.closefd);
-                (fd, None)
+                fd
             } else {
                 zelf.closefd.store(true);
                 if !args.closefd {
@@ -6360,22 +6363,22 @@ mod fileio {
                     if fd < 0 {
                         return Err(vm.new_value_error(format!("opener returned {fd}")));
                     }
-                    (fd, None)
+                    fd
                 } else {
                     let path = path.take().expect("a filename was resolved above");
                     #[cfg(any(unix, target_os = "wasi"))]
-                    let raw_path = path.clone().into_cstring(vm)?;
+                    let raw_path = path.into_cstring(vm)?;
                     #[cfg(windows)]
                     let raw_path = path.to_wide_cstring(vm)?;
-                    let filename = OsPathOrFd::Path(path);
                     loop {
                         match vm.allow_threads(|| host_io::open_path(&raw_path, flags, 0o666)) {
-                            Ok(fd) => break (fd.into_raw(), Some(filename)),
-                            Err(e) if e.posix_errno() == libc::EINTR => vm.check_signals()?,
+                            Ok(fd) => break fd.into_raw(),
+                            Err(e) if e.posix_errno() == EINTR => vm.check_signals()?,
                             Err(e) => {
-                                return Err(OSErrorBuilder::with_filename_from_errno(
-                                    &e, filename, vm,
-                                ));
+                                return Err(e
+                                    .to_os_error_builder(vm)
+                                    .filename(name)
+                                    .into_pyexception(vm));
                             }
                         }
                     }
@@ -6396,7 +6399,7 @@ mod fileio {
                     if host_io::should_forget_fd_after_inspect_error(&err, fd_is_own) {
                         zelf.fd.store(-1);
                     }
-                    if err.posix_errno() == libc::EBADF {
+                    if err.posix_errno() == EBADF {
                         return Err(err.to_pyexception(vm));
                     }
                     // Keep the original name alive through error construction and local cleanup.
@@ -6408,7 +6411,7 @@ mod fileio {
             }
 
             #[cfg(windows)]
-            crate::stdlib::msvcrt::setmode_binary(fd);
+            crate::host_env::msvcrt::setmode_binary(fd);
             if let Err(e) = zelf.as_object().set_attr("name", name, vm) {
                 // If fd was passed by user, don't close it on error
                 if !fd_is_own {
@@ -6731,7 +6734,7 @@ mod fileio {
                 Some(l) => get_offset(&l, vm)?,
                 None => host_io::tell(fd).map_err(|e| e.into_pyexception(vm))?,
             };
-            os::ftruncate_borrowed(fd, len).map_err(|e| e.into_pyexception(vm))?;
+            crt_fd::ftruncate(fd, len).map_err(|e| e.into_pyexception(vm))?;
             Ok(len)
         }
 
