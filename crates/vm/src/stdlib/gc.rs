@@ -3,9 +3,9 @@ pub(crate) use gc::module_def;
 #[pymodule]
 mod gc {
     use crate::{
-        PyObjectRef, PyResult, VirtualMachine,
-        builtins::PyListRef,
-        function::{NameObjs, OptionalArg, PosArgs},
+        AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+        builtins::{PyListRef, PyTupleRef},
+        function::{ArgCInt, FuncArgs, NameObjs, OptionalArg, PosArgs},
         gc_state,
     };
 
@@ -40,36 +40,34 @@ mod gc {
     #[derive(FromArgs)]
     struct CollectArgs {
         #[pyarg(any, default = 2)]
-        generation: i32,
+        generation: ArgCInt,
     }
 
     #[pyfunction]
     fn collect(args: CollectArgs, vm: &VirtualMachine) -> PyResult<i32> {
-        let generation_num = args.generation;
+        let generation_num = args.generation.into_primitive();
         if !(0..=2).contains(&generation_num) {
             return Err(vm.new_value_error("invalid generation"));
         }
 
-        // Invoke callbacks with "start" phase
-        invoke_callbacks(vm, "start", generation_num as usize, &Default::default());
-
-        // Manual gc.collect() should run even if GC is disabled
         let gc = &vm.state.gc;
-        let result = gc.collect_force(generation_num as usize);
-
-        // Publish what the collection saved as gc.garbage (for DEBUG_SAVEALL)
-        {
-            let mut state_garbage = gc.garbage.lock();
-            if !state_garbage.is_empty() {
-                let mut garbage_vec = gc.py_garbage.borrow_vec_mut();
-                for obj in state_garbage.drain(..) {
-                    garbage_vec.push(obj);
+        let result = gc.collect_force_with_callbacks(
+            generation_num as usize,
+            || invoke_callbacks(vm, "start", generation_num as usize, &Default::default()),
+            |result| {
+                // Publish DEBUG_SAVEALL objects before the stop callbacks.
+                {
+                    let mut state_garbage = gc.garbage.lock();
+                    if !state_garbage.is_empty() {
+                        let mut garbage_vec = gc.py_garbage.borrow_vec_mut();
+                        for obj in state_garbage.drain(..) {
+                            garbage_vec.push(obj);
+                        }
+                    }
                 }
-            }
-        }
-
-        // Invoke callbacks with "stop" phase
-        invoke_callbacks(vm, "stop", generation_num as usize, &result);
+                invoke_callbacks(vm, "stop", generation_num as usize, result);
+            },
+        );
 
         Ok((result.collected + result.uncollectable) as i32)
     }
@@ -86,18 +84,44 @@ mod gc {
             .into()
     }
 
+    // set_threshold uses the legacy "i" converter, unlike Clinic's
+    // PyLong_AsInt converters for collect and set_debug.
+    struct Threshold(i32);
+
+    impl<'a> TryFromBorrowedObject<'a> for Threshold {
+        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
+            let index = obj.try_index(vm)?;
+            i32::try_from(index.as_bigint()).map(Self).map_err(|_| {
+                let message = if core::ffi::c_long::try_from(index.as_bigint()).is_err() {
+                    "Python int too large to convert to C long"
+                } else if index.as_bigint().sign() == malachite_bigint::Sign::Minus {
+                    "signed integer is less than minimum"
+                } else {
+                    "signed integer is greater than maximum"
+                };
+                vm.new_overflow_error(message)
+            })
+        }
+    }
+
     #[pyfunction]
-    fn set_threshold(
-        threshold0: u32,
-        threshold1: OptionalArg<u32>,
-        threshold2: OptionalArg<u32>,
-        vm: &VirtualMachine,
-    ) {
+    fn set_threshold(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        // The generated optional-group wrapper checks the argument count
+        // before running any of its sequential integer conversions.
+        if !args.kwargs.is_empty() {
+            return Err(vm.new_type_error("set_threshold() takes no keyword arguments"));
+        }
+        if !(1..=3).contains(&args.args.len()) {
+            return Err(vm.new_type_error("gc.set_threshold requires 1 to 3 arguments"));
+        }
+        let (threshold0, threshold1, threshold2) =
+            args.bind::<(Threshold, OptionalArg<Threshold>, OptionalArg<Threshold>)>(vm)?;
         vm.state.gc.set_threshold(
-            threshold0,
-            threshold1.into_option(),
-            threshold2.into_option(),
+            threshold0.0,
+            threshold1.into_option().map(|value| value.0),
+            threshold2.into_option().map(|value| value.0),
         );
+        Ok(())
     }
 
     #[pyfunction]
@@ -113,15 +137,17 @@ mod gc {
     }
 
     #[pyfunction]
-    fn get_debug(vm: &VirtualMachine) -> u32 {
-        vm.state.gc.get_debug().bits()
+    fn get_debug(vm: &VirtualMachine) -> i32 {
+        vm.state.gc.get_debug().bits() as i32
     }
 
     #[pyfunction]
-    fn set_debug(flags: u32, vm: &VirtualMachine) {
+    fn set_debug(flags: ArgCInt, vm: &VirtualMachine) {
         vm.state
             .gc
-            .set_debug(gc_state::GcDebugFlags::from_bits_truncate(flags));
+            .set_debug(gc_state::GcDebugFlags::from_bits_retain(
+                flags.into_primitive() as u32,
+            ));
     }
 
     #[pyfunction]
@@ -146,27 +172,57 @@ mod gc {
         Ok(vm.ctx.new_list(result))
     }
 
+    // Clinic's optional Py_ssize_t conversion accepts __index__, but reports
+    // missing-index and overflow errors using the original argument's type.
+    struct Generation(isize);
+
+    impl<'a> TryFromBorrowedObject<'a> for Generation {
+        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
+            let index = obj.try_index_opt(vm).ok_or_else(|| {
+                let name = obj.class().slot_name();
+                let name = &name[..name.floor_char_boundary(name.len().min(200))];
+                vm.new_type_error(format!("argument should be integer or None, not '{name}'"))
+            })??;
+            isize::try_from(index.as_bigint()).map(Self).map_err(|_| {
+                let name = obj.class().slot_name();
+                let name = &name[..name.floor_char_boundary(name.len().min(200))];
+                vm.new_overflow_error(format!("cannot fit '{name}' into an index-sized integer"))
+            })
+        }
+    }
+
     /// Return the list of objects tracked by the collector.
     #[derive(FromArgs)]
     struct GetObjectsArgs {
         #[pyarg(any, optional)]
-        generation: Option<i32>,
+        generation: Option<Generation>,
     }
 
     #[pyfunction]
     fn get_objects(args: GetObjectsArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
-        let generation_opt = args.generation;
-        if let Some(g) = generation_opt
-            && !(0..=2).contains(&g)
-        {
-            return Err(vm.new_value_error(format!("generation must be in range(0, 3), not {g}")));
+        let generation = args.generation.map_or(-1, |generation| generation.0);
+        vm.audit("gc.get_objects", || (generation,))?;
+        if generation >= 3 {
+            return Err(vm.new_value_error(
+                "generation parameter must be less than the number of available generations (3)",
+            ));
         }
-        let objects = vm.state.gc.get_objects(generation_opt);
+        if generation < -1 {
+            return Err(vm.new_value_error("generation parameter cannot be negative"));
+        }
+        let generation = (generation != -1).then_some(generation as i32);
+        let objects = vm.state.gc.get_objects_for_introspection(generation);
         Ok(vm.ctx.new_list(objects))
     }
 
     #[pyfunction]
-    fn get_referents(objs: PosArgs<PyObjectRef, NameObjs>, vm: &VirtualMachine) -> PyListRef {
+    fn get_referents(
+        objs: PosArgs<PyObjectRef, NameObjs>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyListRef> {
+        vm.audit("gc.get_referents", || {
+            (vm.ctx.new_tuple(objs.as_ref().to_vec()),)
+        })?;
         let mut result = Vec::new();
 
         for obj in objs.iter() {
@@ -174,12 +230,25 @@ mod gc {
             result.extend(obj.gc_get_referents());
         }
 
-        vm.ctx.new_list(result)
+        Ok(vm.ctx.new_list(result))
     }
 
     #[pyfunction]
-    fn get_referrers(objs: PosArgs<PyObjectRef, NameObjs>, vm: &VirtualMachine) -> PyListRef {
+    fn get_referrers(
+        objs: PosArgs<PyObjectRef, NameObjs>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyListRef> {
         use std::collections::HashSet;
+
+        // CPython excludes its varargs tuple from the referrer scan. Build and
+        // retain that tuple only when an audit hook actually needs it.
+        let mut audit_objects: Option<PyTupleRef> = None;
+        vm.audit("gc.get_referrers", || {
+            let tuple = vm.ctx.new_tuple(objs.as_ref().to_vec());
+            audit_objects = Some(tuple.clone());
+            (tuple,)
+        })?;
+        let audit_objects_id = audit_objects.as_ref().map(|tuple| tuple.get_id());
 
         // Build a set of target object pointers for fast lookup
         let targets: HashSet<usize> = objs
@@ -208,7 +277,7 @@ mod gc {
         let mut result = Vec::new();
 
         // Scan all tracked objects across all generations
-        let all_objects = vm.state.gc.get_objects(None);
+        let all_objects = vm.state.gc.get_objects_for_introspection(None);
         for obj in all_objects {
             let obj_ptr = obj.as_ref() as *const crate::PyObject as usize;
             // Generator/coroutine frames are embedded in their owner, so
@@ -221,7 +290,7 @@ mod gc {
                 }
                 continue;
             }
-            if stack_frames.contains(&obj_ptr) {
+            if Some(obj_ptr) == audit_objects_id || stack_frames.contains(&obj_ptr) {
                 continue;
             }
             if refers_to_target(obj.as_ref()) {
@@ -229,7 +298,7 @@ mod gc {
             }
         }
 
-        vm.ctx.new_list(result)
+        Ok(vm.ctx.new_list(result))
     }
 
     #[pyfunction]
@@ -278,8 +347,7 @@ mod gc {
         result: &gc_state::CollectResult,
     ) {
         let callbacks_list = &vm.state.gc.py_callbacks;
-        let callbacks: Vec<PyObjectRef> = callbacks_list.borrow_vec().to_vec();
-        if callbacks.is_empty() {
+        if callbacks_list.borrow_vec().is_empty() {
             return;
         }
 
@@ -295,8 +363,19 @@ mod gc {
         let _ = info.set_item("candidates", vm.ctx.new_int(result.candidates).into(), vm);
         let _ = info.set_item("duration", vm.ctx.new_float(result.duration).into(), vm);
 
-        for callback in callbacks {
-            let _ = callback.call((phase_str.clone(), info.clone()), vm);
+        let mut index = 0;
+        loop {
+            let Some(callback) = callbacks_list.borrow_vec().get(index).cloned() else {
+                break;
+            };
+            index += 1;
+            if let Err(error) = callback.call((phase_str.clone(), info.clone()), vm) {
+                let message = callback
+                    .repr(vm)
+                    .ok()
+                    .map(|repr| format!("Exception ignored while calling GC callback {repr}"));
+                vm.run_unraisable(error, message, vm.ctx.none());
+            }
         }
     }
 }
