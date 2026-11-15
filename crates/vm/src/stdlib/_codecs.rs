@@ -1029,10 +1029,7 @@ mod _codecs_windows {
         let use_default_char =
             code_page != host_windows::CP_UTF8 && code_page != host_windows::CP_UTF7;
         let mut output = Vec::new();
-        loop {
-            let Some(cp) = ctx.remaining_data().code_points().next() else {
-                break;
-            };
+        while let Some(cp) = ctx.remaining_data().code_points().next() {
             let start = ctx.position();
             let end = StrSize {
                 bytes: start.bytes + cp.len_wtf8(),
