@@ -147,7 +147,7 @@ pub(crate) mod module {
             let value = vm
                 .ctx
                 .new_str(Wtf8Buf::from_wide(&value.encode_wide().collect::<Vec<_>>()));
-            environ.set_item(&key, value.into(), vm).unwrap();
+            environ.set_item(&*key, value.into(), vm).unwrap();
         }
         environ
     }
