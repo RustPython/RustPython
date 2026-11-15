@@ -1,4 +1,5 @@
 import os
+import sys
 from io import BufferedReader, BytesIO, FileIO, RawIOBase, StringIO, TextIOWrapper
 
 from testutils import assert_raises
@@ -199,13 +200,25 @@ expect_value_error(
     "underlying buffer has been detached",
     lambda: setattr(detached_textio, "_CHUNK_SIZE", 16),
 )
-# CPython 3.15.2's Clinic setter rejects deletion before checking attachment.
-for wrapper in (textio, uninitialized_textio, detached_textio):
-    with assert_raises(AttributeError) as error:
-        del wrapper._CHUNK_SIZE
-    assert str(error.exception) == (
-        "attribute '_CHUNK_SIZE' of '_io.TextIOWrapper' objects cannot be deleted"
+# CI also runs this snippet on CPython 3.15.0, whose setter checks
+# attachment before deletion. RustPython targets the 3.15.2 Clinic contract.
+legacy_chunk_size_deletion = sys.implementation.name == "cpython" and sys.version_info[
+    :3
+] == (3, 15, 0)
+for wrapper, legacy_error, legacy_message in (
+    (textio, AttributeError, "cannot delete attribute"),
+    (uninitialized_textio, ValueError, "I/O operation on uninitialized object"),
+    (detached_textio, ValueError, "underlying buffer has been detached"),
+):
+    error_type = legacy_error if legacy_chunk_size_deletion else AttributeError
+    message = (
+        legacy_message
+        if legacy_chunk_size_deletion
+        else "attribute '_CHUNK_SIZE' of '_io.TextIOWrapper' objects cannot be deleted"
     )
+    with assert_raises(error_type) as error:
+        del wrapper._CHUNK_SIZE
+    assert str(error.exception) == message
 
 
 for wrapper_name in ("ChunkWrapper", "€" * 34):
@@ -214,9 +227,12 @@ for wrapper_name in ("ChunkWrapper", "€" * 34):
     with assert_raises(AttributeError) as error:
         del wrapper._CHUNK_SIZE
     truncated_name = wrapper_name.encode("utf-8")[:100].decode("utf-8", "ignore")
-    assert str(error.exception) == (
-        f"attribute '_CHUNK_SIZE' of '{truncated_name}' objects cannot be deleted"
+    message = (
+        "cannot delete attribute"
+        if legacy_chunk_size_deletion
+        else f"attribute '_CHUNK_SIZE' of '{truncated_name}' objects cannot be deleted"
     )
+    assert str(error.exception) == message
     wrapper.close()
 
 
