@@ -423,7 +423,7 @@ mod _zoneinfo {
     ) -> i64 {
         let days_before_year = i64::from(ymd_to_ord(year, 1, 1)) - EPOCHORDINAL - 1;
         let mut day = i64::from(day);
-        if julian && day >= 59 && is_leap_year(year) {
+        if julian && day >= 60 && is_leap_year(year) {
             day += 1;
         }
         (days_before_year + day) * 86_400

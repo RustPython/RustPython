@@ -12,6 +12,7 @@ import pickle
 import re
 import shutil
 import struct
+import sys
 import tempfile
 import unittest
 from datetime import date, datetime, time, timedelta, timezone
@@ -641,6 +642,26 @@ class WeirdZoneTest(ZoneInfoTestBase):
 
                 dt_utc_actual = dt_local.astimezone(timezone.utc)
                 self.assertEqual(dt_utc_actual, dt_utc)
+
+    def test_one_transition_fold(self):
+        GMT = ZoneOffset("-00", ZERO)
+        N03 = ZoneOffset("-03", -timedelta(hours=3))
+
+        transitions = [
+            ZoneTransition(datetime(1976, 12, 1), GMT, N03),
+        ]
+
+        after = "<-03>3"
+
+        zf = self.construct_zone(transitions, after)
+        zi = self.klass.from_file(zf)
+
+        dt_utc = datetime(1976, 12, 1, 1, tzinfo=timezone.utc)
+        dt_local = dt_utc.astimezone(zi)
+
+        self.assertEqual(dt_local.fold, 1)
+        self.assertEqual(dt_local.utcoffset(), N03.utcoffset)
+        self.assertEqual(dt_local.astimezone(timezone.utc), dt_utc)
 
     def test_one_zone_dst(self):
         DST = ZoneOffset("DST", ONE_H, ONE_H)
@@ -1494,6 +1515,33 @@ class TZStrTest(ZoneInfoTestBase):
 
         @call
         def _add():
+            # Julian days 58, 59 and 60 always mean February 27, February 28
+            # and March 1, including in leap years.
+            AAA = ZoneOffset("AAA", ZERO)
+            BBB = ZoneOffset("BBB", ONE_H, ONE_H)
+
+            for start, end, start_date, end_date in (
+                (58, 59, (2, 27), (2, 28)),
+                (59, 60, (2, 28), (3, 1)),
+            ):
+                tzstr = f"AAA0BBB,J{start}/12,J{end}/12"
+                cases[tzstr] = []
+                for year in (2019, 2020, 2000, 2100):
+                    start_dt = datetime(year, *start_date, 12)
+                    end_dt = datetime(year, *end_date, 12)
+                    cases[tzstr].extend((
+                        (start_dt - timedelta(seconds=1), AAA, NORMAL),
+                        (start_dt, AAA, GAP),
+                        (start_dt.replace(fold=1), BBB, GAP),
+                        (start_dt + ONE_H, BBB, NORMAL),
+                        (end_dt - ONE_H - timedelta(seconds=1), BBB, NORMAL),
+                        (end_dt - ONE_H, BBB, FOLD),
+                        ((end_dt - ONE_H).replace(fold=1), AAA, FOLD),
+                        (end_dt, AAA, NORMAL),
+                    ))
+
+        @call
+        def _add():
             # Taken from America/Godthab, this rule has a transition on the
             # Saturday before the last Sunday of March and October, at 22:00
             # and 23:00, respectively. This is encoded with negative start
@@ -2154,6 +2202,8 @@ class MiscTests(unittest.TestCase):
             PYTHONTZPATH=str(ZONEINFO_DATA.tzpath))
 
 
+@unittest.skipIf(sys.modules.get("_zoneinfo") is None,
+                 "_zoneinfo C module not available")
 class ExtensionBuiltTest(unittest.TestCase):
     """Smoke test to ensure that the C and Python extensions are both tested.
 
