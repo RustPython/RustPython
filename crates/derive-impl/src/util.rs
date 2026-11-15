@@ -795,9 +795,9 @@ enum SigPiece {
 }
 
 /// A leading `&Py<PyModule>` is injected by the module function adapter.
-/// A leading `PyRef<PyModule>` or `PyModuleRef` is rejected; later positions
-/// remain ordinary Python arguments. This is syntax-based: Rust aliases cannot
-/// be resolved by a procedural macro.
+/// A leading `PyRef<PyModule>` is rejected; later positions remain ordinary
+/// Python arguments. This is syntax-based: Rust aliases cannot be resolved by
+/// a procedural macro.
 pub(crate) fn has_module_receiver(sig: &Signature) -> Result<bool> {
     let Some(FnArg::Typed(arg)) = sig.inputs.first() else {
         return Ok(false);
@@ -812,12 +812,6 @@ pub(crate) fn has_module_receiver(sig: &Signature) -> Result<bool> {
     let Some(segment) = path.path.segments.last() else {
         return Ok(false);
     };
-    if segment.ident == "PyModuleRef" {
-        return Err(syn::Error::new_spanned(
-            &arg.ty,
-            "the module receiver must be &Py<PyModule>",
-        ));
-    }
     if segment.ident != wrapper {
         return Ok(false);
     }
@@ -1065,10 +1059,8 @@ mod metadata_tests {
     }
 
     #[test]
-    fn module_receiver_rejects_ambiguous_alias_and_mutable_borrow() {
+    fn module_receiver_rejects_owned_ref_and_mutable_borrow() {
         for signature in [
-            parse_quote!(fn f(module: PyModuleRef)),
-            parse_quote!(fn f(module: crate::PyModuleRef)),
             parse_quote!(fn f(module: &mut Py<PyModule>)),
             parse_quote!(fn f(module: PyRef<PyModule>, value: u8)),
             parse_quote!(fn f(module: crate::PyRef<crate::builtins::PyModule>)),

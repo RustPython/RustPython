@@ -404,8 +404,8 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// #### Function signature
 /// A leading `&Py<PyModule>` receives the defining module, outside the Python
 /// argument list. No attribute option is needed. Qualified paths are supported,
-/// but type aliases are not resolved; a leading `PyRef<PyModule>` or
-/// `PyModuleRef` is rejected. Use the canonical form for module receivers. To
+/// but type aliases are not resolved; a leading `PyRef<PyModule>` is rejected.
+/// Use the canonical form for module receivers. To
 /// accept a Python-visible module as the first argument, declare the
 /// defining-module receiver first and the target module second.
 ///
