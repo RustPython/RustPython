@@ -84,7 +84,7 @@ impl FsPath {
         // TODO: FS encodings
         match self {
             Self::Str(s) => vm.fsencode(s),
-            Self::Bytes(b) => Self::bytes_as_os_str(b.as_bytes(), vm).map(Cow::Borrowed),
+            Self::Bytes(b) => Self::bytes_as_os_str(b.as_bytes(), vm),
         }
     }
 
@@ -108,7 +108,7 @@ impl FsPath {
     pub fn to_path_buf(&self, vm: &VirtualMachine) -> PyResult<PathBuf> {
         let path = match self {
             Self::Str(s) => PathBuf::from(vm.fsencode(s)?.as_ref() as &OsStr),
-            Self::Bytes(b) => PathBuf::from(Self::bytes_as_os_str(b.as_bytes(), vm)?),
+            Self::Bytes(b) => PathBuf::from(Self::bytes_as_os_str(b.as_bytes(), vm)?.into_owned()),
         };
         Ok(path)
     }
@@ -132,16 +132,38 @@ impl FsPath {
             .map_err(|err| err.into_pyexception(vm))
     }
 
-    pub fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ffi::OsStr> {
-        rustpython_host_env::os::bytes_as_os_str(b).map_err(|e| {
-            vm.new_unicode_decode_error(
-                vm.ctx.new_str("utf-8"),
-                vm.ctx.new_bytes(b.to_vec()),
-                e.valid_up_to(),
-                e.error_len().map_or(b.len(), |n| e.valid_up_to() + n),
-                vm.ctx.new_str("can't decode path for utf-8"),
-            )
-        })
+    #[cfg(windows)]
+    pub fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<Cow<'a, OsStr>> {
+        use std::os::windows::ffi::OsStringExt;
+
+        if let Ok(value) = core::str::from_utf8(b) {
+            return Ok(Cow::Borrowed(OsStr::new(value)));
+        }
+        // CPython path_converter(make_wide=True) decodes bytes with the
+        // filesystem codec before constructing a Windows wide string.
+        let decoded = vm.state.codec_registry.decode_text(
+            vm.ctx.new_bytes(b.to_vec()).into(),
+            vm.fs_encoding().as_ref(),
+            Some(vm.fs_encode_errors().to_owned()),
+            vm,
+        )?;
+        let wide: Vec<u16> = decoded.as_wtf8().encode_wide().collect();
+        Ok(Cow::Owned(std::ffi::OsString::from_wide(&wide)))
+    }
+
+    #[cfg(not(windows))]
+    pub fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<Cow<'a, OsStr>> {
+        rustpython_host_env::os::bytes_as_os_str(b)
+            .map(Cow::Borrowed)
+            .map_err(|e| {
+                vm.new_unicode_decode_error(
+                    vm.ctx.new_str("utf-8"),
+                    vm.ctx.new_bytes(b.to_vec()),
+                    e.valid_up_to(),
+                    e.error_len().map_or(b.len(), |n| e.valid_up_to() + n),
+                    vm.ctx.new_str("can't decode path for utf-8"),
+                )
+            })
     }
 }
 

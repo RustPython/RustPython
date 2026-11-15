@@ -125,7 +125,7 @@ mod _symtable {
         let filename_obj = match &filename {
             FsPath::Str(filename) => filename.clone(),
             FsPath::Bytes(filename) => {
-                let filename = FsPath::bytes_as_os_str(filename.as_bytes(), vm)?.to_owned();
+                let filename = FsPath::bytes_as_os_str(filename.as_bytes(), vm)?.into_owned();
                 vm.fsdecode(filename)?
             }
         };

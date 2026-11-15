@@ -835,3 +835,25 @@ if os.name == "nt":
     for operation in (nt._path_splitroot_ex, nt._path_normpath):
         with assert_raises(UnicodeDecodeError):
             operation(b"\xff")
+
+    # Exercise the shared bytes-to-native-path converter, not only nt helpers.
+    # A surrogate pair encoded as two surrogatepass sequences must also become
+    # the same native UTF-16 path as its non-BMP character spelling.
+    with tempfile.TemporaryDirectory() as directory:
+        for character in ("\ud800", "\udcff", "\udfff", "\ud800\udc00"):
+            path = os.path.join(directory, character)
+            encoded = os.fsencode(path)
+            os.mkdir(encoded)
+            try:
+                native_path = (
+                    os.path.join(directory, "\U00010000")
+                    if character == "\ud800\udc00"
+                    else path
+                )
+                assert stat.S_ISDIR(os.stat(native_path).st_mode)
+                assert stat.S_ISDIR(os.stat(encoded).st_mode)
+            finally:
+                os.rmdir(encoded)
+        for invalid in (b"\xff", b"\xed\xa0", b"\xc0\x80"):
+            with assert_raises(UnicodeDecodeError):
+                os.mkdir(os.fsencode(directory) + b"\\" + invalid)
