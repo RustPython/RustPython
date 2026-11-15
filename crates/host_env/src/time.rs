@@ -141,6 +141,7 @@ unsafe extern "C" {
 }
 
 #[cfg(windows)]
+#[cfg_attr(target_env = "musl", allow(deprecated))]
 pub fn current_time_t() -> TimeT {
     unsafe { c_time(core::ptr::null_mut()) }
 }

@@ -16,8 +16,6 @@ pub(crate) static MAIN_INTERP_PTR: AtomicPtr<Interpreter> = AtomicPtr::new(core:
 
 /// Request a thread local vm from the main interpreter
 pub(crate) fn request_vm_from_interpreter() -> ThreadedVirtualMachine {
-    // Attachment may park forever during finalization. Clone the inactive
-    // template here, then let the caller attach after releasing this mutex.
     get_main_interpreter()
         .as_ref()
         .expect("Interpreter not initialized")
