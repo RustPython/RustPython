@@ -505,6 +505,14 @@ fn inline_comprehension(
                 existing.flags.insert(sub_symbol.flags);
                 existing.scope = scope;
             }
+            // Propagate references to enclosing bindings, not class locals or
+            // comprehension-local iteration variables.
+            if scope == SymbolScope::Free
+                && parent_type != CompilerScope::Class
+                && sub_symbol.flags.contains(SymbolFlags::USE)
+            {
+                existing.flags.insert(SymbolFlags::USE);
+            }
             // Name exists in parent
             if existing.is_bound() && parent_type != CompilerScope::Class {
                 // Check if the name is free in any child of the comprehension
