@@ -42,6 +42,8 @@ class WasiFsTests(unittest.TestCase):
             if RUNTIME_MODE
             else f"{source}\nprint({marker!r})\n"
         )
+        dirs = _map_mounts(dirs)
+        ro_dirs = _map_mounts(ro_dirs)
         if RUNTIME_MODE:
             command = [str(self.runtime), str(self.module), *extra_runtime_args]
             for host, guest in dirs:
@@ -56,7 +58,7 @@ class WasiFsTests(unittest.TestCase):
             command = [str(self.wasmer), "run"]
             for host, guest in dirs:
                 command += ["--volume", f"{host}:{guest}"]
-            guest_pwd = dirs[0][1] if dirs else "/"
+            guest_pwd = dirs[0][1] if dirs else _guest_path_for_index(0)
             command += [
                 "--env",
                 f"PWD={guest_pwd}",
@@ -226,6 +228,7 @@ denied({host_outside!r}, FileNotFoundError)
         ):
             root = Path(directory)
             (root / "inside").write_bytes(b"inside")
+            (root / "café").write_bytes(b"coffee")
             (Path(other) / "secret").write_bytes(b"secret")
             (root / "internal").symlink_to("inside")
             (root / "external").symlink_to(Path(other) / "secret")
@@ -238,8 +241,12 @@ denied({host_outside!r}, FileNotFoundError)
                 have_bytes_name = False
             byte_name_check = (
                 """
-with _io.FileIO(b'raw-\\xff', 'r') as f:
-    assert f.read() == b'bytes'
+try:
+    _io.FileIO(b'raw-\\xff', 'r')
+except Exception as e:
+    assert isinstance(e, OSError)
+else:
+    assert False
 """
                 if have_bytes_name
                 else ""
@@ -248,10 +255,11 @@ with _io.FileIO(b'raw-\\xff', 'r') as f:
                 f"""
 import _io
 RUNTIME = {RUNTIME_MODE!r}
-Escape = PermissionError if RUNTIME else FileNotFoundError
-if RUNTIME:
-    with _io.FileIO('internal', 'r') as f:
-        assert f.read() == b'inside'
+Escape = PermissionError if RUNTIME else OSError
+with _io.FileIO('internal', 'r') as f:
+    assert f.read() == b'inside'
+with _io.FileIO('café'.encode(), 'r') as f:
+    assert f.read() == b'coffee'
 {byte_name_check}
 def denied(path):
     try:
@@ -261,8 +269,6 @@ def denied(path):
     else:
         assert False, path
 
-if not RUNTIME:
-    denied('internal')
 denied('external')
 denied('external_dir/secret')
 """,
@@ -396,6 +402,24 @@ if RUNTIME:
         )
         self.assertEqual(result.returncode, 2)
         self.assertIn("unexpected import: wasi_snapshot_preview1.", result.stderr)
+
+
+def _guest_path_for_index(index):
+    """Guest path for the Nth test mount.
+
+    The no-JS runner's current directory is fixed at `/`, so the first mount
+    stays there. Wasmer mounts at `/work`, `/work2`, ... so writes reach the
+    host: a volume on guest `/` does not persist to the host.
+    """
+    if RUNTIME_MODE:
+        return "/" if index == 0 else f"/work{index + 1}"
+    return "/work" if index == 0 else f"/work{index + 1}"
+
+
+def _map_mounts(mounts):
+    return [
+        (host, _guest_path_for_index(index)) for index, (host, _) in enumerate(mounts)
+    ]
 
 
 def _mount_spec(host, guest):

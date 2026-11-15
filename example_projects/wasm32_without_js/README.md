@@ -66,7 +66,8 @@ A read-only preopen does not grant write, create, truncate, or similar rights.
 `path_open` that asks for an ungranted right, or uses create/truncate/exclusive
 or append flags under a read-only preopen, fails without touching the
 filesystem. Absolute paths and escapes (`..` past the root, symlinks that
-leave the directory) are denied. Unix filename bytes are preserved.
+leave the directory) are denied. Paths must be valid UTF-8, as WASI
+preview1 requires.
 
 The same contract tests run against this runner and against `wasm32-wasip1`
 RustPython under `wasmer`:

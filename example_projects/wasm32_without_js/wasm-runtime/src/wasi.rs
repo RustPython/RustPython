@@ -3,7 +3,8 @@
 //!
 //! Import module: `wasi_snapshot_preview1`. Access is decided by preopens and
 //! per-descriptor rights. Guest integers index this table; they are never
-//! native descriptors.
+//! native descriptors. `path_open` paths must be valid UTF-8, as WASI
+//! preview1 requires.
 
 use cap_std::{
     ambient_authority,
@@ -572,16 +573,8 @@ fn guest_path(bytes: &[u8]) -> Result<&Path, u16> {
     if bytes.contains(&0) {
         return Err(INVAL);
     }
-    #[cfg(unix)]
-    let path = {
-        use std::os::unix::ffi::OsStrExt;
-        Path::new(std::ffi::OsStr::from_bytes(bytes))
-    };
-    #[cfg(not(unix))]
-    let path = {
-        let text = std::str::from_utf8(bytes).map_err(|_| ILSEQ)?;
-        Path::new(text)
-    };
+    let text = std::str::from_utf8(bytes).map_err(|_| INVAL)?;
+    let path = Path::new(text);
     if path.is_absolute()
         || path
             .components()
@@ -1059,9 +1052,48 @@ mod tests {
     }
 
     #[test]
+    fn path_open_requires_utf8() {
+        let fixture = Fixture::new();
+        std::fs::write(fixture.0.join("café"), b"coffee").unwrap();
+        let mut table = Table::with_preopens([Preopen {
+            host: fixture.0.clone(),
+            guest: b"/".to_vec(),
+            write: true,
+        }])
+        .unwrap();
+        assert_eq!(
+            table
+                .path_open(
+                    3,
+                    LOOKUP_SYMLINK_FOLLOW,
+                    b"raw-\xff",
+                    0,
+                    rights_read(),
+                    0,
+                    0,
+                )
+                .unwrap_err(),
+            INVAL
+        );
+        let fd = table
+            .path_open(
+                3,
+                LOOKUP_SYMLINK_FOLLOW,
+                "café".as_bytes(),
+                0,
+                rights_read(),
+                0,
+                0,
+            )
+            .unwrap();
+        let mut buf = [0u8; 16];
+        let n = table.fd_read(fd, &mut [&mut buf]).unwrap();
+        assert_eq!(&buf[..n], b"coffee");
+    }
+
+    #[test]
     #[cfg(unix)]
-    fn unix_byte_names_and_confined_symlinks() {
-        use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+    fn confined_symlinks() {
         let fixture = Fixture::new();
         let outside = Fixture::new();
         std::fs::write(outside.0.join("secret"), b"secret").unwrap();
@@ -1069,8 +1101,6 @@ mod tests {
         std::os::unix::fs::symlink("inside", fixture.0.join("internal")).unwrap();
         std::os::unix::fs::symlink(outside.0.join("secret"), fixture.0.join("escape")).unwrap();
         std::os::unix::fs::symlink(&outside.0, fixture.0.join("escape-dir")).unwrap();
-        let raw = OsStr::from_bytes(b"raw-\xff");
-        let wrote_raw = std::fs::write(fixture.0.join(raw), b"bytes").is_ok();
         let mut table = Table::with_preopens([Preopen {
             host: fixture.0.clone(),
             guest: b"/".to_vec(),
@@ -1091,22 +1121,6 @@ mod tests {
         let mut buf = [0u8; 8];
         let n = table.fd_read(fd, &mut [&mut buf]).unwrap();
         assert_eq!(&buf[..n], b"inside");
-        if wrote_raw {
-            let fd = table
-                .path_open(
-                    3,
-                    LOOKUP_SYMLINK_FOLLOW,
-                    b"raw-\xff",
-                    0,
-                    rights_read(),
-                    0,
-                    0,
-                )
-                .unwrap();
-            let mut buf = [0u8; 8];
-            let n = table.fd_read(fd, &mut [&mut buf]).unwrap();
-            assert_eq!(&buf[..n], b"bytes");
-        }
         assert_eq!(
             table
                 .path_open(3, LOOKUP_SYMLINK_FOLLOW, b"escape", 0, rights_read(), 0, 0)
