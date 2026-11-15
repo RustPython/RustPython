@@ -71,6 +71,7 @@ import sysconfig
 import textwrap
 import time
 import tokenize
+import urllib.parse
 import warnings
 from annotationlib import Format
 from collections import deque
@@ -811,8 +812,7 @@ class HTMLDoc(Doc):
         head = '<strong class="title">%s</strong>' % linkedname
         try:
             path = inspect.getabsfile(object)
-            import urllib.request
-            url = urllib.request.pathname2url(path)
+            url = urllib.parse.quote(path)
             filelink = self.filelink(url, path)
         except TypeError:
             filelink = '(built-in)'
@@ -1771,8 +1771,7 @@ def writedoc(thing, forceload=0):
     """Write HTML documentation to a file in the current directory."""
     object, name = resolve(thing, forceload)
     page = html.page(describe(object), html.document(object, name))
-    with open(name + '.html', 'w', encoding='utf-8',
-              errors='backslashreplace') as file:
+    with open(name + '.html', 'w', encoding='utf-8') as file:
         file.write(page)
     print('wrote', name + '.html')
 
@@ -2369,7 +2368,7 @@ def _start_server(urlhandler, hostname, port):
             self.send_header('Content-Type', '%s; charset=UTF-8' % content_type)
             self.end_headers()
             self.wfile.write(self.urlhandler(
-                self.path, content_type).encode('utf-8', 'backslashreplace'))
+                self.path, content_type).encode('utf-8'))
 
         def log_message(self, *args):
             # Don't log messages.
