@@ -388,18 +388,34 @@ pub(crate) fn is_spec_initializing(spec: Option<&PyObject>, vm: &VirtualMachine)
 }
 
 /// If `__spec__._initializing` is true, wait for the module to finish
-/// initializing by calling `_lock_unlock_module`.
+/// initializing by calling `_lock_unlock_module`, and return whether it was initializing.
 fn import_ensure_initialized(
     module: &PyObject,
     name: &Py<PyStr>,
     vm: &VirtualMachine,
-) -> PyResult<()> {
-    if is_module_initializing(module, vm)? {
+) -> PyResult<bool> {
+    let initializing = is_module_initializing(module, vm)?;
+    if initializing {
         let lock_unlock = vm.importlib.get_attr("_lock_unlock_module", vm)?;
         lock_unlock.call((name.to_owned(),), vm)?;
     }
     report_cached_import(name, vm);
-    Ok(())
+    Ok(initializing)
+}
+
+/// Recheck after inspecting `__spec__` or waiting for initialization: a failed
+/// import may have removed or replaced the module while we held its reference.
+pub(crate) fn is_cached_module(
+    modules: &PyObject,
+    name: &Py<PyStr>,
+    module: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    match modules.get_item(name, vm) {
+        Ok(current) => Ok(current.is(module)),
+        Err(error) if error.fast_isinstance(vm.ctx.exceptions.key_error) => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 pub fn import_code_obj(
@@ -677,9 +693,15 @@ pub(crate) fn import_module_level(
     let sys_modules = vm.sys_module.get_attr("modules", vm)?;
     let module = match sys_modules.get_item(&*abs_name, vm) {
         Ok(m) if !vm.is_none(&m) => {
-            import_ensure_initialized(&m, &abs_name, vm)?;
-            crate::lazy_import::clear_submodule(&abs_name, true, vm)?;
-            m
+            let initializing = import_ensure_initialized(&m, &abs_name, vm)?;
+            if !is_cached_module(&sys_modules, &abs_name, &m, vm)? {
+                find_and_load(&abs_name, "_find_and_load", vm)?
+            } else {
+                if !initializing {
+                    crate::lazy_import::clear_submodule(&abs_name, true, vm)?;
+                }
+                m
+            }
         }
         Ok(_) => find_and_load(&abs_name, "_find_and_load", vm)?,
         Err(error) if error.fast_isinstance(vm.ctx.exceptions.key_error) => {
