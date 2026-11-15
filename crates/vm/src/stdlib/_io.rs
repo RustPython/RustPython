@@ -29,7 +29,7 @@ pub use _io::{OpenArgs, io_open as open};
 use rustpython_host_env::io as host_io;
 
 /// Mirror the file descriptor conversion used by FileIO and WindowsConsoleIO.
-#[cfg(feature = "host_env")]
+#[cfg(feature = "host_io")]
 fn open_file_descriptor(name: &PyObject, vm: &VirtualMachine) -> PyResult<Option<i32>> {
     if name.class().is(vm.ctx.types.bool_type) {
         crate::stdlib::_warnings::warn(
@@ -344,7 +344,7 @@ mod _io {
         pos: Option<PyObjectRef>,
     }
 
-    #[cfg(feature = "host_env")]
+    #[cfg(feature = "host_io")]
     #[derive(FromArgs)]
     pub(super) struct ObjLen {
         #[pyarg(positional, optional)]
@@ -5995,7 +5995,7 @@ mod _io {
                     Some(super::fileio::FileIO::static_type())
                 }
             }
-            feature = "host_env" => Some(super::fileio::FileIO::static_type()),
+            feature = "host_io" => Some(super::fileio::FileIO::static_type()),
             _ => None,
         }
         .ok_or_else(|| {
@@ -6225,15 +6225,15 @@ mod _io {
     }
 
     #[cfg_attr(
-        not(feature = "host_env"),
+        not(feature = "host_io"),
         expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")
     )]
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         // Call auto-generated initialization first
         __module_exec(vm, module);
 
-        // Initialize FileIO types (requires host_env for filesystem access)
-        #[cfg(feature = "host_env")]
+        // Initialize FileIO types (requires host_io for descriptor access)
+        #[cfg(feature = "host_io")]
         super::fileio::module_exec(vm, module)?;
 
         // Initialize WindowsConsoleIO type (Windows only)
@@ -6248,8 +6248,8 @@ mod _io {
         Ok(())
     }
 }
-// FileIO requires host environment for filesystem access
-#[cfg(feature = "host_env")]
+// FileIO requires host descriptor access, not the full Python OS module.
+#[cfg(feature = "host_io")]
 #[pymodule]
 mod fileio {
     use super::{_io::*, Offset, iobase_finalize};
@@ -6268,6 +6268,7 @@ mod fileio {
         ospath::OsPath,
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
+
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_host_env::io as host_io;
 
@@ -6366,7 +6367,7 @@ mod fileio {
                     fd
                 } else {
                     let path = path.take().expect("a filename was resolved above");
-                    #[cfg(any(unix, target_os = "wasi"))]
+                    #[cfg(not(windows))]
                     let raw_path = path.into_cstring(vm)?;
                     #[cfg(windows)]
                     let raw_path = path.to_wide_cstring(vm)?;

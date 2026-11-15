@@ -1,15 +1,23 @@
-use std::{collections::HashMap, path::PathBuf, process::ExitCode};
+use std::{
+    collections::HashMap,
+    ffi::{OsStr, OsString},
+    path::PathBuf,
+    process::ExitCode,
+};
 
 use wasmer::{
     AsStoreRef, Function, FunctionEnv, FunctionEnvMut, Instance, Memory, Module, RuntimeError,
     Store, imports,
 };
 
-const USAGE: &str = "usage: wasm-runtime MODULE.wasm (-c CODE | FILE.py)";
+mod wasi;
+
+const USAGE: &str = "usage: wasm-runtime MODULE.wasm [--dir HOST[::GUEST]]... [--ro-dir HOST[::GUEST]]... (-c CODE | FILE.py)";
 
 struct Context {
     memory: Option<Memory>,
     kv: HashMap<Vec<u8>, Vec<u8>>,
+    table: wasi::Table,
 }
 
 impl Context {
@@ -80,10 +88,42 @@ fn kv_get(
     Ok(len)
 }
 
+fn parse_dir_spec(value: OsString) -> (PathBuf, Vec<u8>) {
+    let bytes = value.as_encoded_bytes();
+    match bytes.windows(2).position(|pair| pair == b"::") {
+        Some(index) => {
+            // SAFETY: `::` is ASCII, so both sides remain valid os-encoded bytes.
+            let host = unsafe { OsStr::from_encoded_bytes_unchecked(&bytes[..index]) };
+            let guest = &bytes[index + 2..];
+            let guest = if guest.is_empty() {
+                b"/".to_vec()
+            } else {
+                guest.to_vec()
+            };
+            (PathBuf::from(host), guest)
+        }
+        None => (PathBuf::from(value), b"/".to_vec()),
+    }
+}
+
 fn run() -> Result<i32, Box<dyn std::error::Error>> {
     let mut args = std::env::args_os().skip(1);
     let module_path = PathBuf::from(args.next().ok_or(USAGE)?);
-    let source_arg = args.next().ok_or(USAGE)?;
+    let mut source_arg = args.next().ok_or(USAGE)?;
+    let mut preopens = Vec::new();
+    loop {
+        let write = if source_arg == "--dir" {
+            true
+        } else if source_arg == "--ro-dir" {
+            false
+        } else {
+            break;
+        };
+        let value = args.next().ok_or(USAGE)?;
+        let (host, guest) = parse_dir_spec(value);
+        preopens.push(wasi::Preopen { host, guest, write });
+        source_arg = args.next().ok_or(USAGE)?;
+    }
     let source = if source_arg == "-c" {
         args.next()
             .ok_or(USAGE)?
@@ -100,9 +140,15 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
 
     let mut store = Store::default();
     let module = Module::new(&store, std::fs::read(&module_path)?)?;
+    let host_io = !preopens.is_empty();
     // Fail closed if a future build accidentally acquires OS or JS imports.
     for import in module.imports() {
-        if import.module() != "env" || !matches!(import.name(), "print" | "kv_get" | "kv_put") {
+        let allowed = (import.module() == "env"
+            && matches!(import.name(), "print" | "kv_get" | "kv_put"))
+            || (host_io
+                && import.module() == wasi::MODULE
+                && wasi::FUNCTIONS.contains(&import.name()));
+        if !allowed {
             return Err(format!("unexpected import: {}.{}", import.module(), import.name()).into());
         }
     }
@@ -111,6 +157,7 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
         Context {
             memory: None,
             kv: HashMap::new(),
+            table: wasi::Table::with_preopens(preopens)?,
         },
     );
     let imports = imports! {
@@ -118,6 +165,18 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
             "print" => Function::new_typed_with_env(&mut store, &env, print),
             "kv_get" => Function::new_typed_with_env(&mut store, &env, kv_get),
             "kv_put" => Function::new_typed_with_env(&mut store, &env, kv_put),
+        },
+        "wasi_snapshot_preview1" => {
+            "fd_read" => Function::new_typed_with_env(&mut store, &env, wasi::fd_read),
+            "fd_write" => Function::new_typed_with_env(&mut store, &env, wasi::fd_write),
+            "fd_seek" => Function::new_typed_with_env(&mut store, &env, wasi::fd_seek),
+            "fd_close" => Function::new_typed_with_env(&mut store, &env, wasi::fd_close),
+            "fd_sync" => Function::new_typed_with_env(&mut store, &env, wasi::fd_sync),
+            "fd_filestat_set_size" => Function::new_typed_with_env(&mut store, &env, wasi::fd_filestat_set_size),
+            "fd_fdstat_get" => Function::new_typed_with_env(&mut store, &env, wasi::fd_fdstat_get),
+            "fd_prestat_get" => Function::new_typed_with_env(&mut store, &env, wasi::fd_prestat_get),
+            "fd_prestat_dir_name" => Function::new_typed_with_env(&mut store, &env, wasi::fd_prestat_dir_name),
+            "path_open" => Function::new_typed_with_env(&mut store, &env, wasi::path_open),
         }
     };
     let instance = Instance::new(&mut store, &module, &imports)?;

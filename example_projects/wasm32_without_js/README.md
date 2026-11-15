@@ -14,7 +14,7 @@ own directory so that Cargo reads its `.cargo/config.toml`:
 ```shell
 rustup target add wasm32-unknown-unknown
 (cd rustpython-without-js && cargo build)
-cargo build --release --manifest-path wasm-runtime/Cargo.toml
+cargo build --locked --release --manifest-path wasm-runtime/Cargo.toml
 ```
 
 ```shell
@@ -41,3 +41,47 @@ The existing WASM CI job runs these checks.
 
 This is a no-OS build: `Interpreter::builder` with a native `kv` module, host-lent
 storage, a fixed hash seed, and unsupported entropy.
+
+
+## Opt-in host file I/O (WASI preview1 subset)
+
+The default guest above remains no-OS. A separate opt-in `host-io` guest feature
+imports a WASI preview1 subset (`wasi_snapshot_preview1`) for path opening and
+descriptor I/O. The host decides access through preopens:
+
+```shell
+(cd rustpython-without-js && cargo build --features host-io)
+wasm-runtime/target/release/wasm-runtime \
+  rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm \
+  --dir directory -c "import _io; _io.FileIO('source.py', 'rb').read()"
+```
+
+`--dir HOST[::GUEST]` preopens a read-write directory; `--ro-dir` is the
+read-only form. `GUEST` defaults to `/`. Guest FD numbers 0, 1 and 2 are
+absent; preopens start at 3 in command-line order. Without a preopen the
+runner rejects the WASI imports. The host limits each transfer to 64 KiB;
+Python buffered I/O handles short transfers normally.
+
+A read-only preopen does not grant write, create, truncate, or similar rights.
+`path_open` that asks for an ungranted right, or uses create/truncate/exclusive
+or append flags under a read-only preopen, fails without touching the
+filesystem. Absolute paths and escapes (`..` past the root, symlinks that
+leave the directory) are denied. Paths must be valid UTF-8, as WASI
+preview1 requires.
+
+The same contract tests run against this runner and against `wasm32-wasip1`
+RustPython under `wasmer`:
+
+```shell
+cargo test --locked --release --manifest-path wasm-runtime/Cargo.toml
+python3 test_wasi_fs.py -v \
+  --runtime wasm-runtime/target/release/wasm-runtime \
+  --module rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
+python3 test_wasi_fs.py -v \
+  --wasmer "$(command -v wasmer)" \
+  --wasi-module ../../target/wasm32-wasip1/wasm-release/rustpython.wasm
+```
+
+This stage enables path-based FileIO only. Metadata queries and directory
+operations are not implemented. The guest still lacks filesystem `posix` hooks
+and external importlib integration; this is not a working `-m test` runner.

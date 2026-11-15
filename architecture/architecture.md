@@ -76,6 +76,20 @@ For each of the three components, the entry point is as follows:
 - Compiler: `compile`, located in [`crates/vm/src/vm/compile.rs`][11], this eventually forwards a call to [`compiler::compile`][12].
 - VM: `run_code_obj`, located in [`crates/vm/src/vm/mod.rs`][13]. This creates a new frame in which the bytecode is executed.
 
+## Embedded file I/O
+
+The `rustpython-vm` feature `host_io` enables `_io.FileIO` and file-descriptor
+and path conversion without the `os`, signal, subprocess or ctypes modules.
+`host_env` includes `host_io`.
+
+On native targets, FileIO uses the host's file descriptors and paths
+directly, so `host_io` is not a sandbox. On `wasm32-unknown-unknown`,
+`host_io` makes the guest import a subset of WASI preview1
+(`wasi_snapshot_preview1`: fd read/write/seek/close/sync/filestat_set_size/fdstat_get,
+prestat, path_open). Paths resolve through host preopens and the host decides
+access. `wasm32-wasip1` builds use the standard WASI libc path instead. This
+does not provide stdio, `os`, or a `-m test` runner on wasm32-unknown.
+
 ## Components
 
 Here we give a brief overview of each component and its function. For more details for the separate crates please take a look at their respective READMEs.
