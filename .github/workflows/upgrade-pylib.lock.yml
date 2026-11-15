@@ -24,7 +24,7 @@
 # Pick an out-of-sync Python library from the todo list and upgrade it
 # by running `scripts/update_lib quick`, then open a pull request.
 #
-# frontmatter-hash: bf5b6c1bf4e49141df567a8ff69cce1fc96faa991e1cc353ed6a77aa7c2ba719
+# frontmatter-hash: 88a590250592f3459ce657eca1f29e2743b6c2fa42aeb4671991e5238b4b459e
 
 name: "Upgrade Python Library"
 "on":
@@ -44,7 +44,7 @@ run-name: "Upgrade Python Library"
 
 env:
   ISSUE_ID: "6839"
-  PYTHON_VERSION: v3.15.0
+  PYTHON_VERSION: v3.15.2
 
 # Cache configuration from frontmatter was processed and added to the main job steps
 
