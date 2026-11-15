@@ -253,3 +253,78 @@ def test_charmap_handler_repairs_retained_exception():
 
 
 test_charmap_handler_repairs_retained_exception()
+
+
+def test_encode_handler_restart_validation():
+    # Exercise the shared encoder path as well as the Windows code-page caller.
+    encoders = [lambda handler: _codecs.utf_8_encode("\ud800", handler)]
+    if hasattr(_codecs, "code_page_encode"):
+        encoders.append(
+            lambda handler: _codecs.code_page_encode(65001, "\ud800", handler)
+        )
+        encoders.append(lambda handler: _codecs.mbcs_encode("\ud800", handler))
+        encoders.append(lambda handler: _codecs.oem_encode("\ud800", handler))
+    name = "test_encode_restart_validation"
+    try:
+        for encode in encoders:
+            for position, exception, message in (
+                (-2, IndexError, "position -1 from error handler out of bounds"),
+                (2, IndexError, "position 2 from error handler out of bounds"),
+                (2**100, OverflowError, "Python int too large to convert to C ssize_t"),
+            ):
+                codecs.register_error(name, lambda exc: (b"?", position))
+                try:
+                    encode(name)
+                except exception as exc:
+                    assert str(exc) == message, str(exc)
+                else:
+                    assert False, position
+
+            class Position:
+                def __index__(self):
+                    raise RuntimeError("position conversion first")
+
+            codecs.register_error(name, lambda exc: (None, Position()))
+            try:
+                encode(name)
+            except RuntimeError as exc:
+                assert str(exc) == "position conversion first"
+            else:
+                assert False
+    finally:
+        _codecs._unregister_error(name)
+
+
+test_encode_handler_restart_validation()
+
+
+def test_code_page_handler_context():
+    if not hasattr(_codecs, "code_page_decode"):
+        return
+    name = "test_code_page_context"
+    seen = []
+
+    def handler(exc):
+        seen.append(exc)
+        exc.object = b"\xffA\xffZ"
+        return ("?", exc.end)
+
+    codecs.register_error(name, handler)
+    try:
+        assert _codecs.code_page_decode(65001, b"\xff", name, True) == ("?A?Z", 1)
+        assert len(seen) == 2 and seen[0] is seen[1]
+        for operation in (
+            lambda: _codecs.code_page_encode(65001, "a\ud800", "strict"),
+            lambda: _codecs.code_page_decode(65001, b"a\xff", "strict", True),
+        ):
+            try:
+                operation()
+            except UnicodeError as exc:
+                assert (exc.start, exc.end) == (0, 0)
+            else:
+                assert False
+    finally:
+        _codecs._unregister_error(name)
+
+
+test_code_page_handler_context()
