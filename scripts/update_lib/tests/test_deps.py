@@ -89,6 +89,15 @@ class TestGetLibPaths(unittest.TestCase):
             paths = get_lib_paths("foo", str(tmpdir))
             self.assertEqual(paths, (tmpdir / "Lib" / "foo.py",))
 
+    def test_pyrepl_package_and_interpreter_repl_tests(self):
+        self.assertEqual(
+            get_test_paths("_pyrepl", "cpython"),
+            (
+                pathlib.Path("cpython/Lib/test/test_pyrepl"),
+                pathlib.Path("cpython/Lib/test/test_repl.py"),
+            ),
+        )
+
     def test_default_directory(self):
         """Test default to directory when file doesn't exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
