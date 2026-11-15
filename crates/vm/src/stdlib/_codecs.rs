@@ -830,24 +830,6 @@ mod _codecs_windows {
         builtins::PyStr, builtins::PyStrRef, builtins::PyUtf8StrRef, function::ArgBytesLike,
     };
     use rustpython_host_env::windows as host_windows;
-    use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
-
-    fn string_from_utf16(
-        encoding: &str,
-        data: &[u8],
-        wide: &[u16],
-        vm: &VirtualMachine,
-    ) -> PyResult<String> {
-        String::from_utf16(wide).map_err(|err| {
-            vm.new_unicode_decode_error(
-                vm.ctx.new_str(encoding),
-                vm.ctx.new_bytes(data.to_vec()),
-                0,
-                data.len(),
-                vm.ctx.new_str(format!("{encoding}_decode failed: {err}")),
-            )
-        })
-    }
 
     #[derive(FromArgs)]
     struct MbcsEncodeArgs {
@@ -859,54 +841,14 @@ mod _codecs_windows {
 
     #[pyfunction]
     fn mbcs_encode(args: MbcsEncodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
-        let errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
-        let s = match args.str.to_str() {
-            Some(s) => s,
-            None => {
-                // String contains surrogates - not encodable with mbcs
-                return encode_code_page_errors(
-                    host_windows::CP_ACP,
-                    &args.str,
-                    errors,
-                    "mbcs",
-                    vm,
-                );
-            }
-        };
-        let char_len = args.str.char_len();
-
-        if s.is_empty() {
-            return Ok((Vec::new(), char_len));
-        }
-
-        // Convert UTF-8 string to UTF-16
-        let wide: Vec<_> = OsStr::new(s).encode_wide().collect();
-
-        // Get the required buffer size
-        let (size, _) = host_windows::wide_char_to_multi_byte_len(
-            host_windows::CP_ACP,
-            host_windows::WC_NO_BEST_FIT_CHARS,
-            &wide,
-            false,
+        code_page_encode(
+            CodePageEncodeArgs {
+                code_page: host_windows::CP_ACP as i32,
+                str: args.str,
+                errors: args.errors,
+            },
+            vm,
         )
-        .map_err(|err| vm.new_os_error(format!("mbcs_encode failed: {err}")))?;
-
-        let mut buffer = vec![0u8; size];
-        let (result, used_default_char) = host_windows::wide_char_to_multi_byte(
-            host_windows::CP_ACP,
-            host_windows::WC_NO_BEST_FIT_CHARS,
-            &wide,
-            &mut buffer,
-            errors == "strict",
-        )
-        .map_err(|err| vm.new_os_error(format!("mbcs_encode failed: {err}")))?;
-
-        if errors == "strict" && used_default_char {
-            return encode_code_page_errors(host_windows::CP_ACP, &args.str, errors, "mbcs", vm);
-        }
-
-        buffer.truncate(result);
-        Ok((buffer, char_len))
     }
 
     #[derive(FromArgs)]
@@ -916,59 +858,20 @@ mod _codecs_windows {
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
         #[pyarg(positional, default)]
-        #[allow(dead_code)]
         r#final: bool,
     }
 
     #[pyfunction]
-    fn mbcs_decode(args: MbcsDecodeArgs, vm: &VirtualMachine) -> PyResult<(String, usize)> {
-        let _errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
-        let data = args.data.borrow_buf();
-        let len = data.len();
-
-        if data.is_empty() {
-            return Ok((String::new(), 0));
-        }
-
-        // Get the required buffer size for UTF-16
-        let size = host_windows::multi_byte_to_wide_len(
-            host_windows::CP_ACP,
-            host_windows::MB_ERR_INVALID_CHARS,
-            data.as_ref(),
-        );
-
-        if size.is_err() {
-            // Try without MB_ERR_INVALID_CHARS for non-strict mode (replacement behavior)
-            let size = host_windows::multi_byte_to_wide_len(host_windows::CP_ACP, 0, data.as_ref())
-                .map_err(|err| vm.new_os_error(format!("mbcs_decode failed: {err}")))?;
-
-            let mut buffer = vec![0u16; size];
-            let result = host_windows::multi_byte_to_wide(
-                host_windows::CP_ACP,
-                0,
-                data.as_ref(),
-                &mut buffer,
-            )
-            .map_err(|err| vm.new_os_error(format!("mbcs_decode failed: {err}")))?;
-            buffer.truncate(result);
-            let s = string_from_utf16("mbcs", data.as_ref(), &buffer, vm)?;
-            return Ok((s, len));
-        }
-
-        // Strict mode succeeded - no invalid characters
-        let size = size.unwrap();
-        let mut buffer = vec![0u16; size];
-        let result = host_windows::multi_byte_to_wide(
-            host_windows::CP_ACP,
-            host_windows::MB_ERR_INVALID_CHARS,
-            data.as_ref(),
-            &mut buffer,
+    fn mbcs_decode(args: MbcsDecodeArgs, vm: &VirtualMachine) -> PyResult<(PyStrRef, usize)> {
+        code_page_decode(
+            CodePageDecodeArgs {
+                codepage: host_windows::CP_ACP as i32,
+                data: args.data,
+                errors: args.errors,
+                r#final: args.r#final,
+            },
+            vm,
         )
-        .map_err(|err| vm.new_os_error(format!("mbcs_decode failed: {err}")))?;
-        buffer.truncate(result);
-        let s = string_from_utf16("mbcs", data.as_ref(), &buffer, vm)?;
-
-        Ok((s, len))
     }
 
     #[derive(FromArgs)]
@@ -981,54 +884,14 @@ mod _codecs_windows {
 
     #[pyfunction]
     fn oem_encode(args: OemEncodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
-        let errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
-        let s = match args.str.to_str() {
-            Some(s) => s,
-            None => {
-                // String contains surrogates - not encodable with oem
-                return encode_code_page_errors(
-                    host_windows::CP_OEMCP,
-                    &args.str,
-                    errors,
-                    "oem",
-                    vm,
-                );
-            }
-        };
-        let char_len = args.str.char_len();
-
-        if s.is_empty() {
-            return Ok((Vec::new(), char_len));
-        }
-
-        // Convert UTF-8 string to UTF-16
-        let wide: Vec<_> = OsStr::new(s).encode_wide().collect();
-
-        // Get the required buffer size
-        let (size, _) = host_windows::wide_char_to_multi_byte_len(
-            host_windows::CP_OEMCP,
-            host_windows::WC_NO_BEST_FIT_CHARS,
-            &wide,
-            false,
+        code_page_encode(
+            CodePageEncodeArgs {
+                code_page: host_windows::CP_OEMCP as i32,
+                str: args.str,
+                errors: args.errors,
+            },
+            vm,
         )
-        .map_err(|err| vm.new_os_error(format!("oem_encode failed: {err}")))?;
-
-        let mut buffer = vec![0u8; size];
-        let (result, used_default_char) = host_windows::wide_char_to_multi_byte(
-            host_windows::CP_OEMCP,
-            host_windows::WC_NO_BEST_FIT_CHARS,
-            &wide,
-            &mut buffer,
-            errors == "strict",
-        )
-        .map_err(|err| vm.new_os_error(format!("oem_encode failed: {err}")))?;
-
-        if errors == "strict" && used_default_char {
-            return encode_code_page_errors(host_windows::CP_OEMCP, &args.str, errors, "oem", vm);
-        }
-
-        buffer.truncate(result);
-        Ok((buffer, char_len))
     }
 
     #[derive(FromArgs)]
@@ -1038,60 +901,20 @@ mod _codecs_windows {
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
         #[pyarg(positional, default)]
-        #[allow(dead_code)]
         r#final: bool,
     }
 
     #[pyfunction]
-    fn oem_decode(args: OemDecodeArgs, vm: &VirtualMachine) -> PyResult<(String, usize)> {
-        let _errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
-        let data = args.data.borrow_buf();
-        let len = data.len();
-
-        if data.is_empty() {
-            return Ok((String::new(), 0));
-        }
-
-        // Get the required buffer size for UTF-16
-        let size = host_windows::multi_byte_to_wide_len(
-            host_windows::CP_OEMCP,
-            host_windows::MB_ERR_INVALID_CHARS,
-            data.as_ref(),
-        );
-
-        if size.is_err() {
-            // Try without MB_ERR_INVALID_CHARS for non-strict mode (replacement behavior)
-            let size =
-                host_windows::multi_byte_to_wide_len(host_windows::CP_OEMCP, 0, data.as_ref())
-                    .map_err(|err| vm.new_os_error(format!("oem_decode failed: {err}")))?;
-
-            let mut buffer = vec![0u16; size];
-            let result = host_windows::multi_byte_to_wide(
-                host_windows::CP_OEMCP,
-                0,
-                data.as_ref(),
-                &mut buffer,
-            )
-            .map_err(|err| vm.new_os_error(format!("oem_decode failed: {err}")))?;
-            buffer.truncate(result);
-            let s = string_from_utf16("oem", data.as_ref(), &buffer, vm)?;
-            return Ok((s, len));
-        }
-
-        // Strict mode succeeded - no invalid characters
-        let size = size.unwrap();
-        let mut buffer = vec![0u16; size];
-        let result = host_windows::multi_byte_to_wide(
-            host_windows::CP_OEMCP,
-            host_windows::MB_ERR_INVALID_CHARS,
-            data.as_ref(),
-            &mut buffer,
+    fn oem_decode(args: OemDecodeArgs, vm: &VirtualMachine) -> PyResult<(PyStrRef, usize)> {
+        code_page_decode(
+            CodePageDecodeArgs {
+                codepage: host_windows::CP_OEMCP as i32,
+                data: args.data,
+                errors: args.errors,
+                r#final: args.r#final,
+            },
+            vm,
         )
-        .map_err(|err| vm.new_os_error(format!("oem_decode failed: {err}")))?;
-        buffer.truncate(result);
-        let s = string_from_utf16("oem", data.as_ref(), &buffer, vm)?;
-
-        Ok((s, len))
     }
 
     #[derive(FromArgs)]
@@ -1365,6 +1188,7 @@ mod _codecs_windows {
         use crate::common::{encodings::DecodeContext, wtf8::Wtf8Buf};
 
         let mut ctx = PyDecodeContext::new(encoding_name, data, vm);
+        let input_len = ctx.full_data().len();
         let reason = Some("No mapping for the Unicode character exists in the target code page.");
         if errors.is_none_or(|e| e.as_str() == "strict") && is_final {
             return Err(ctx.error_decoding(0..0, reason));
@@ -1416,7 +1240,7 @@ mod _codecs_windows {
         }
         Ok((
             vm.ctx.new_str(Wtf8Buf::from_wide(&wide_buf)),
-            ctx.position(),
+            if is_final { input_len } else { ctx.position() },
         ))
     }
 

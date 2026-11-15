@@ -309,7 +309,7 @@ def test_code_page_handler_context():
 
     codecs.register_error(name, handler)
     try:
-        assert _codecs.code_page_decode(65001, b"\xff", name, True) == ("?A?Z", 4)
+        assert _codecs.code_page_decode(65001, b"\xff", name, True) == ("?A?Z", 1)
         assert len(seen) == 2 and seen[0] is seen[1]
         for operation in (
             lambda: _codecs.code_page_encode(65001, "a\ud800", "strict"),
