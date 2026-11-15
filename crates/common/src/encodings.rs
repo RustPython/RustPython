@@ -72,6 +72,9 @@ pub trait DecodeContext: CodecContext {
 
     fn restart_from(&mut self, pos: usize) -> Result<(), Self::Error>;
 
+    /// Load the Unicode name database when a `\N` escape is reached.
+    fn load_unicode_names(&self) -> Result<(), Self::Error>;
+
     fn error_decoding(&self, byte_range: Range<usize>, reason: Option<&str>) -> Self::Error;
 
     fn handle_error<E>(

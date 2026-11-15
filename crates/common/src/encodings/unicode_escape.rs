@@ -196,6 +196,7 @@ where
                 out.push_wtf8(replace.as_ref());
             }
             b'N' => {
+                ctx.load_unicode_names()?;
                 if rest.len() == 2 && !final_decode {
                     consumed = ctx.position();
                     break;

@@ -1240,6 +1240,15 @@ impl DecodeContext for PyDecodeContext<'_> {
         Ok(())
     }
 
+    fn load_unicode_names(&self) -> Result<(), Self::Error> {
+        self.vm.load_unicode_names().map_err(|_| {
+            self.vm.new_exception_msg(
+                self.vm.ctx.exceptions.unicode_error.to_owned(),
+                "\\N escapes not supported (can't load unicodedata module)".into(),
+            )
+        })
+    }
+
     fn error_decoding(&self, byte_range: Range<usize>, reason: Option<&str>) -> Self::Error {
         let vm = self.vm;
 
@@ -1736,6 +1745,7 @@ fn backslashreplace_errors(
 
 fn namereplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
     if is_encode_err(&err, vm) {
+        vm.load_unicode_names()?;
         call_native_encode_error(errors::NameReplace, err, vm)
     } else {
         Err(bad_err_type(&err, vm))
