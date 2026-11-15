@@ -126,3 +126,86 @@ class FailingIndex:
 # before it reports the missing length.
 with assert_raises(RuntimeError):
     mmap.mmap(FailingIndex())
+
+
+# resize uses Clinic's index conversion before checking the mapping. Unlike
+# read/write past a resized end, tell() retains the original cursor.
+if hasattr(mmap.mmap, "resize"):
+
+    class ResizeIndex:
+        def __index__(self):
+            return 8
+
+    with mmap.mmap(-1, 16) as mapped:
+        mapped.seek(12)
+        mapped.resize(ResizeIndex())
+        assert len(mapped) == 8
+        assert mapped.tell() == 12
+        assert mapped.read() == b""
+        with assert_raises(OverflowError):
+            mapped.resize(1 << 100)
+        with assert_raises(ValueError):
+            mapped.resize(-1)
+
+    mapped = mmap.mmap(-1, 16)
+    with assert_raises(ValueError):
+        mapped.resize(CloseOnIndex(mapped))
+    assert mapped.closed
+
+
+import os
+
+if os.name == "nt":
+    import tempfile
+    import uuid
+
+    # Named file mappings retain the file handle, not just the view length.
+    with tempfile.TemporaryFile() as backing:
+        backing.write(b"x" * 32)
+        backing.flush()
+        tag = str(uuid.uuid4())
+        backing.seek(5)
+        with mmap.mmap(backing.fileno(), 8, tagname=tag) as mapped:
+            assert os.lseek(backing.fileno(), 0, os.SEEK_CUR) == 0
+            assert mapped.size() == 32
+            mapped.resize(16)
+            assert len(mapped) == mapped.size() == 16
+            assert mapped[:] == b"x" * 16
+
+    # A unique named anonymous map can grow. Once another view is opened the
+    # same resize must fail without losing either the data or the cursor.
+    tag = str(uuid.uuid4())
+    with mmap.mmap(-1, 8, tagname=tag) as mapped:
+        mapped[:] = b"abcdefgh"
+        mapped.resize(16)
+        assert mapped[:8] == b"abcdefgh"
+        with mmap.mmap(-1, 16, tagname=tag) as other:
+            with assert_raises(OSError):
+                mapped.resize(32)
+            assert len(mapped) == 16
+            assert mapped[:8] == other[:8] == b"abcdefgh"
+        mapped.resize(32)
+        assert mapped[:8] == b"abcdefgh"
+
+    # Unnamed anonymous mappings must validate the offset too.
+    with assert_raises(OSError):
+        mmap.mmap(-1, 8, offset=1)
+    with mmap.mmap(-1, 8, offset=mmap.ALLOCATIONGRANULARITY) as mapped:
+        assert len(mapped) == 8
+        mapped[:] = b"abcdefgh"
+        mapped.resize(16)
+        assert mapped[:8] == b"abcdefgh"
+
+    # A failed resize can invalidate the map while retaining the backing file.
+    # close() must release that handle even though closed already reports True.
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "mapping")
+        with open(path, "w+b") as backing:
+            backing.write(b"abcdefgh")
+            backing.flush()
+            mapped = mmap.mmap(backing.fileno(), 8)
+            with assert_raises(OSError):
+                mapped.resize(0)
+            assert mapped.closed
+            mapped.close()
+        os.unlink(path)
