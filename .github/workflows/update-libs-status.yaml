@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "Lib/**"
+      - ".python-version"
   workflow_dispatch:
 
 permissions:

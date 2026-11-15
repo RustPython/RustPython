@@ -39,7 +39,7 @@ else
 fi
 
 # 2. Ensure the CPython source matches the target (needed for scripts/update_lib)
-PYTHON_VERSION="v3.15.0"
+PYTHON_VERSION="v3.15.2"
 if [ ! -e "cpython" ]; then
     git clone --depth 1 --branch "$PYTHON_VERSION" https://github.com/python/cpython.git cpython
 elif [ ! -d "cpython/.git" ] || [ ! -d "cpython/Lib" ] ||
