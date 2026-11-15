@@ -205,12 +205,10 @@ const fn flags_positional_count(params: &[Param]) -> usize {
 /// Calling-convention bits from each argument's binding metadata.
 ///
 /// Display signatures must not prevent a custom parser from receiving a call.
-/// With `receiver`, the first argument is the bound `$self` / `$type`; it
-/// contributes only the parameters its type supplies. Module receivers travel
-/// outside Python arguments and are already excluded from this metadata.
-/// A keyword-capable parameter uses `FASTCALL | KEYWORDS`.
+/// Native receivers travel outside Python arguments and are excluded from this
+/// metadata. A keyword-capable parameter uses `FASTCALL | KEYWORDS`.
 #[must_use]
-pub(crate) const fn native_call_flags(args: &[SigArg], receiver: bool) -> super::PyMethodFlags {
+pub(crate) const fn native_call_flags(args: &[SigArg]) -> super::PyMethodFlags {
     let mut has_keywords = false;
     let mut variable = false;
     let mut fixed = 0usize;
@@ -218,13 +216,6 @@ pub(crate) const fn native_call_flags(args: &[SigArg], receiver: bool) -> super:
     while i < args.len() {
         has_keywords |= args[i].force_unpack_keywords;
         match args[i].binding_params {
-            Some(params)
-                if receiver
-                    && i == 0
-                    && args[i].params.is_none()
-                    && params.len() == 1
-                    && matches!(params[0].kind, ParamKind::PositionalOnly)
-                    && params[0].default.is_none() => {}
             Some(params) => count_params(params, &mut has_keywords, &mut variable, &mut fixed),
             None => {
                 has_keywords = true;
@@ -1144,18 +1135,12 @@ mod tests {
             }
         }
         let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
-        assert_eq!(native_call_flags(&[], false), PyMethodFlags::NOARGS);
-        assert_eq!(native_call_flags(&[arg(None)], false), PyMethodFlags::O);
+        assert_eq!(native_call_flags(&[]), PyMethodFlags::NOARGS);
+        assert_eq!(native_call_flags(&[arg(None)]), PyMethodFlags::O);
         assert_eq!(
-            native_call_flags(&[arg(None), arg(None)], false),
+            native_call_flags(&[arg(None), arg(None)]),
             PyMethodFlags::FASTCALL
         );
-        // The receiver is not a Python argument.
-        assert_eq!(
-            native_call_flags(&[SigArg::marker("$self"), arg(None)], true),
-            PyMethodFlags::O
-        );
-        assert_eq!(native_call_flags(&[arg(None)], true), PyMethodFlags::NOARGS);
 
         const OPTIONAL: &[Param] = &[Param {
             name: "",
@@ -1163,21 +1148,19 @@ mod tests {
             default: Some(DefaultRepr::Unrepresentable),
         }];
         assert_eq!(
-            native_call_flags(&[arg(Some(OPTIONAL))], false),
+            native_call_flags(&[arg(Some(OPTIONAL))]),
             PyMethodFlags::FASTCALL
         );
 
         const KW: &[Param] = &[Param::positional_or_keyword("exp")];
-        assert_eq!(native_call_flags(&[arg(Some(KW))], false), keywords);
+        assert_eq!(native_call_flags(&[arg(Some(KW))]), keywords);
 
         const FUNCARGS: &[Param] = &[Param::var_positional("args"), Param::var_keyword("kwargs")];
-        assert_eq!(native_call_flags(&[arg(Some(FUNCARGS))], false), keywords);
-        // A receiver that binds the whole call keeps its parameters.
-        assert_eq!(native_call_flags(&[arg(Some(FUNCARGS))], true), keywords);
+        assert_eq!(native_call_flags(&[arg(Some(FUNCARGS))]), keywords);
 
         const POSARGS: &[Param] = &[Param::var_positional("args")];
         assert_eq!(
-            native_call_flags(&[arg(Some(POSARGS))], false),
+            native_call_flags(&[arg(Some(POSARGS))]),
             PyMethodFlags::FASTCALL
         );
 
@@ -1186,7 +1169,7 @@ mod tests {
             Some(DefaultRepr::Bool(false)),
         )];
         const FLAT: &[Param] = &[Param::flatten(Some(INNER))];
-        assert_eq!(native_call_flags(&[arg(Some(FLAT))], false), keywords);
+        assert_eq!(native_call_flags(&[arg(Some(FLAT))]), keywords);
     }
 
     #[test]
@@ -1196,7 +1179,7 @@ mod tests {
             SigArg::marker("$self"),
             SigArg::from_arg::<Wrapped>("callback"),
         ];
-        const FLAGS: PyMethodFlags = native_call_flags(ARGS, true);
+        const FLAGS: PyMethodFlags = native_call_flags(&[SigArg::from_arg::<Wrapped>("callback")]);
         assert_eq!(
             FLAGS,
             PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS)
@@ -1215,8 +1198,7 @@ mod tests {
             force_unpack_keywords: false,
         }];
         let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
-        assert_eq!(native_call_flags(ARGS, false), keywords);
-        assert_eq!(native_call_flags(ARGS, true), keywords);
+        assert_eq!(native_call_flags(ARGS), keywords);
         const N: usize = super::signature_prefix_len("example", ARGS);
         const TEXT: [u8; N] = super::signature_prefix_bytes::<N>("example", ARGS);
         assert_eq!(&TEXT, b"example()\n--\n\n");
@@ -1237,11 +1219,7 @@ mod tests {
             force_unpack_keywords: false,
         };
         let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
-        assert_eq!(native_call_flags(&[CUSTOM], false), keywords);
-        assert_eq!(
-            native_call_flags(&[SigArg::marker("$self"), CUSTOM], true),
-            keywords,
-        );
-        assert_eq!(native_call_flags(&[NESTED], false), keywords);
+        assert_eq!(native_call_flags(&[CUSTOM]), keywords);
+        assert_eq!(native_call_flags(&[NESTED]), keywords);
     }
 }

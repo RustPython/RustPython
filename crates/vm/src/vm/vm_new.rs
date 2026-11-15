@@ -189,11 +189,11 @@ impl VirtualMachine {
         f: F,
     ) -> PyRef<PyMethodDescriptor>
     where
-        crate::function::ReceiverFunction<F, true>: IntoPyNativeFn<FKind>,
+        crate::function::ReceiverFunction<F>: IntoPyNativeFn<FKind>,
     {
         let def = self.ctx.new_method_def(
             name,
-            crate::function::ReceiverFunction::<_, true>(f),
+            crate::function::ReceiverFunction(f),
             PyMethodFlags::METHOD,
             crate::function::ItemDoc::NONE,
         );

@@ -2113,7 +2113,7 @@ mod tests {
         let callee = Callee::named("example");
         let result = if receiver {
             use crate::function::{IntoPyNativeFn, ReceiverFunction};
-            ReceiverFunction::<_, true>(|_receiver: PyObjectRef, _args: T| ())
+            ReceiverFunction(|_receiver: PyObjectRef, _args: T| ())
                 .call(vm, Some(&vm.ctx.none()), args, callee)
                 .map(|_| ())
         } else {
@@ -2313,7 +2313,7 @@ mod tests {
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
             assert_eq!(
                 binding_error::<LegacyNamed>(3, &[], true, vm),
-                "example expected 2 arguments, got 3",
+                "example() takes at most 2 arguments (3 given)",
             );
         });
     }
@@ -2326,26 +2326,21 @@ mod tests {
             function::{IntoPyNativeFn, ReceiverFunction},
         };
 
-        fn message<const METHOD: bool>(vm: &VirtualMachine) -> String {
+        fn message(vm: &VirtualMachine) -> String {
             let module = vm.new_module("receiver", vm.ctx.new_dict(), None);
-            let error =
-                ReceiverFunction::<_, METHOD>(|_receiver: &Py<PyModule>, _args: LegacyNamed| ())
-                    .call(
-                        vm,
-                        Some(module.as_object()),
-                        FuncArgs::from(vec![vm.ctx.none(); 3]),
-                        Callee::named("example"),
-                    )
-                    .unwrap_err();
+            let error = ReceiverFunction(|_receiver: &Py<PyModule>, _args: LegacyNamed| ())
+                .call(
+                    vm,
+                    Some(module.as_object()),
+                    FuncArgs::from(vec![vm.ctx.none(); 3]),
+                    Callee::named("example"),
+                )
+                .unwrap_err();
             error.args().as_slice()[0].try_to_value(vm).unwrap()
         }
 
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            assert_eq!(message::<true>(vm), "example expected 2 arguments, got 3");
-            assert_eq!(
-                message::<false>(vm),
-                "example() takes at most 2 arguments (3 given)",
-            );
+            assert_eq!(message(vm), "example() takes at most 2 arguments (3 given)",);
         });
     }
 
@@ -2409,7 +2404,7 @@ mod tests {
     fn a_receiver_does_not_restore_clinic_validation_for_an_explicit_custom_parser() {
         use crate::function::{IntoPyNativeFn, ReceiverFunction};
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            ReceiverFunction::<_, true>(|_receiver: PyObjectRef, bound: DisplayOnly| {
+            ReceiverFunction(|_receiver: PyObjectRef, bound: DisplayOnly| {
                 assert!(bound.0.args.is_empty());
             })
             .call(

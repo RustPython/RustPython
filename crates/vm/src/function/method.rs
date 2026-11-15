@@ -58,23 +58,21 @@ impl PyMethodFlags {
         .union(Self::FASTCALL);
 
     /// Adds the calling convention inferred from `args` unless one is set.
-    /// For METHOD and CLASS the first argument is the bound receiver.
     pub(crate) const fn with_call_convention(self, args: &[SigArg]) -> Self {
         if self.intersects(Self::CALL_CONVENTION) {
             return self;
         }
-        let receiver = self.intersects(Self::METHOD.union(Self::CLASS));
-        self.union(super::signature::native_call_flags(args, receiver))
+        self.union(super::signature::native_call_flags(args))
     }
 }
 
 #[macro_export]
 macro_rules! define_methods {
     (@function $func:ident, METHOD) => {
-        $crate::function::static_func($crate::function::ReceiverFunction::<_, true>($func))
+        $crate::function::static_func($crate::function::ReceiverFunction($func))
     };
     (@function $func:ident, CLASS) => {
-        $crate::function::static_func($crate::function::ReceiverFunction::<_, true>($func))
+        $crate::function::static_func($crate::function::ReceiverFunction($func))
     };
     (@function $func:ident, $flags:ident) => {
         $crate::function::static_func($func)
@@ -170,9 +168,9 @@ impl PyMethodDef {
         doc: super::ItemDoc,
     ) -> Self
     where
-        super::ReceiverFunction<F, true>: IntoPyNativeFn<Kind>,
+        super::ReceiverFunction<F>: IntoPyNativeFn<Kind>,
     {
-        Self::new_const(name, super::ReceiverFunction::<_, true>(func), flags, doc)
+        Self::new_const(name, super::ReceiverFunction(func), flags, doc)
     }
 
     #[inline]
@@ -598,7 +596,7 @@ mod tests {
             let count_when_bound = receiver.as_object().strong_count() + 1;
             let definition = vm.ctx.new_method_def(
                 "borrowed",
-                ReceiverFunction::<_, true>(move |zelf: &Py<PyList>, args: FuncArgs| {
+                ReceiverFunction(move |zelf: &Py<PyList>, args: FuncArgs| {
                     assert_eq!(zelf.as_object().strong_count(), count_when_bound);
                     assert_eq!(args.args.len(), 1);
                     assert_eq!(args.kwargs.len(), 1);
