@@ -79,7 +79,11 @@ pub(super) fn encode_big5hkscs(input: &[u32], final_input: bool) -> EncodeOne {
         if let Some(mut code) = try_map_encode(&BIG5HKSCS_BMP_ENCMAP, &BIG5HKSCS_BMP_ENCMAP_DATA, c)
         {
             if code == MULTIC {
-                if input.len() >= 2 && c & 0xffdf == 0x00ca && input[1] & 0xfff7 == 0x0304 {
+                if input.len() >= 2
+                    && input[1] <= 0xffff
+                    && c & 0xffdf == 0x00ca
+                    && input[1] & 0xfff7 == 0x0304
+                {
                     code = PAIR_ENCODE_TABLE[((c >> 4 | input[1] >> 3) & 3) as usize];
                     return encoded(code, 2);
                 }
