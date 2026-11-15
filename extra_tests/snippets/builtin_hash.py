@@ -20,7 +20,7 @@ class Evil:
         return 1 << 63
 
 
-assert hash(Evil()) == 4
+assert hash(Evil()) == hash(1 << 63)
 
 with assert_raises(TypeError):
     hash({})
@@ -74,3 +74,17 @@ class Unhashable:
 
 
 test_unhashable_names_the_type_as_written()
+
+
+# The minimum signed hash must probe a dict/set without signed abs overflow.
+class MinimumHash:
+    def __hash__(self):
+        return -sys.maxsize - 1
+
+
+keys = [MinimumHash() for _ in range(20)]
+values = {key: index for index, key in enumerate(keys)}
+members = set(keys)
+for index, key in enumerate(keys):
+    assert values[key] == index
+    assert key in members

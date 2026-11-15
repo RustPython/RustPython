@@ -710,7 +710,12 @@ impl PyStr {
 
     #[cold]
     fn _compute_hash(&self, _vm: &VirtualMachine) -> hash::PyHash {
-        let hash_val = crate::vm::hash_secret().hash_bytes(self.as_bytes());
+        let secret = crate::vm::hash_secret();
+        let hash_val = if self.kind().is_ascii() {
+            secret.hash_bytes(self.as_bytes())
+        } else {
+            secret.hash_wtf8(self.as_wtf8())
+        };
         debug_assert_ne!(hash_val, hash::SENTINEL);
         // spell-checker:ignore cmpxchg
         // like with char_len, we don't need a cmpxchg loop, since it'll always be the same value
