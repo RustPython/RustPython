@@ -3488,15 +3488,13 @@ mod _io {
                 };
                 data.telling
             };
-            if telling {
-                if let Some((dec_buffer, dec_flags)) = dec_state {
-                    let mut next_input = dec_buffer.as_bytes().to_vec();
-                    next_input.extend_from_slice(&buf.borrow_buf());
-                    self.set_snapshot(
-                        Some((dec_flags, PyBytes::from(next_input).into_ref(&vm.ctx))),
-                        vm,
-                    )?;
-                }
+            if telling && let Some((dec_buffer, dec_flags)) = dec_state {
+                let mut next_input = dec_buffer.as_bytes().to_vec();
+                next_input.extend_from_slice(&buf.borrow_buf());
+                self.set_snapshot(
+                    Some((dec_flags, PyBytes::from(next_input).into_ref(&vm.ctx))),
+                    vm,
+                )?;
             }
             Ok(nbytes == 0 && char_len == 0)
         }
