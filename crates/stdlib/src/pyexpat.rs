@@ -260,11 +260,11 @@ mod _pyexpat {
                 )
                 .into_owned();
             };
-            let units = bytes[offset..].chunks_exact(2).map(|pair| {
+            let units = bytes[offset..].as_chunks::<2>().0.iter().map(|&pair| {
                 if little {
-                    u16::from_le_bytes([pair[0], pair[1]])
+                    u16::from_le_bytes(pair)
                 } else {
-                    u16::from_be_bytes([pair[0], pair[1]])
+                    u16::from_be_bytes(pair)
                 }
             });
             char::decode_utf16(units)
@@ -294,7 +294,7 @@ mod _pyexpat {
                     }
                 }
                 if self.bytes.ends_with(b"?>")
-                    || (self.bytes.len() % 2 == 0
+                    || (self.bytes.len().is_multiple_of(2)
                         && (self.bytes.ends_with(&[b'?', 0, b'>', 0])
                             || self.bytes.ends_with(&[0, b'?', 0, b'>'])))
                 {
