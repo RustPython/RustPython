@@ -261,7 +261,7 @@ class InteractiveColoredConsole(code.InteractiveConsole):
                 )
             self.showsyntaxerror(filename, source=source)
             return False
-        except Exception:
+        except (OverflowError, ValueError):
             self.showsyntaxerror(filename, source=source)
             return False
         if tree.body:
@@ -282,7 +282,7 @@ class InteractiveColoredConsole(code.InteractiveConsole):
                     )
                 self.showsyntaxerror(filename, source=source)
                 return False
-            except Exception:
+            except (OverflowError, ValueError):
                 self.showsyntaxerror(filename, source=source)
                 return False
 
