@@ -7,7 +7,7 @@ use crate::{
 use core::hint::cold_path;
 use std::path::{Path, PathBuf};
 
-#[cfg(all(feature = "host_io", feature = "host_env"))]
+#[cfg(feature = "host_env")]
 pub(crate) use crate::ospath_fd::OsPathOrFd;
 
 /// path_converter

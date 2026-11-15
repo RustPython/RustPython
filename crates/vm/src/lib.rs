@@ -81,7 +81,7 @@ pub mod object;
 #[cfg(feature = "opcode-histogram")]
 pub mod opcode_histogram;
 pub mod ospath;
-#[cfg(all(feature = "host_io", feature = "host_env"))]
+#[cfg(feature = "host_env")]
 mod ospath_fd;
 
 pub mod prelude;
