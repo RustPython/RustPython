@@ -132,22 +132,22 @@ pub(crate) mod module {
 
     #[pyattr]
     fn environ(vm: &VirtualMachine) -> PyDictRef {
-        let environ = vm.ctx.new_dict();
-
-        for (key, value) in host_nt::visible_env_vars() {
-            if key.starts_with('=') {
-                continue;
-            }
-            environ.set_item(&key, vm.new_pyobj(value), vm).unwrap();
-        }
-        environ
+        _create_environ(vm)
     }
 
     #[pyfunction]
     fn _create_environ(vm: &VirtualMachine) -> PyDictRef {
         let environ = vm.ctx.new_dict();
         for (key, value) in host_nt::visible_env_vars() {
-            environ.set_item(&key, vm.new_pyobj(value), vm).unwrap();
+            // Like PyUnicode_FromWideChar, combine UTF-16 pairs while preserving
+            // isolated surrogates instead of requiring Unicode scalar values.
+            let key = vm
+                .ctx
+                .new_str(Wtf8Buf::from_wide(&key.encode_wide().collect::<Vec<_>>()));
+            let value = vm
+                .ctx
+                .new_str(Wtf8Buf::from_wide(&value.encode_wide().collect::<Vec<_>>()));
+            environ.set_item(&key, value.into(), vm).unwrap();
         }
         environ
     }

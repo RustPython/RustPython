@@ -859,7 +859,8 @@ if os.name == "nt":
                 os.mkdir(os.fsencode(directory) + b"\\" + invalid)
 
     # CreateProcess must preserve UTF-16 environment keys and values, including
-    # lone surrogates. Its environment normalization keeps the last caseless key.
+    # lone surrogates. Valid pairs become a single code point on import.
+    # Normalization keeps the last caseless key; CRT environ hides drive entries.
     import subprocess
 
     environment = os.environ.copy()
@@ -879,11 +880,11 @@ if os.name == "nt":
             "-S",
             "-c",
             "import os; "
-            "assert os.environ['RUSTPYTHON_SURROGATE_VALUE'] == '\\ud800\\udcff\\udfff'; "
+            "assert os.environ['RUSTPYTHON_SURROGATE_VALUE'] == '\\U000100ff\\udfff'; "
             "assert os.environ['RUSTPYTHON_\\ud800_KEY'] == 'surrogate key'; "
             "assert os.environ['\\u00e9_FIRST'] == 'non-ASCII initial'; "
             "assert os.environ['RUSTPYTHON_CASE_TEST'] == 'last'; "
-            "assert os.environ['=Z:'] == 'Z:\\\\'",
+            "assert '=Z:' not in os.environ",
         ],
         env=environment,
         check=True,
