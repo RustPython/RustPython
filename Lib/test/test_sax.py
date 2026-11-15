@@ -146,7 +146,6 @@ class ParseTest(unittest.TestCase):
             with open(TESTFN, 'r', encoding=encoding) as f:
                 self.check_parse(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_parse_bytes(self):
         # UTF-8 is default encoding, US-ASCII is compatible with UTF-8,
         # UTF-16 is autodetected
@@ -193,7 +192,6 @@ class ParseTest(unittest.TestCase):
         make_xml_file(self.data, 'utf-8', None)
         self.check_parse(FakePath(TESTFN))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_parse_InputSource(self):
         # accept data without declared but with explicitly specified encoding
         make_xml_file(self.data, 'iso-8859-1', None)
@@ -232,7 +230,6 @@ class ParseTest(unittest.TestCase):
             self.check_parseString(xml_str(self.data, encoding))
         self.check_parseString(self.data)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_parseString_bytes(self):
         # UTF-8 is default encoding, US-ASCII is compatible with UTF-8,
         # UTF-16 is autodetected
