@@ -889,6 +889,10 @@ if os.name == "nt":
         env=environment,
         check=True,
     )
-    for key, value in (("", "x"), ("a=b", "x"), ("a\0b", "x"), ("a", "b\0c")):
+    # Key normalization reaches LCMapStringEx before the validation pass.
+    with assert_raises(OSError) as error:
+        subprocess.run([sys.executable, "-S", "-c", "pass"], env={"": "x"})
+    assert error.exception.winerror == 87
+    for key, value in (("a=b", "x"), ("a\0b", "x"), ("a", "b\0c")):
         with assert_raises(ValueError):
             subprocess.run([sys.executable, "-S", "-c", "pass"], env={key: value})

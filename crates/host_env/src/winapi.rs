@@ -343,14 +343,6 @@ pub fn build_environment_block(
     let invariant = widestring::WideCStr::from_slice(&[0]).unwrap();
     let mut normalized = Vec::with_capacity(entries.len());
     for (key, value) in entries {
-        if key.contains(&0) || value.contains(&0) {
-            cold_path();
-            return Err(BuildEnvironmentBlockError::ContainsNul);
-        }
-        // Windows permits a leading '=' for hidden drive variables.
-        if key.is_empty() || key[1..].contains(&(b'=' as u16)) {
-            return Err(BuildEnvironmentBlockError::IllegalName);
-        }
         let uppercase = lc_map_string_ex(invariant, LCMAP_UPPERCASE, &key)
             .map_err(BuildEnvironmentBlockError::Os)?;
         // CPython sorts the mapped Python strings by code point, preserving
@@ -373,6 +365,15 @@ pub fn build_environment_block(
                 // Stable sorting retains insertion order: keep the last key.
                 continue;
             }
+        }
+        // CPython normalizes and deduplicates before validating retained entries.
+        if key.contains(&0) || value.contains(&0) {
+            cold_path();
+            return Err(BuildEnvironmentBlockError::ContainsNul);
+        }
+        // Windows permits a leading '=' for hidden drive variables.
+        if key.is_empty() || key[1..].contains(&(b'=' as u16)) {
+            return Err(BuildEnvironmentBlockError::IllegalName);
         }
         out.extend_from_slice(key);
         out.push(b'=' as u16);
