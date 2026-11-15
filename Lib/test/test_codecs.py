@@ -3469,7 +3469,6 @@ class CodePageTest(unittest.TestCase):
             (b'(\xbf)', 'surrogatepass', None),
         ))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; # TODO: RUSTPYTHON
     def test_cp_utf7(self):
         cp = 65000
         self.check_encode(cp, (
