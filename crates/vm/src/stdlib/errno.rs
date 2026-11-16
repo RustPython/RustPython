@@ -721,7 +721,10 @@ const ERROR_CODES: &[(&str, i32)] = &[
     ),
     e!(cfg(target_vendor = "apple"), EPWROFF),
     e!(cfg(target_vendor = "apple"), EQFULL),
-    e!(cfg(target_vendor = "apple"), ENOTCAPABLE),
+    e!(
+        cfg(any(target_vendor = "apple", target_os = "wasi")),
+        ENOTCAPABLE
+    ),
     e!(
         cfg(any(
             target_os = "dragonfly",
@@ -775,7 +778,6 @@ const ERROR_CODES: &[(&str, i32)] = &[
     e!(EAFNOSUPPORT),
     e!(ECONNABORTED),
     e!(ECONNRESET),
-    e!(ESHUTDOWN),
     e!(ETIMEDOUT),
     e!(ECONNREFUSED),
     e!(ENAMETOOLONG),

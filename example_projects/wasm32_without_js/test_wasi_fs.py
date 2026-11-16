@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import os
 import subprocess
 import tempfile
@@ -80,6 +81,69 @@ class WasiFsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, (result.stdout, result.stderr))
         self.assertIn(marker, result.stdout)
         return result
+
+    @unittest.skipUnless(
+        RUNTIME_MODE and WASMER_MODE, "requires both wasm modules for comparison"
+    )
+    def test_errno_numbers_match_wasip1(self):
+        # Compare exports, not hard-coded errno numbers or platform errno from
+        # the Python interpreter running this harness.
+        expression = "{name: getattr(errno, name) for name in dir(errno) if name.startswith('E') and isinstance(getattr(errno, name), int)}"
+        with tempfile.TemporaryDirectory() as directory:
+            commands = (
+                [
+                    str(self.runtime),
+                    str(self.module),
+                    "--dir",
+                    directory,
+                    "-c",
+                    "import errno\n" + expression,
+                ],
+                [
+                    str(self.wasmer),
+                    "run",
+                    str(self.wasi_module),
+                    "--",
+                    "-c",
+                    "import errno; print(" + expression + ")",
+                ],
+            )
+            tables = []
+            for command in commands:
+                result = subprocess.run(
+                    command, capture_output=True, encoding="utf-8", timeout=120
+                )
+                self.assertEqual(result.returncode, 0, (result.stdout, result.stderr))
+                tables.append(ast.literal_eval(result.stdout.strip()))
+            guest, wasi = tables
+            self.assertNotIn("ESHUTDOWN", guest)
+            self.assertLessEqual(guest.keys(), wasi.keys())
+            for name in guest:
+                self.assertEqual(guest[name], wasi[name], name)
+            for name in ("ENOENT", "EACCES", "ENOTCAPABLE", "EINVAL"):
+                self.assertIn(name, guest)
+                self.assertIn(name, wasi)
+
+    def test_errno_exception_classes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.run_snippet(
+                """
+import errno
+for name, cls in (
+    ('ENOENT', FileNotFoundError),
+    ('EACCES', PermissionError),
+    ('EAGAIN', BlockingIOError),
+    ('EPIPE', BrokenPipeError),
+    ('EINVAL', OSError),
+    ('ENOTSUP', OSError),
+):
+    value = getattr(errno, name)
+    assert type(OSError(value, 'contract')) is cls, name
+    assert getattr(errno, errno.errorcode[value]) == value, name
+assert errno.EAGAIN == errno.EWOULDBLOCK
+""",
+                dirs=[(directory, "/")],
+            )
 
     def test_read_write_seek_truncate_and_buffering(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -439,12 +503,12 @@ if __name__ == "__main__":
         parser.error("provide both --runtime and --module")
     if (args.wasmer is None) != (args.wasi_module is None):
         parser.error("provide both --wasmer and --wasi-module")
-    if (args.runtime is None) == (args.wasmer is None):
-        parser.error("exactly one of --runtime/--module or --wasmer/--wasi-module")
+    if args.runtime is None and args.wasmer is None:
+        parser.error("provide --runtime/--module and/or --wasmer/--wasi-module")
     if args.runtime is not None:
         WasiFsTests.runtime = args.runtime.resolve(strict=True)
         WasiFsTests.module = args.module.resolve(strict=True)
-    else:
+    if args.wasmer is not None:
         WasiFsTests.wasmer = args.wasmer.resolve(strict=True)
         WasiFsTests.wasi_module = args.wasi_module.resolve(strict=True)
     unittest.main(argv=[__file__, *remaining])
