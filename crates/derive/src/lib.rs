@@ -38,19 +38,19 @@ use syn::punctuated::Punctuated;
 /// - `optional`: same parsing as a bare `default`. The field type must implement
 ///   `OptionalArgDefault`. `Option<T>` renders `None`; `OptionalArg<T>` renders
 ///   `<unrepresentable>`. Any other type is rejected.
-/// A complete shared argument spec can use
-/// `#[from_args(text_signature = "(sub[, start[, end]], /)")]`.
-/// This checked display-only override is inherited by functions sharing the
-/// type, like a Clinic clone. It has no receiver; the item macro supplies one.
-/// It must be the function's only Python argument spec. It does not change
-/// binding, defaults, conversions, or the stored docstring body.
-///
 /// - `py_default = "<python source>"`: text copied verbatim into `__text_signature__`.
 ///   Never affects parsing. Overrides every other signature default.
 ///   `py_default = "<unrepresentable>"` is a compile error. Use `OptionalArg`
 ///   when a missing argument is a distinct state, or give the default's type a
 ///   real `py_default()`.
 /// - `error_msg = "..."`: type-error text when conversion fails.
+///
+/// A complete shared argument spec can use
+/// `#[from_args(text_signature = "(sub[, start[, end]], /)")]`.
+/// This checked display-only override is inherited by functions sharing the
+/// type, like a Clinic clone. It has no receiver; the item macro supplies one.
+/// It must be the function's only Python argument spec. It does not change
+/// binding, defaults, conversions, or the stored docstring body.
 ///
 /// # Signature default
 /// An explicit `py_default` is used as written. Otherwise:
