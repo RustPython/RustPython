@@ -376,9 +376,10 @@ mod _pyexpat {
         // Prevent creating another backend after finalization or fork failure.
         #[pytraverse(skip)]
         finished: AtomicBool,
-        // Distinguish successful completion from the existing failure paths.
+        // Zero while active; otherwise the error returned on another Parse call.
+        // Successful completion and callback aborts use XML_ERROR_FINISHED.
         #[pytraverse(skip)]
-        completed: AtomicBool,
+        terminal_error_code: AtomicI32,
         #[pytraverse(skip)]
         namespace_stack: PyRwLock<Vec<(xml::namespace::Namespace, Vec<String>)>>,
         #[pytraverse(skip)]
@@ -1045,7 +1046,7 @@ mod _pyexpat {
                 backend: PyRwLock::new(None),
                 busy: AtomicBool::new(false),
                 finished: AtomicBool::new(false),
-                completed: AtomicBool::new(false),
+                terminal_error_code: AtomicI32::new(0),
                 namespace_stack: PyRwLock::new(Vec::new()),
                 reparse_deferral_enabled: AtomicBool::new(true),
                 parameter_entity_parsing: AtomicI32::new(XML_PARAM_ENTITY_PARSING_NEVER),
@@ -1477,7 +1478,7 @@ mod _pyexpat {
                 // CPython call_with_frame/flag_error stops Expat without
                 // allowing resumption and clears every handler, not just the one
                 // which raised. Do not retain queued callbacks after failure.
-                self.completed.store(true, Ordering::SeqCst);
+                self.terminal_error_code.store(36, Ordering::SeqCst);
                 self.finished.store(true, Ordering::SeqCst);
                 self.teardown_backend();
                 for handler in [
@@ -1914,7 +1915,28 @@ mod _pyexpat {
             let (code, description) = match error.kind() {
                 xml::reader::ErrorKind::UnexpectedEof => (5, "unclosed token"),
                 xml::reader::ErrorKind::Syntax(message) => {
-                    if message.starts_with("Unexpected end of stream:") {
+                    if let Some(encoding) = message.strip_prefix("Unsupported encoding: ") {
+                        // CPython's PyUnknownEncodingHandler probes all bytes using
+                        // the text codec with replacement before libexpat validates
+                        // the resulting single-byte map. Preserve codec exceptions
+                        // instead of flattening them into an XML syntax error.
+                        self.terminal_error_code.store(18, Ordering::SeqCst);
+                        let template: Vec<u8> = (0..=u8::MAX).collect();
+                        let decoded = match vm.state.codec_registry.decode_text(
+                            vm.ctx.new_bytes(template).into(),
+                            encoding,
+                            Some(vm.ctx.new_utf8_str("replace")),
+                            vm,
+                        ) {
+                            Ok(decoded) => decoded,
+                            Err(error) => return Ok(error),
+                        };
+                        if decoded.as_wtf8().code_points().count() != 256 {
+                            return Ok(vm.new_value_error("multi-byte encodings are not supported"));
+                        }
+                        // xml-rs still cannot consume custom single-byte maps.
+                        (18, "unknown encoding")
+                    } else if message.starts_with("Unexpected end of stream:") {
                         (3, "no element found")
                     } else if message.starts_with("Unexpected end of stream") {
                         (5, "unclosed token")
@@ -1937,6 +1959,7 @@ mod _pyexpat {
                 xml::reader::ErrorKind::Utf8(_) => (4, "not well-formed (invalid token)"),
                 _ => (2, "syntax error"),
             };
+            self.terminal_error_code.store(code, Ordering::SeqCst);
             let message = format!("{description}: line {line}, column {column}");
             let error =
                 vm.new_exception_msg(PyExpatError::class(&vm.ctx).to_owned(), message.into());
@@ -1993,7 +2016,7 @@ mod _pyexpat {
                         continue;
                     }
                     ParserMsg::Finished => {
-                        self.completed.store(true, Ordering::SeqCst);
+                        self.terminal_error_code.store(36, Ordering::SeqCst);
                         self.finished.store(true, Ordering::SeqCst);
                         self.teardown_backend();
                         return Ok(());
@@ -2113,7 +2136,7 @@ mod _pyexpat {
                 // both close this backend, but only success means the parser
                 // should report XML_ERROR_FINISHED on a later call.
                 if result.is_ok() {
-                    self.completed.store(true, Ordering::SeqCst);
+                    self.terminal_error_code.store(36, Ordering::SeqCst);
                 }
                 self.finished.store(true, Ordering::SeqCst);
                 self.teardown_backend();
@@ -2121,9 +2144,11 @@ mod _pyexpat {
             result
         }
 
-        fn check_completed(&self, vm: &VirtualMachine) -> PyResult<()> {
-            if self.completed.load(Ordering::SeqCst) {
-                return Err(self.handler_error(vm, 36, "parsing finished")?);
+        fn check_parse_state(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let code = self.terminal_error_code.load(Ordering::SeqCst);
+            if code != 0 {
+                let (_, description) = super::_errors::ERRORS[code as usize - 1];
+                return Err(self.handler_error(vm, code, description)?);
             }
             Ok(())
         }
@@ -2185,7 +2210,7 @@ mod _pyexpat {
                 )));
             }
             self.started.store(true, Ordering::Relaxed);
-            self.check_completed(vm)?;
+            self.check_parse_state(vm)?;
             self.declaration.write().record(chunk);
             if self.finished.load(Ordering::SeqCst) {
                 return Ok(());
@@ -2277,7 +2302,7 @@ mod _pyexpat {
             let read = vm
                 .get_attribute_opt(&file, "read")?
                 .ok_or_else(|| vm.new_type_error("argument must have 'read' attribute"))?;
-            zelf.check_completed(vm)?;
+            zelf.check_parse_state(vm)?;
             let read_res = read.call((), vm)?;
             let bytes_like = ArgBytesLike::try_from_object(vm, read_res)?;
             let buf = bytes_like.borrow_buf().to_vec();

@@ -1,3 +1,5 @@
+import codecs
+import io
 import sys
 from xml.parsers import expat
 
@@ -346,3 +348,65 @@ else:
     raise AssertionError("declaration exception swallowed")
 assert parser.XmlDeclHandler is None
 assert parser.StartElementHandler is None
+
+
+# Codec failures preserve the original exception, but leave the parser failed.
+class ProbeError(Exception):
+    pass
+
+
+marker = ProbeError("codec probe")
+calls = []
+
+
+def decode(data, errors="strict"):
+    calls.append((bytes(data), errors))
+    raise marker
+
+
+def search(name):
+    if name == "xmlprobeexception":
+        return codecs.CodecInfo(
+            name=name, encode=lambda s, e: (b"", len(s)), decode=decode
+        )
+
+
+codecs.register(search)
+for final in (False, True):
+    p = expat.ParserCreate()
+    events = []
+    p.StartElementHandler = lambda *args: events.append(args)
+    before = len(calls)
+    try:
+        p.Parse(b'<?xml version="1.0" encoding="xmlprobeexception"?><root/>', final)
+    except ProbeError as e:
+        assert e is marker
+    else:
+        raise AssertionError("codec exception lost")
+    assert calls[-1] == (bytes(range(256)), "replace")
+    for retry in (
+        lambda: p.Parse(b"<retry/>", True),
+        lambda: p.ParseFile(io.BytesIO(b"<retry/>")),
+    ):
+        try:
+            retry()
+        except expat.ExpatError as e:
+            assert e.code == 18
+        else:
+            raise AssertionError("failed parser accepted a document")
+    assert len(calls) == before + 1 and not events
+for xml in (b"<a></b>", b'<a x="1" x="2"/>'):
+    p = expat.ParserCreate()
+    try:
+        p.Parse(xml, True)
+    except expat.ExpatError as first:
+        code = first.code
+    else:
+        raise AssertionError("malformed document accepted")
+    try:
+        p.Parse(b"<valid/>", True)
+    except expat.ExpatError as second:
+        assert second.code == code
+    else:
+        raise AssertionError("parse error reset")
+codecs.unregister(search)

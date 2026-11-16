@@ -330,7 +330,6 @@ class ParseTest(unittest.TestCase):
             "End element: 'корінь'",
         ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised
     @support.subTests('encoding', [
         'UTF-7',
         "Big5-HKSCS", "Big5",
@@ -354,7 +353,6 @@ class ParseTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             parser.Parse(data, True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ExpatError not raised
     @support.subTests('encoding', [
         'cp037', 'cp273', 'cp424', 'cp500', 'cp864', 'cp875',
         'cp1026', 'cp1140',
@@ -373,7 +371,6 @@ class ParseTest(unittest.TestCase):
         with self.assertRaisesRegex(expat.ExpatError, 'unknown encoding'):
             parser.Parse(data, True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: LookupError not raised
     @support.subTests('encoding', [
         'hex_codec', 'rot_13',
     ])
@@ -384,14 +381,12 @@ class ParseTest(unittest.TestCase):
         with self.assertRaises(LookupError):
             parser.Parse(data, True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: UnicodeError not raised
     def test_undefined_encoding(self):
         parser = expat.ParserCreate()
         data = b'<?xml version="1.0" encoding="undefined"?>\n<root></root>'
         with self.assertRaises(UnicodeError):
             parser.Parse(data, True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: LookupError not raised
     def test_unknown_encoding(self):
         parser = expat.ParserCreate()
         data = b'<?xml version="1.0" encoding="xyz"?>\n<root></root>'
