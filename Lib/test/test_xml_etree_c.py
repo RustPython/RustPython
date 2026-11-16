@@ -281,6 +281,17 @@ class XMLPullParserTest(XMLPullParserTest):
     def test_simple_xml_chunk_5(self):
         return super().test_simple_xml_chunk_5()
 
+class TreeBuilderTest(TreeBuilderTest):
+    @unittest.expectedSuccess
+    def test_doctype(self):
+        return super().test_doctype()
+
+class XMLParserTest(XMLParserTest):
+    @unittest.expectedSuccess
+    def test_subclass_doctype(self):
+        return super().test_subclass_doctype()
+
+
 def setUpModule():
     from test import test_xml_etree
     test_xml_etree.setUpModule(module=cET)
