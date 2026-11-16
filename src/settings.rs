@@ -252,6 +252,22 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     settings.verbose = cmp::max(args.verbose, env_count("PYTHONVERBOSE"));
     settings.debug = u8::from(cmp::max(args.debug, env_count("PYTHONDEBUG")) != 0);
 
+    #[cfg(windows)]
+    {
+        // _Py_get_env_flag: nonzero integers and invalid values enable the flag.
+        // spell-checker:ignore PYTHONLEGACYWINDOWSFSENCODING
+        settings.legacy_windows_fs_encoding = get_env("PYTHONLEGACYWINDOWSFSENCODING")
+            .filter(|value| !value.is_empty())
+            .is_some_and(|value| {
+                value.to_str().and_then(|value| {
+                    value
+                        .trim_start_matches(|c: char| c.is_ascii_whitespace())
+                        .parse::<i32>()
+                        .ok()
+                }) != Some(0)
+            });
+    }
+
     let env_bool = |env| get_env(env).is_some_and(|v| !v.is_empty());
     settings.dev_mode = env_bool("PYTHONDEVMODE");
 
@@ -335,7 +351,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
             }
             "faulthandler" => settings.faulthandler = true,
             "warn_default_encoding" => settings.warn_default_encoding = true,
-            "utf8" if !utf8_option_seen => {
+            "utf8" if !utf8_option_seen && !settings.legacy_windows_fs_encoding => {
                 settings.utf8_mode = match value {
                     None => 1,
                     Some("1") => 1,
@@ -405,7 +421,9 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     });
     settings.xoptions.extend(xopts);
 
-    if !utf8_option_seen && let Some(val) = get_env("PYTHONUTF8").filter(|value| !value.is_empty())
+    if !settings.legacy_windows_fs_encoding
+        && !utf8_option_seen
+        && let Some(val) = get_env("PYTHONUTF8").filter(|value| !value.is_empty())
     {
         settings.utf8_mode = match val.to_str() {
             Some("1") => 1,
@@ -436,6 +454,9 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     // Resolve utf8_mode if not explicitly set by PYTHONUTF8 or -X utf8.
     // CPython 3.15 defaults to UTF-8 mode (PEP 686).
     // Users can set PYTHONUTF8=0 or -X utf8=0 to disable.
+    if cfg!(windows) && settings.legacy_windows_fs_encoding {
+        settings.utf8_mode = 0;
+    }
     if settings.utf8_mode < 0 {
         settings.utf8_mode = 1;
     }

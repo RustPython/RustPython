@@ -732,14 +732,11 @@ pub(crate) mod module {
 
         // Return as bytes if input was bytes, preserving the original content
         if is_bytes {
-            // Convert UTF-16 back to UTF-8 for bytes output
-            let drv = Wtf8Buf::from_wide(&wide[..drv_size]).into_bytes();
-            let root = Wtf8Buf::from_wide(&wide[drv_size..drv_size + root_size]).into_bytes();
-            let tail = Wtf8Buf::from_wide(&wide[drv_size + root_size..]).into_bytes();
             Ok(vm.ctx.new_tuple(vec![
-                vm.ctx.new_bytes(drv).into(),
-                vm.ctx.new_bytes(root).into(),
-                vm.ctx.new_bytes(tail).into(),
+                vm.fsencode_wide(&wide[..drv_size])?.into(),
+                vm.fsencode_wide(&wide[drv_size..drv_size + root_size])?
+                    .into(),
+                vm.fsencode_wide(&wide[drv_size + root_size..])?.into(),
             ]))
         } else {
             // For str output, use WTF-8 to handle surrogates
@@ -942,8 +939,7 @@ pub(crate) mod module {
         let normalized = normpath_wide(&wide);
 
         if is_bytes {
-            let bytes = Wtf8Buf::from_wide(&normalized).into_bytes();
-            Ok(vm.ctx.new_bytes(bytes).into())
+            vm.fsencode_wide(&normalized).map(Into::into)
         } else {
             let s = Wtf8Buf::from_wide(&normalized);
             Ok(vm.ctx.new_str(s).into())

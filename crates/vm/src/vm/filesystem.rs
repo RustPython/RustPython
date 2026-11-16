@@ -29,6 +29,9 @@ impl FilesystemCodec {
         #[allow(unused_mut)]
         let mut error = None;
         let encoding = (|| {
+            if cfg!(windows) && settings.legacy_windows_fs_encoding {
+                return "mbcs".to_owned();
+            }
             // CPython 3.15 enables UTF-8 mode by default. These platforms use
             // UTF-8 for filesystem paths independently of the UTF-8 mode flag.
             if settings.utf8_mode != 0
@@ -84,10 +87,27 @@ impl VirtualMachine {
 
     pub fn fs_encode_errors(&self) -> &'static PyUtf8StrInterned {
         if cfg!(windows) {
+            if self.state.config.settings.legacy_windows_fs_encoding {
+                return identifier_utf8!(self, replace);
+            }
             identifier_utf8!(self, surrogatepass)
         } else {
             identifier_utf8!(self, surrogateescape)
         }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn fsencode_wide(&self, wide: &[u16]) -> PyResult<crate::builtins::PyBytesRef> {
+        let value = crate::common::wtf8::Wtf8Buf::from_wide(wide);
+        if !self.state.config.settings.legacy_windows_fs_encoding {
+            return Ok(self.ctx.new_bytes(value.into_bytes()));
+        }
+        self.state.codec_registry.encode_text(
+            self.ctx.new_str(value),
+            self.fs_encoding().as_ref(),
+            Some(self.fs_encode_errors().to_owned()),
+            self,
+        )
     }
 
     pub(super) fn check_filesystem_config(&self) -> PyResult<()> {
@@ -121,6 +141,15 @@ impl VirtualMachine {
     pub fn fsdecode(&self, value: impl Into<OsString>) -> PyResult<PyStrRef> {
         self.check_filesystem_config()?;
         let value = value.into();
+        #[cfg(windows)]
+        if self.state.config.settings.legacy_windows_fs_encoding {
+            // Native paths are UTF-16, never bytes in the filesystem codec.
+            use std::os::windows::ffi::OsStrExt;
+            let wide: Vec<u16> = value.encode_wide().collect();
+            return Ok(self
+                .ctx
+                .new_str(crate::common::wtf8::Wtf8Buf::from_wide(&wide)));
+        }
         let filesystem = &self.state.config.filesystem;
         let encoding = filesystem.encoding();
         if FastCodec::classify(encoding) == Some(FastCodec::Utf8)
@@ -154,8 +183,8 @@ impl VirtualMachine {
         self.check_filesystem_config()?;
         let filesystem = &self.state.config.filesystem;
         let encoding = filesystem.encoding();
-        if FastCodec::classify(encoding) == Some(FastCodec::Utf8)
-            && (cfg!(windows) || value.is_utf8())
+        if cfg!(windows)
+            || (FastCodec::classify(encoding) == Some(FastCodec::Utf8) && value.is_utf8())
         {
             // XXX: this is sketchy on windows; it's not guaranteed that the
             //      OsStr encoding will always be compatible with WTF-8.

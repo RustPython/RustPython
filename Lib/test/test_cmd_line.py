@@ -1042,7 +1042,6 @@ class CmdLineTest(unittest.TestCase):
         rc, out, err = assert_python_ok('-c', code, PYTHONEXECUTABLE=expected)
         self.assertIn(expected.encode(), out)
 
-    @unittest.expectedFailureIf(support.MS_WINDOWS, "TODO: RUSTPYTHON")
     @unittest.skipUnless(support.MS_WINDOWS, 'Test only applicable on Windows')
     def test_python_legacy_windows_fs_encoding(self):
         code = "import sys; print(sys.getfilesystemencoding())"

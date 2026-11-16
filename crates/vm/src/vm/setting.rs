@@ -37,6 +37,9 @@ pub struct PyConfig {
 impl PyConfig {
     #[must_use]
     pub fn new(mut settings: Settings, paths: Paths) -> Self {
+        if cfg!(windows) && settings.legacy_windows_fs_encoding {
+            settings.utf8_mode = 0;
+        }
         if settings.utf8_mode < 0 {
             settings.utf8_mode = 1;
         }
@@ -143,6 +146,8 @@ pub struct Settings {
     /// PYTHONIOENCODING - stdio error handler
     pub stdio_errors: Option<String>,
     pub utf8_mode: i8,
+    /// Windows-only legacy filesystem bytes codec (PEP 529).
+    pub legacy_windows_fs_encoding: bool,
     /// --check-hash-based-pycs
     pub check_hash_pycs_mode: CheckHashPycsMode,
 
@@ -245,6 +250,7 @@ impl Default for Settings {
             stdio_encoding: None,
             stdio_errors: None,
             utf8_mode: -1,
+            legacy_windows_fs_encoding: false,
             int_max_str_digits: 4300,
             cpu_count: None,
             #[cfg(feature = "flame-it")]

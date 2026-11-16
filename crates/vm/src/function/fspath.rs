@@ -136,7 +136,9 @@ impl FsPath {
     pub fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<Cow<'a, OsStr>> {
         use std::os::windows::ffi::OsStringExt;
 
-        if let Ok(value) = core::str::from_utf8(b) {
+        if !vm.state.config.settings.legacy_windows_fs_encoding
+            && let Ok(value) = core::str::from_utf8(b)
+        {
             return Ok(Cow::Borrowed(OsStr::new(value)));
         }
         // CPython path_converter(make_wide=True) decodes bytes with the
