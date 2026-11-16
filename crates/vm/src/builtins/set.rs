@@ -74,6 +74,10 @@ impl PySet {
         Self::default().into_ref(ctx)
     }
 
+    pub(crate) fn marshal_len(&self) -> usize {
+        self.inner.len()
+    }
+
     #[must_use]
     pub fn next_entry(&self, position: usize) -> Option<(usize, PyObjectRef)> {
         self.inner
