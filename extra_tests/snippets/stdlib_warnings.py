@@ -60,8 +60,11 @@ for has_name in (True, False):
             module_globals=module_globals,
         )
     assert len(caught) == 1
-    expected = [("get", "__loader__"), ("get", "__spec__")]
+    expected = [
+        ("get", "__loader__"),
+        ("get", "__spec__"),
+        ("source", "stored_name"),
+    ]
     if has_name:
-        expected.append(("source", "stored_name"))
         del module_globals["__name__"]
     assert events == expected
