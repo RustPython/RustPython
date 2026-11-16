@@ -80,6 +80,9 @@ pub unsafe extern "C" fn PyTuple_SetItem(
         } else if tuple.as_object().strong_count() > 1 {
             Err(vm.new_system_error("Tuple objects are immutable when the reference count > 1"))
         } else {
+            // SAFETY: the checked unique ownership permits mutation. Track
+            // before inserting an edge into a previously atomic tuple.
+            unsafe { PyTuple::ensure_tracked_for_mutation(tuple) };
             // SAFETY: We have exclusive access to the tuple payload (strong_count == 1),
             // so mutating the selected element in place is valid.
             let data_ptr = unsafe { tuple.as_ptr().add(index).cast_mut() };
@@ -156,6 +159,63 @@ mod tests {
             let slice = tuple.get_slice(1, 2);
             assert_eq!(slice.extract::<(u32,)>().unwrap(), (2,));
         })
+    }
+
+    #[test]
+    fn tuple_mutation_tracks_atomic_constructors() {
+        Python::attach(|py| {
+            let globals = pyo3::types::PyDict::new(py);
+            py.run(
+                c"import gc, weakref\nclass Node: pass",
+                Some(&globals),
+                None,
+            )
+            .unwrap();
+            for constructor in 0..3 {
+                let scalar = py.None();
+                let raw = unsafe {
+                    match constructor {
+                        0 => ffi::PyTuple_New(1),
+                        1 => super::PyTuple_FromArray([scalar.as_ptr().cast()].as_ptr(), 1).cast(),
+                        _ => super::PyTuple_Pack(1, scalar.as_ptr()).cast(),
+                    }
+                };
+                let tuple: Bound<'_, PyTuple> =
+                    unsafe { Bound::from_owned_ptr(py, raw).cast_into_unchecked() };
+                globals
+                    .get_item("gc")
+                    .unwrap()
+                    .unwrap()
+                    .call_method0("collect")
+                    .unwrap();
+                let node = globals.get_item("Node").unwrap().unwrap().call0().unwrap();
+                let reference = globals
+                    .get_item("weakref")
+                    .unwrap()
+                    .unwrap()
+                    .call_method1("ref", (&node,))
+                    .unwrap();
+                unsafe {
+                    assert_eq!(
+                        ffi::PyTuple_SetItem(tuple.as_ptr(), 0, node.clone().into_ptr()),
+                        0
+                    );
+                }
+                node.setattr("tuple", &tuple).unwrap();
+                drop(tuple);
+                drop(node);
+                globals
+                    .get_item("gc")
+                    .unwrap()
+                    .unwrap()
+                    .call_method0("collect")
+                    .unwrap();
+                assert!(
+                    reference.call0().unwrap().is_none(),
+                    "constructor {constructor}"
+                );
+            }
+        });
     }
 
     #[test]
