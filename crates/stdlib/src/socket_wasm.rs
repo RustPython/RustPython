@@ -397,8 +397,19 @@ mod _socket {
             // Do not adopt an arbitrary integer as a socket, or return a fake fd.
             // Lent descriptors need a backend that validates their file type and
             // takes ownership only after initialization succeeds.
-            let _ = (args.family, args.r#type, args.proto, args.fileno);
-            Err(unsupported(vm, "socket").into())
+            let _ = (args.family, args.r#type, args.proto);
+            if let Some(fd) = args.fileno.filter(|fd| !vm.is_none(fd)) {
+                let fd = fd.try_index(vm)?.try_to_primitive::<i32>(vm)?;
+                if fd < 0 {
+                    return Err(vm.new_value_error("negative file descriptor"));
+                }
+            }
+            Err(vm
+                .new_errno_error(
+                    rustpython_host_env::errno::errors::ENOTSUP,
+                    "socket is not available",
+                )
+                .into())
         }
     }
 }
