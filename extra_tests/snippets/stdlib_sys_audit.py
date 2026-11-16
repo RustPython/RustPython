@@ -436,7 +436,12 @@ def check_winreg_audit_boundaries():
         except OSError as error:
             assert error.winerror == 6
         else:
-            raise AssertionError("rejected registry handle leaked")
+            # CPython fixed result-audit handle cleanup in 3.15.1. The CI
+            # reference is still 3.15.0; RustPython must always close it.
+            if sys.implementation.name == "cpython" and sys.version_info < (3, 15, 1):
+                winreg.CloseKey(rejected_handle)
+            else:
+                raise AssertionError("rejected registry handle leaked")
 
 
 check_winreg_audit_boundaries()
