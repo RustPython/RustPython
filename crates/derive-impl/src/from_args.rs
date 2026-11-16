@@ -568,7 +568,7 @@ fn signature_default(field: &Field, attr: &ArgAttribute) -> Result<TokenStream> 
         } else if is_float_ty(ty) {
             quote!(#repr::Raw("0.0"))
         } else {
-            quote!(#repr::Unrepresentable)
+            quote!(#repr::Unknown)
         };
         return Ok(quote!(Some(#value)));
     }
@@ -1115,6 +1115,23 @@ mod tests {
         ] {
             assert!(impl_from_args(input).is_err());
         }
+    }
+
+    #[test]
+    fn unspecified_rust_default_is_not_a_declared_omission() {
+        let default = impl_from_args(parse_quote! {
+            struct Args { #[pyarg(any, default)] value: CustomDefault }
+        })
+        .unwrap()
+        .to_string();
+        assert!(default.contains("DefaultRepr :: Unknown"));
+        let optional = impl_from_args(parse_quote! {
+            struct Args { #[pyarg(any, optional)] value: OptionalArg<PyObjectRef> }
+        })
+        .unwrap()
+        .to_string();
+        assert!(optional.contains("OptionalArgDefault"));
+        assert!(!optional.contains("DefaultRepr :: Unknown"));
     }
 
     #[test]

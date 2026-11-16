@@ -31,6 +31,8 @@ pub enum DefaultRepr {
     Raw(&'static str),
     /// The argument may be omitted, and that state is not a Python value.
     Unrepresentable,
+    /// The Rust default has no declared Python representation.
+    Unknown,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -504,13 +506,14 @@ const fn is_bare_funcargs(params: &[Param]) -> bool {
 const fn params_representable(params: &[Param]) -> bool {
     let mut i = 0;
     while i < params.len() {
-        if let Some(DefaultRepr::Unrepresentable) = params[i].default {
+        if let Some(DefaultRepr::Unknown) = params[i].default {
             return false;
         }
-        if let ParamKind::Flatten(Some(inner)) = params[i].kind
-            && !params_representable(inner)
-        {
-            return false;
+        match params[i].kind {
+            ParamKind::Flatten(Some(inner)) if !params_representable(inner) => return false,
+            ParamKind::Flatten(_) => {}
+            _ if params[i].name.is_empty() => return false,
+            _ => {}
         }
         i += 1;
     }
@@ -539,8 +542,9 @@ pub(crate) const fn params_take_no_keywords(params: &[Param]) -> bool {
     true
 }
 
-/// `None`, a bare `FuncArgs`, and a default of `<unrepresentable>` contribute
-/// no signature. `Some(&[])` is `()`.
+/// `None`, a bare `FuncArgs`, and an unknown default contribute no signature.
+/// A declared omitted value is rendered as `<unrepresentable>`, as in Clinic.
+/// `Some(&[])` is `()`.
 #[must_use]
 pub const fn real_signature(params: Option<&[Param]>) -> Option<&[Param]> {
     match params {
@@ -977,7 +981,7 @@ const fn put_default(buf: &mut [u8], i: usize, default: DefaultRepr) -> usize {
             put_quoted(buf, i, b, false)
         }
         DefaultRepr::Raw(s) => put_str(buf, i, s),
-        DefaultRepr::Unrepresentable => put_str(buf, i, "<unrepresentable>"),
+        DefaultRepr::Unrepresentable | DefaultRepr::Unknown => put_str(buf, i, "<unrepresentable>"),
     }
 }
 
@@ -1313,6 +1317,23 @@ mod tests {
         assert_eq!(rendered(DefaultRepr::Bytes(b"a'b")), r"b'a\'b'");
         assert_eq!(rendered(DefaultRepr::Raw("sys.maxsize")), "sys.maxsize");
         assert_eq!(rendered(DefaultRepr::Unrepresentable), "<unrepresentable>");
+        assert_eq!(rendered(DefaultRepr::Unknown), "<unrepresentable>");
+    }
+
+    #[test]
+    fn class_signature_distinguishes_omission_from_unknown_default() {
+        const OMITTED: &[Param] = &[Param::keyword_only(
+            "name",
+            Some(DefaultRepr::Unrepresentable),
+        )];
+        const UNKNOWN: &[Param] = &[Param::keyword_only("name", Some(DefaultRepr::Unknown))];
+        assert!(super::real_signature(Some(OMITTED)).is_some());
+        assert!(super::real_signature(Some(UNKNOWN)).is_none());
+        assert!(super::real_signature(Some(&[Param::flatten(Some(OMITTED))])).is_some());
+        assert!(super::real_signature(Some(&[Param::flatten(Some(UNKNOWN))])).is_none());
+        const UNNAMED: &[Param] = &[Param::keyword_only("", Some(DefaultRepr::Unrepresentable))];
+        assert!(super::real_signature(Some(UNNAMED)).is_none());
+        assert!(super::real_signature(Some(&[Param::flatten(Some(UNNAMED))])).is_none());
     }
 
     #[test]
