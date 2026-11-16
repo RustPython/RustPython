@@ -1747,6 +1747,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustpython-wasi-host"
+version = "0.6.1"
+dependencies = [
+ "cap-std",
+]
+
+[[package]]
 name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2268,7 +2275,7 @@ dependencies = [
 name = "wasm-runtime"
 version = "0.1.0"
 dependencies = [
- "cap-std",
+ "rustpython-wasi-host",
  "wasmer",
 ]
 
