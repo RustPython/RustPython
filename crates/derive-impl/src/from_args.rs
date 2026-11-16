@@ -922,21 +922,19 @@ fn impl_borrowed_from_args(
 
 pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
     let (mode, signature) = parse_from_args_attr(&input.attrs)?;
-    let text_signature = signature
-        .map(|signature| {
-            let text = signature.text.clone();
-            let params = signature.params_tokens();
-            quote! {
-                const TEXT_SIGNATURE: Option<&'static str> = {
-                    ::rustpython_vm::function::validate_text_signature(
-                        &[::rustpython_vm::function::SigArg::from_arg::<Self>("")],
-                        &[#(#params),*],
-                    );
-                    Some(#text)
-                };
-            }
-        })
-        .unwrap_or_default();
+    let text_signature = signature.map_or_else(TokenStream::new, |signature| {
+        let text = signature.text.clone();
+        let params = signature.params_tokens();
+        quote! {
+            const TEXT_SIGNATURE: Option<&'static str> = {
+                ::rustpython_vm::function::validate_text_signature(
+                    &[::rustpython_vm::function::SigArg::from_arg::<Self>("")],
+                    &[#(#params),*],
+                );
+                Some(#text)
+            };
+        }
+    });
     let legacy = match mode {
         FromArgsMode::Borrowed => {
             let Data::Struct(data) = &input.data else {
