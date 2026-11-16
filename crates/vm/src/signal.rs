@@ -1,5 +1,5 @@
 use core::{
-    cell::{Cell, RefCell},
+    cell::Cell,
     fmt,
     ops::{Deref, DerefMut, Index, IndexMut, Range},
     sync::atomic::{AtomicBool, AtomicU8, Ordering},
@@ -106,10 +106,6 @@ impl Drop for SignalHandlerGuard {
 #[cfg_attr(feature = "flame-it", flame)]
 #[inline(always)]
 pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
-    if vm.signal_handlers.get().is_none() {
-        return Ok(());
-    }
-
     // Read-only check first: avoids cache-line invalidation on every
     // instruction when no signal is pending (the common case).
     if !EVAL_BREAKER.contains(&EvalBreakerFlag::Signal) {
@@ -136,10 +132,7 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
 
     let can_handle_signals = vm.is_main_thread() && vm.state.is_main_interpreter();
     if can_handle_signals {
-        let signal_handlers = vm
-            .signal_handlers
-            .get()
-            .expect("should never fail since we check above");
+        let signal_handlers = &vm.state.signal_handlers;
         let frame = crate::frame::current_complete_frame_for_trace(vm);
 
         for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
@@ -151,10 +144,10 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
             // SAFETY: TRIGGERS has the same length as the signal_handlers
             let signum = unsafe { SignalNum::new_unchecked(signum as i32) };
 
-            // Read the handler out and drop the borrow before running it. A
-            // handler is free to call signal.signal(), which takes the same cell
-            // mutably, and a live read borrow turns that into a panic.
-            let handler = signal_handlers.borrow()[signum].clone();
+            // Read the handler out and drop the lock before running it. A
+            // handler is free to call signal.signal(), which takes the same lock.
+            // Release it before calling Python to avoid deadlock.
+            let handler = signal_handlers.lock()[signum].clone();
 
             let Some(handler) = handler.filter(|handler| !vm.is_none(handler)) else {
                 continue;
@@ -460,16 +453,18 @@ impl IndexMut<SignalNum> for SignalHandlersInner {
     }
 }
 
-pub struct SignalHandlers(Box<RefCell<SignalHandlersInner>>);
+pub struct SignalHandlers(Box<crate::common::lock::PyMutex<SignalHandlersInner>>);
 
 impl Default for SignalHandlers {
     fn default() -> Self {
-        Self(Box::new(RefCell::new(SignalHandlersInner::default())))
+        Self(Box::new(crate::common::lock::PyMutex::new(
+            SignalHandlersInner::default(),
+        )))
     }
 }
 
 impl Deref for SignalHandlers {
-    type Target = Box<RefCell<SignalHandlersInner>>;
+    type Target = Box<crate::common::lock::PyMutex<SignalHandlersInner>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

@@ -1695,7 +1695,6 @@ impl InterpreterThreadRoots {
             what_event: Cell::new(None),
             tracing_depth: Cell::new(0),
             recursion_limit: Cell::new(recursion_limit),
-            signal_handlers: core::cell::OnceCell::new(),
             signal_rx: None,
             repr_guards: RefCell::default(),
             lazy_imports_resolving: RefCell::default(),

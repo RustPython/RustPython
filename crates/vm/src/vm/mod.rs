@@ -56,7 +56,7 @@ use alloc::collections::BTreeMap;
 #[cfg(all(not(unix), feature = "threading"))]
 use core::ptr::NonNull;
 use core::{
-    cell::{Cell, OnceCell, RefCell},
+    cell::{Cell, RefCell},
     sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -108,7 +108,6 @@ pub struct VirtualMachine {
     pub(crate) what_event: Cell<Option<crate::stdlib::sys::monitoring::MonitoringEvent>>,
     tracing_depth: Cell<usize>,
     pub recursion_limit: Cell<usize>,
-    pub(crate) signal_handlers: OnceCell<SignalHandlers>,
     pub(crate) signal_rx: Option<signal::UserSignalReceiver>,
     pub repr_guards: RefCell<HashSet<usize>>,
     pub(crate) lazy_imports_resolving: RefCell<HashSet<usize>>,
@@ -888,6 +887,7 @@ pub struct PyGlobalState {
     pub atexit_funcs: PyMutex<Vec<PyRc<(PyObjectRef, FuncArgs)>>>,
     /// `sys.addaudithook` hooks, shared by all threads of this interpreter.
     pub(crate) audit_hooks: PyMutex<Vec<PyObjectRef>>,
+    pub(crate) signal_handlers: SignalHandlers,
     pub codec_registry: CodecsRegistry,
     pub(crate) filesystem_codec_ready: AtomicBool,
     pub(crate) unicode_names_loaded: AtomicBool,
@@ -1372,7 +1372,6 @@ impl VirtualMachine {
         let importlib = ctx.none();
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
-        let signal_handlers = OnceCell::from(SignalHandlers::default());
 
         let vm = Self {
             builtins,
@@ -1392,7 +1391,6 @@ impl VirtualMachine {
             #[cfg(feature = "threading")]
             thread_factory: None,
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 1000 }),
-            signal_handlers,
             signal_rx: None,
             repr_guards: RefCell::default(),
             lazy_imports_resolving: RefCell::default(),

@@ -346,3 +346,37 @@ def check_native_stdin_eintr():
 
 
 check_native_stdin_eintr()
+
+
+# A helper thread state on the native main thread must use the interpreter's
+# handlers, both when querying/replacing them and when dispatching a signal.
+def check_interpreter_helper_handlers():
+    import _testinternalcapi
+
+    import _interpreters
+
+    calls = []
+
+    def handler(signum, frame):
+        calls.append(signum)
+
+    previous = signal.signal(signal.SIGINT, handler)
+    try:
+        assert (
+            _testinternalcapi.exec_interpreter(
+                _interpreters.get_current()[0],
+                "import signal; "
+                "assert callable(signal.getsignal(signal.SIGINT)); "
+                "signal.raise_signal(signal.SIGINT); "
+                "signal.signal(signal.SIGINT, signal.SIG_IGN)",
+                main=False,
+            )
+            == 0
+        )
+        assert calls == [signal.SIGINT]
+        assert signal.getsignal(signal.SIGINT) == signal.SIG_IGN
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
+check_interpreter_helper_handlers()
