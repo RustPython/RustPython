@@ -379,4 +379,5 @@ def check_interpreter_helper_handlers():
         signal.signal(signal.SIGINT, previous)
 
 
-check_interpreter_helper_handlers()
+if "_thread" in sys.builtin_module_names:
+    check_interpreter_helper_handlers()

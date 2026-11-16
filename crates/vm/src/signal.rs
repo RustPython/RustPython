@@ -112,6 +112,12 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
         return Ok(());
     }
 
+    // A thread with neither OS-signal dispatch permission nor its own user
+    // signal receiver must not consume another VM's wakeup.
+    if vm.signal_rx.is_none() && !(vm.is_main_thread() && vm.state.is_main_interpreter()) {
+        return Ok(());
+    }
+
     // Atomic RMW only when a signal is actually pending.
     if !EVAL_BREAKER.remove(EvalBreakerFlag::Signal) {
         return Ok(());
