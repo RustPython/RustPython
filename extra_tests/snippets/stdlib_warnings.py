@@ -1,4 +1,5 @@
 import _warnings
+import sys
 
 _warnings.warn("Test")
 
@@ -63,8 +64,13 @@ for has_name in (True, False):
     expected = [
         ("get", "__loader__"),
         ("get", "__spec__"),
-        ("source", "stored_name"),
     ]
+    # CPython 3.15.0, still used by CI, requires __name__. Since 3.15.1
+    # it prefers __spec__.name; RustPython must follow the newer behavior.
+    if has_name or not (
+        sys.implementation.name == "cpython" and sys.version_info < (3, 15, 1)
+    ):
+        expected.append(("source", "stored_name"))
     if has_name:
         del module_globals["__name__"]
     assert events == expected
