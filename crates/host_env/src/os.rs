@@ -74,7 +74,7 @@ pub const AT_EACCESS: i32 = 0x200;
 pub use libc::{ST_NOSUID, ST_RDONLY};
 
 /// `open(2)` flags. libc on hosts that bind them; Darwin/BSD numbers on
-/// `wasm32-unknown-unknown`, matching the guest errno table.
+/// `wasm32-unknown-unknown`. These flags are independent of errno values.
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
 

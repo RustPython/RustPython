@@ -85,3 +85,18 @@ python3 test_wasi_fs.py -v \
 This stage enables path-based FileIO only. Metadata queries and directory
 operations are not implemented. The guest still lacks filesystem `posix` hooks
 and external importlib integration; this is not a working `-m test` runner.
+
+### Errno compatibility
+
+The no-JS and browser `wasm32-unknown-unknown` builds use WASI preview1
+errno numbers for their supported errno names, matching `wasm32-wasip1`,
+rather than the previous BSD numbers. This does not add the full WASI errno
+name table; host errors without an exported name still retain their raw value.
+Use symbolic `errno.E*` constants instead of numeric literals. `ESHUTDOWN`
+is no longer exported on wasm32-unknown: WASI preview1 does not define it.
+Native host builds retain their platform errno values.
+
+To compare the errno tables directly, supply both pairs of runtime/module
+arguments to `test_wasi_fs.py`. The ordinary tests use the no-JS runner in
+that invocation; the comparison executes both guests. Run the wasmer-only
+command above separately for the complete WASI contract suite.

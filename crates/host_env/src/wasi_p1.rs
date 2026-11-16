@@ -7,11 +7,7 @@
 use std::io;
 use std::sync::OnceLock;
 
-use crate::errno::errors::{
-    EACCES, EAFNOSUPPORT, EAGAIN, EALREADY, EBADF, ECHILD, ECONNABORTED, ECONNREFUSED, ECONNRESET,
-    EEXIST, EFBIG, EINPROGRESS, EINTR, EINVAL, EIO, EISDIR, EMFILE, ENAMETOOLONG, ENOENT, ENOSPC,
-    ENOTCAPABLE, ENOTDIR, ENOTSUP, EOVERFLOW, EPERM, EPIPE, EROFS, ESPIPE, ESRCH, ETIMEDOUT,
-};
+use crate::errno::errors::{ENOENT, EOVERFLOW};
 use crate::os::{
     O_ACCMODE, O_APPEND, O_CREAT, O_DIRECTORY, O_EXCL, O_NOFOLLOW, O_RDONLY, O_TRUNC, O_WRONLY,
 };
@@ -123,51 +119,11 @@ fn guest_ptr<T: ?Sized>(ptr: *const T) -> i32 {
     ptr as *const u8 as usize as i32
 }
 
-fn guest_errno(wasi_errno: i32) -> i32 {
-    let Ok(code) = u16::try_from(wasi_errno) else {
-        return EIO;
-    };
-    match code {
-        0 => 0,
-        2 => EACCES,
-        5 => EAFNOSUPPORT,
-        6 => EAGAIN,
-        7 => EALREADY,
-        8 => EBADF,
-        12 => ECHILD,
-        13 => ECONNABORTED,
-        14 => ECONNREFUSED,
-        15 => ECONNRESET,
-        20 => EEXIST,
-        22 => EFBIG,
-        26 => EINPROGRESS,
-        27 => EINTR,
-        28 => EINVAL,
-        29 => EIO,
-        31 => EISDIR,
-        33 => EMFILE,
-        37 => ENAMETOOLONG,
-        44 => ENOENT,
-        51 => ENOSPC,
-        54 => ENOTDIR,
-        58 => ENOTSUP,
-        61 => EOVERFLOW,
-        63 => EPERM,
-        64 => EPIPE,
-        69 => EROFS,
-        70 => ESPIPE,
-        71 => ESRCH,
-        73 => ETIMEDOUT,
-        76 => ENOTCAPABLE,
-        _ => EIO,
-    }
-}
-
 fn check(errno: i32) -> io::Result<()> {
     if errno == ERRNO_SUCCESS {
         Ok(())
     } else {
-        Err(io::Error::from_raw_os_error(guest_errno(errno)))
+        Err(io::Error::from_raw_os_error(errno))
     }
 }
 

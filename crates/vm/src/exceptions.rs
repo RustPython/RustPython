@@ -1562,7 +1562,7 @@ pub(crate) fn errno_to_exc_type(errno: i32, vm: &VirtualMachine) -> Option<&'sta
         errors::EALREADY => Some(excs.blocking_io_error),
         errors::EINPROGRESS => Some(excs.blocking_io_error),
         errors::EPIPE => Some(excs.broken_pipe_error),
-        #[cfg(not(target_os = "wasi"))]
+        #[cfg(any(unix, windows))]
         errors::ESHUTDOWN => Some(excs.broken_pipe_error),
         errors::ECHILD => Some(excs.child_process_error),
         errors::ECONNABORTED => Some(excs.connection_aborted_error),

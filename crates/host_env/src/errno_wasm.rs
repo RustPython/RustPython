@@ -1,7 +1,7 @@
 //! Errno numbers for `wasm32-unknown-unknown`.
 //!
-//! There is no libc errno table. The values are the Darwin/BSD numbers the
-//! guest `O_*` flags and `OSError` subclasses match against.
+//! Use WASI preview1 errno values, matching `wasm32-wasip1`. Native host
+//! builds continue to use their platform libc errno table.
 
 #[must_use]
 pub fn strerror_string(errno: i32) -> Option<String> {
@@ -9,38 +9,37 @@ pub fn strerror_string(errno: i32) -> Option<String> {
 }
 
 pub mod errors {
-    pub const EPERM: i32 = 1;
-    pub const ENOENT: i32 = 2;
-    pub const ESRCH: i32 = 3;
-    pub const EINTR: i32 = 4;
-    pub const EIO: i32 = 5;
-    pub const EBADF: i32 = 9;
-    pub const ECHILD: i32 = 10;
-    pub const EACCES: i32 = 13;
-    pub const EEXIST: i32 = 17;
-    pub const ENOTDIR: i32 = 20;
-    pub const EISDIR: i32 = 21;
-    pub const EINVAL: i32 = 22;
-    pub const EMFILE: i32 = 24;
-    pub const EFBIG: i32 = 27;
-    pub const ENOSPC: i32 = 28;
-    pub const ESPIPE: i32 = 29;
-    pub const EROFS: i32 = 30;
-    pub const EPIPE: i32 = 32;
-    pub const EAGAIN: i32 = 35;
-    pub const EWOULDBLOCK: i32 = 35;
-    pub const EINPROGRESS: i32 = 36;
-    pub const EALREADY: i32 = 37;
-    pub const ENOTSUP: i32 = 45;
-    pub const EAFNOSUPPORT: i32 = 47;
-    pub const ECONNABORTED: i32 = 53;
-    pub const ECONNRESET: i32 = 54;
-    pub const ESHUTDOWN: i32 = 58;
-    pub const ETIMEDOUT: i32 = 60;
-    pub const ECONNREFUSED: i32 = 61;
-    pub const ENAMETOOLONG: i32 = 63;
-    pub const EOVERFLOW: i32 = 84;
-    pub const ENOTCAPABLE: i32 = 93;
+    pub const EPERM: i32 = 63;
+    pub const ENOENT: i32 = 44;
+    pub const ESRCH: i32 = 71;
+    pub const EINTR: i32 = 27;
+    pub const EIO: i32 = 29;
+    pub const EBADF: i32 = 8;
+    pub const ECHILD: i32 = 12;
+    pub const EACCES: i32 = 2;
+    pub const EEXIST: i32 = 20;
+    pub const ENOTDIR: i32 = 54;
+    pub const EISDIR: i32 = 31;
+    pub const EINVAL: i32 = 28;
+    pub const EMFILE: i32 = 33;
+    pub const EFBIG: i32 = 22;
+    pub const ENOSPC: i32 = 51;
+    pub const ESPIPE: i32 = 70;
+    pub const EROFS: i32 = 69;
+    pub const EPIPE: i32 = 64;
+    pub const EAGAIN: i32 = 6;
+    pub const EWOULDBLOCK: i32 = 6;
+    pub const EINPROGRESS: i32 = 26;
+    pub const EALREADY: i32 = 7;
+    pub const ENOTSUP: i32 = 58;
+    pub const EAFNOSUPPORT: i32 = 5;
+    pub const ECONNABORTED: i32 = 13;
+    pub const ECONNRESET: i32 = 15;
+    pub const ETIMEDOUT: i32 = 73;
+    pub const ECONNREFUSED: i32 = 14;
+    pub const ENAMETOOLONG: i32 = 37;
+    pub const EOVERFLOW: i32 = 61;
+    pub const ENOTCAPABLE: i32 = 76;
 
     pub fn strerror(errno: i32) -> Option<&'static str> {
         Some(match errno {
@@ -69,7 +68,6 @@ pub mod errors {
             EAFNOSUPPORT => "Address family not supported by protocol",
             ECONNABORTED => "Software caused connection abort",
             ECONNRESET => "Connection reset by peer",
-            ESHUTDOWN => "Can't send after socket shutdown",
             ETIMEDOUT => "Operation timed out",
             ECONNREFUSED => "Connection refused",
             ENAMETOOLONG => "File name too long",
@@ -85,9 +83,9 @@ mod tests {
     use super::errors;
 
     #[test]
-    fn eagain_is_darwin() {
-        assert_eq!(errors::EAGAIN, 35);
-        assert_eq!(errors::EWOULDBLOCK, 35);
+    fn eagain_is_wasi() {
+        assert_eq!(errors::EAGAIN, 6);
+        assert_eq!(errors::EWOULDBLOCK, 6);
         assert_eq!(
             errors::strerror(errors::EAGAIN),
             Some("Resource temporarily unavailable")
