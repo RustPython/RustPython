@@ -3200,7 +3200,10 @@ mod _ssl {
                         vm,
                     ) {
                         drop(conn_guard);
-                        if matches!(*zelf.state.lock(), TlsState::SendingAlert { .. }) {
+                        if matches!(
+                            *zelf.state.lock(),
+                            TlsState::SendingAlert { .. } | TlsState::Failed
+                        ) {
                             return Err(error);
                         }
                         zelf.reject_connection(error, super::handshake::sni_alert(40), vm);
