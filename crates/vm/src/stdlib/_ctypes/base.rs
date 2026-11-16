@@ -114,7 +114,7 @@ pub struct StgInfo {
     // Cached pointer type (non-inheritable via descriptor)
     pub pointer_type: Option<PyObjectRef>,
 
-    // Cached converters snapshot for PyCFuncPtrType (types tuple, converters tuple)
+    // Tuple of from_param callables for PyCFuncPtrType
     pub converters: Option<PyObjectRef>,
 }
 
@@ -3083,7 +3083,7 @@ impl PyCData {
 
     pub(super) fn into_view(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyResult {
         if cls.fast_issubclass(super::function::PyCFuncPtr::static_type()) {
-            super::function::PyCFuncPtr::from_cdata(self, &cls, vm)
+            super::function::PyCFuncPtr::from_cdata(self, vm)
                 .into_ref_with_type(vm, cls)
                 .map(Into::into)
         } else {

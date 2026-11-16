@@ -1847,16 +1847,14 @@ test_cfunc.argtypes = [adapter]
 test_cfunc(20)
 assert adapter.called == 1
 
-# 4. Conversion failure wraps in ArgumentError and chains __cause__
+# 4. Conversion failure wraps in ArgumentError without chaining __cause__
 test_cfunc.argtypes = [FailingConverter]
 try:
     test_cfunc(30)
 except Exception as e:
     assert type(e).__name__ == "ArgumentError"
     assert "argument 1: ValueError: failing conversion" in str(e)
-    if _sys.implementation.name == "rustpython":
-        assert isinstance(e.__cause__, ValueError)
-        assert str(e.__cause__) == "failing conversion"
+    assert e.__cause__ is None
 else:
     raise AssertionError("expected ArgumentError from failing converter")
 
@@ -1872,16 +1870,18 @@ test_cfunc.argtypes = [MutatingConverter]
 MutatingConverter.from_param = None
 test_cfunc(40)
 
-# 6. In-place mutation of assigned argtypes list does not affect call snapshot
+# 6. In-place mutation of assigned argtypes list does not affect converters
 assigned_list = [ctypes.c_uint]
 test_cfunc.argtypes = assigned_list
 assigned_list.append(ctypes.c_int)
-# Function call uses assignment snapshot (1 argument), while getter preserves assigned list
+# Function call uses converters resolved at assignment (1 argument);
+# getter returns the original list object
 test_cfunc(50)
 assert test_cfunc.argtypes == assigned_list
+assert test_cfunc.argtypes is assigned_list
 
 
-# 7. Callback argtypes validates ctypes types without querying from_param
+# 7. Callback construction accepts any object and does not query from_param
 class CallbackArgType(ctypes.c_int):
     @classmethod
     def from_param(cls, val):
@@ -1890,6 +1890,15 @@ class CallbackArgType(ctypes.c_int):
 
 CB = ctypes.CFUNCTYPE(None, CallbackArgType)
 cb_inst = CB(lambda x: None)
+
+
+class AnyArg:
+    def from_param(self, val):
+        return val
+
+
+CB_any = ctypes.CFUNCTYPE(None, AnyArg())
+cb_any = CB_any(lambda x: None)
 
 
 # 8. Prototype with class-level _argtypes_ resolves converters when prototype type is created
