@@ -9,8 +9,6 @@ use super::{
     base::{CArgValue, CDATA_BUFFER_METHODS, ParamFunc, StgInfoFlags},
     simple::PyCSimple,
 };
-#[cfg(windows)]
-use crate::function::ArgBytesLike;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyBytes, PyDict, PyInt, PyStr, PyTuple, PyType, PyTypeRef},
@@ -20,6 +18,8 @@ use crate::{
     types::{AsBuffer, AsNumber, AsSequence, Callable, Constructor, Initializer, Representable},
     vm::thread::{PyOperation, with_current_vm},
 };
+#[cfg(windows)]
+use crate::{TryFromObject, function::ArgBytesLike};
 use alloc::borrow::Cow;
 use core::ffi::{c_int, c_long, c_ulong, c_void};
 use core::fmt::Debug;
@@ -1095,24 +1095,29 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> CallInfo {
         (argtypes_guard.clone(), converters_guard.clone())
     };
 
-    let class = zelf.class();
-    let class_info = class.stg_info_opt();
-    let converters = instance_converters
-        .or_else(|| class_info.as_ref().and_then(|info| info.converters.clone()));
-    let argtypes =
-        instance_argtypes.or_else(|| class_info.as_ref().and_then(|info| info.argtypes.clone()));
+    let (class_converters, class_argtypes, class_restype, class_checker) = {
+        let class = zelf.class();
+        if let Some(info) = class.stg_info_opt() {
+            (
+                info.converters.clone(),
+                info.argtypes.clone(),
+                info.restype.clone(),
+                info.checker.clone(),
+            )
+        } else {
+            (None, None, None, None)
+        }
+    };
+    let converters = instance_converters.or(class_converters);
+    let argtypes = instance_argtypes.or(class_argtypes);
 
     // Retain both references before argument conversion can re-enter.
     let (restype_obj, checker) = {
         let restype = zelf.restype.read();
         let checker = zelf.checker.read();
         (
-            restype
-                .clone()
-                .or_else(|| class_info.as_ref().and_then(|info| info.restype.clone())),
-            checker
-                .clone()
-                .or_else(|| class_info.as_ref().and_then(|info| info.checker.clone())),
+            restype.clone().or(class_restype),
+            checker.clone().or(class_checker),
         )
     };
 
@@ -1421,12 +1426,14 @@ fn build_callargs(
         .ok_or_else(|| vm.new_type_error("_argtypes_ must be a sequence of types"))?;
 
     if let Some(pflags) = paramflags {
+        // Has paramflags: handle IN/OUT
         let arg_types = match call_info.argtypes.as_ref() {
             Some(argtypes) => argtypes_as_vec(argtypes, vm)?,
             None => Vec::new(),
         };
         build_callargs_with_paramflags(args, &arg_types, converters, pflags, is_com_method, vm)
     } else if is_com_method {
+        // COM method without paramflags
         let mut arguments = Vec::new();
         if !args.args.is_empty() {
             arguments.push(conv_param(&args.args[0], 0, vm)?);
@@ -1440,6 +1447,7 @@ fn build_callargs(
         }
         Ok((arguments, Vec::new()))
     } else {
+        // Regular function
         build_callargs_simple(args, converters, allow_variadic, vm)
     }
 }
@@ -2067,7 +2075,13 @@ fn layout_to_ffi_type(layout: &CTypeLayout) -> Option<FfiType> {
 fn ctypes_get_ffi_type(obj: &PyObject) -> FfiType {
     obj.downcast_ref::<PyType>()
         .and_then(|ty| ty.stg_info_opt())
-        .and_then(|info| layout_to_ffi_type(&super::base::type_layout(&info)))
+        .and_then(|info| {
+            let layout = super::base::type_layout(&info);
+            match layout {
+                CTypeLayout::Array { .. } => Some(ffi_pointer_type()),
+                _ => layout_to_ffi_type(&layout),
+            }
+        })
         .unwrap_or_else(ffi_i32_type)
 }
 
@@ -2151,7 +2165,16 @@ fn ffi_to_python(
         )));
     };
     if size != 0 {
-        let src = unsafe { *args.add(index) };
+        let src = if paramfunc == ParamFunc::Array {
+            let ptr = unsafe { *args.add(index) };
+            if ptr.is_null() {
+                core::ptr::null()
+            } else {
+                unsafe { *ptr.cast::<*const c_void>() }
+            }
+        } else {
+            unsafe { *args.add(index) }
+        };
         if !src.is_null() {
             let bytes = unsafe { core::slice::from_raw_parts(src.cast::<u8>(), size) };
             cdata.write_bytes_at_offset(0, bytes);
