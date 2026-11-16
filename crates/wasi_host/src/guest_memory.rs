@@ -58,6 +58,7 @@ fn read_iovecs(view: &impl GuestMemory, iovs: i32, iovs_len: i32) -> Result<Vec<
     let bytes = n.checked_mul(8).ok_or(INVAL)?;
     check_range(view.size(), iovs, bytes)?;
     let mut out = Vec::new();
+    let mut remaining = MAX_TRANSFER as u32;
     for i in 0..n {
         let base = iovs + i * 8;
         let buf = mem_read_u32(view, base)?;
@@ -65,7 +66,11 @@ fn read_iovecs(view: &impl GuestMemory, iovs: i32, iovs_len: i32) -> Result<Vec<
         if len != 0 {
             check_range(view.size(), buf, len)?;
         }
-        out.push((buf, len));
+        let retained = len.min(remaining);
+        if retained != 0 {
+            out.push((buf, retained));
+            remaining -= retained;
+        }
     }
     Ok(out)
 }
@@ -256,4 +261,41 @@ pub fn path_open(
         )?;
         mem_write_u32(view, fd_ptr, opened as u32)
     })())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct Memory(Vec<u8>);
+    impl GuestMemory for Memory {
+        fn size(&self) -> u64 {
+            u32::MAX.into()
+        }
+        fn read(&self, offset: u32, bytes: &mut [u8]) -> Result<(), u16> {
+            let start = offset as usize;
+            bytes.copy_from_slice(self.0.get(start..start + bytes.len()).ok_or(FAULT)?);
+            Ok(())
+        }
+        fn write(&self, _: u32, _: &[u8]) -> Result<(), u16> {
+            unreachable!()
+        }
+    }
+    #[test]
+    fn iovecs_bound_storage_without_skipping_validation() {
+        let mut memory = Memory(Vec::new());
+        for (base, len) in [
+            (1024u32, 0u32),
+            (1024, 32768),
+            (1024, u32::MAX - 1024),
+            (u32::MAX, 1),
+        ] {
+            memory.0.extend(base.to_le_bytes());
+            memory.0.extend(len.to_le_bytes());
+        }
+        assert_eq!(
+            read_iovecs(&memory, 0, 3).unwrap(),
+            vec![(1024, 32768), (1024, 32768)]
+        );
+        assert_eq!(read_iovecs(&memory, 0, 4), Err(FAULT));
+    }
 }
