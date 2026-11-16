@@ -318,12 +318,40 @@ def check_winreg_audit_boundaries():
                 assert events == []
     blocked = "winreg.SetValue"
     events.clear()
+    for kind, value in (
+        (winreg.REG_DWORD, "bad"),
+        (winreg.REG_QWORD, "bad"),
+        (winreg.REG_SZ, 0),
+        (winreg.REG_EXPAND_SZ, 0),
+        (winreg.REG_MULTI_SZ, "bad"),
+        (winreg.REG_MULTI_SZ, ["ok", 0]),
+    ):
+        try:
+            winreg.SetValueEx(0, None, None, kind, value)
+        except ValueError as exc:
+            assert str(exc) == "Could not convert the data to the specified type."
+        else:
+            raise AssertionError("data conversion must precede audit")
+        assert events == []
+    for kind, value in (
+        (winreg.REG_DWORD, -1),
+        (winreg.REG_DWORD, 1 << 32),
+        (winreg.REG_QWORD, -1),
+        (winreg.REG_QWORD, 1 << 64),
+    ):
+        try:
+            winreg.SetValueEx(0, None, None, kind, value)
+        except OverflowError:
+            pass
+        else:
+            raise AssertionError("numeric overflow must precede audit")
+        assert events == []
     try:
-        winreg.SetValueEx(0, None, None, winreg.REG_DWORD, "bad")
+        winreg.SetValueEx(0, None, None, winreg.REG_BINARY, object())
     except TypeError:
         pass
     else:
-        raise AssertionError("data conversion must precede audit")
+        raise AssertionError("binary conversion must precede audit")
     assert events == []
 
     blocked = None

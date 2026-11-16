@@ -919,14 +919,14 @@ mod winreg {
     }
 
     fn py2reg(value: &PyObjectRef, typ: u32, vm: &VirtualMachine) -> PyResult<Option<Vec<u8>>> {
+        let invalid_data =
+            || vm.new_value_error("Could not convert the data to the specified type.");
         match typ {
             REG_DWORD => {
                 if vm.is_none(value) {
                     return Ok(Some(0u32.to_le_bytes().to_vec()));
                 }
-                let val = value
-                    .downcast_ref::<PyInt>()
-                    .ok_or_else(|| vm.new_type_error("value must be an integer"))?;
+                let val = value.downcast_ref::<PyInt>().ok_or_else(invalid_data)?;
                 let bigint = val.as_bigint();
                 // Check for negative value - raise OverflowError
                 if bigint.sign() == Sign::Minus {
@@ -941,9 +941,7 @@ mod winreg {
                 if vm.is_none(value) {
                     return Ok(Some(0u64.to_le_bytes().to_vec()));
                 }
-                let val = value
-                    .downcast_ref::<PyInt>()
-                    .ok_or_else(|| vm.new_type_error("value must be an integer"))?;
+                let val = value.downcast_ref::<PyInt>().ok_or_else(invalid_data)?;
                 let bigint = val.as_bigint();
                 // Check for negative value - raise OverflowError
                 if bigint.sign() == Sign::Minus {
@@ -962,7 +960,7 @@ mod winreg {
                 // Registry values are allowed to contain interior NULs.
                 let bytes: Vec<u8> = value
                     .downcast_ref::<PyStr>()
-                    .ok_or_else(|| vm.new_type_error("value must be a string"))?
+                    .ok_or_else(invalid_data)?
                     .as_wtf8()
                     .encode_wide()
                     .chain([0u16])
@@ -976,12 +974,12 @@ mod winreg {
                 }
                 let list = value
                     .downcast_ref::<crate::builtins::PyList>()
-                    .ok_or_else(|| vm.new_type_error("value must be a list of strings"))?;
+                    .ok_or_else(invalid_data)?;
 
                 let items = list.borrow_vec();
                 for item in items.iter() {
                     if !item.downcastable::<PyStr>() {
-                        return Err(vm.new_type_error("list items must be strings"));
+                        return Err(invalid_data());
                     }
                 }
                 let mut encoded = Vec::<u8>::new();
