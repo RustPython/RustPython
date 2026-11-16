@@ -2091,6 +2091,7 @@ fn run_interpreter_source(source: &str, target: &VirtualMachine) -> i32 {
             .compile(source, crate::compiler::Mode::Exec, "<string>")
             .map_err(|err| err.into_pyexception(target, Some(source)))?;
         let scope = crate::scope::Scope::with_builtins(None, ns, target);
+        target.audit("exec", || (code.clone(),))?;
         target.run_code_obj(code, scope)
     })();
     match result {
