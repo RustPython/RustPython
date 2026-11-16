@@ -3903,7 +3903,10 @@ impl VirtualMachine {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            crate::signal::eval_breaker_pending()
+            self.signal_rx
+                .as_ref()
+                .is_some_and(signal::UserSignalReceiver::is_pending)
+                || crate::signal::eval_breaker_pending()
         }
         #[cfg(target_arch = "wasm32")]
         {
