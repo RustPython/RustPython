@@ -2085,6 +2085,11 @@ pub(crate) mod _elementtree {
             )?;
             parser.set_attr("EndElementHandler", this.get_attr("_expat_end", vm)?, vm)?;
             parser.set_attr(
+                "StartDoctypeDeclHandler",
+                this.get_attr("_expat_doctype", vm)?,
+                vm,
+            )?;
+            parser.set_attr(
                 "CharacterDataHandler",
                 this.get_attr("_expat_data", vm)?,
                 vm,
@@ -2296,6 +2301,38 @@ pub(crate) mod _elementtree {
                 vm,
             )?;
             install_ns_handlers(this, &parser, vm)?;
+            Ok(())
+        }
+
+        #[pymethod]
+        fn _expat_doctype(
+            zelf: &Py<Self>,
+            name: PyObjectRef,
+            system: PyObjectRef,
+            public: PyObjectRef,
+            _has_internal_subset: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let name = zelf.make_universal(name, vm)?;
+            let system = zelf.make_universal(system, vm)?;
+            let public = zelf.make_universal(public, vm)?;
+            let handler = zelf.state.read().handle_doctype.clone();
+            if let Some(handler) = handler {
+                handler.call((name, public, system), vm)?;
+            } else if optional_handler(zelf.as_object(), "doctype", vm)?.is_some() {
+                crate::vm::warn::warn(
+                    vm.ctx
+                        .new_str(
+                            "The doctype() method of XMLParser is ignored.  \
+                         Define doctype() method on the TreeBuilder target.",
+                        )
+                        .into(),
+                    Some(vm.ctx.exceptions.runtime_warning.to_owned()),
+                    1,
+                    None,
+                    vm,
+                )?;
+            }
             Ok(())
         }
 
