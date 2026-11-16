@@ -2,7 +2,7 @@
 //!
 //! Mirrors CPython `Modules/_interpretersmodule.c`.
 
-pub(crate) use _interpreters::{config_from_pyobject, init_xi_types, module_def};
+pub(crate) use _interpreters::{config_from_pyobject, init_xi_types, module_def, parse_id};
 #[cfg_attr(not(feature = "threading"), allow(unused_imports))]
 pub(crate) use _interpreters::{
     interpreter_error, interpreter_not_found, not_shareable_error, xibufferview_from_buffer,
@@ -175,7 +175,7 @@ pub(crate) mod _interpreters {
     }
 
     /// `_PyInterpreterState_ObjectToID`.
-    fn parse_id(obj: &PyObject, vm: &VirtualMachine) -> PyResult<i64> {
+    pub(crate) fn parse_id(obj: &PyObject, vm: &VirtualMachine) -> PyResult<i64> {
         if !obj.number().is_index() {
             return Err(vm.new_type_error(format!(
                 "interpreter ID must be an int, got {}",
@@ -324,12 +324,22 @@ pub(crate) mod _interpreters {
             .ok_or_else(|| vm.new_value_error(format!("unsupported config name '{name}'")))
     }
 
-    /// `config_from_object`.
+    // _testinternalcapi's _init_interp_config_from_object accepts a namespace,
+    // unlike _interpreters.config_from_object's named configurations.
     pub(crate) fn config_from_pyobject(
         obj: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<InterpreterConfig> {
-        parse_config(Some(obj), vm)
+        let dict = match obj.get_attr("__dict__", vm) {
+            Ok(dict) => dict,
+            Err(_) => return Err(vm.new_type_error(format!("bad config {}", obj.repr(vm)?))),
+        };
+        let dict = dict
+            .downcast_ref::<PyDict>()
+            .ok_or_else(|| vm.new_type_error("dict expected"))?;
+        let mut cfg = InterpreterConfig::ISOLATED;
+        config_from_dict(&mut cfg, dict, false, vm)?;
+        Ok(cfg)
     }
 
     /// `config_from_object`.
@@ -340,18 +350,7 @@ pub(crate) mod _interpreters {
         if let Some(s) = obj.downcast_ref::<PyStr>() {
             return named_config(s.to_str(), vm);
         }
-        let dict = obj.get_attr("__dict__", vm).map_err(|_| {
-            let repr = obj
-                .repr(vm)
-                .map_or_else(|_| obj.class().name().to_string(), |s| s.to_string());
-            vm.new_type_error(format!("bad config {repr}"))
-        })?;
-        let dict = dict
-            .downcast_ref::<PyDict>()
-            .ok_or_else(|| vm.new_type_error("dict expected"))?;
-        let mut cfg = InterpreterConfig::ISOLATED;
-        config_from_dict(&mut cfg, dict, false, vm)?;
-        Ok(cfg)
+        config_from_pyobject(obj, vm)
     }
 
     /// `_PyInterpreterConfig_AsDict` wrapped in a `types.SimpleNamespace`.

@@ -87,6 +87,8 @@ pub const MAX_MEMORY_SIZE: usize = isize::MAX as usize;
 ///
 /// To construct the main VM of an interpreter, use [`Interpreter`].
 pub struct VirtualMachine {
+    #[cfg(feature = "threading")]
+    pub(crate) thread_factory: Option<alloc::sync::Arc<thread::InterpreterThreadFactory>>,
     pub builtins: PyRef<PyModule>,
     pub sys_module: PyRef<PyModule>,
     pub ctx: PyRc<Context>,
@@ -1387,6 +1389,8 @@ impl VirtualMachine {
             use_tracing: Cell::new(false),
             what_event: Cell::new(None),
             tracing_depth: Cell::new(0),
+            #[cfg(feature = "threading")]
+            thread_factory: None,
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 1000 }),
             signal_handlers,
             signal_rx: None,

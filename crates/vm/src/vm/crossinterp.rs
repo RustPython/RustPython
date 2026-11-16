@@ -973,7 +973,7 @@ where
     }
     let _guard = RunningGuard(&state);
 
-    let tvm = crate::vm::runtime::owned_new_thread(id)
+    let tvm = crate::vm::runtime::new_interpreter_thread(id)
         .ok_or_else(|| crate::stdlib::_interpreters::interpreter_not_found(caller, id))?;
     tvm.run(f)
 }

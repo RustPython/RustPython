@@ -1489,6 +1489,10 @@ pub mod sys {
 
         if limit > recursion_depth {
             vm.recursion_limit.set(limit);
+            #[cfg(feature = "threading")]
+            if let Some(factory) = &vm.thread_factory {
+                factory.recursion_limit.store(limit);
+            }
             Ok(())
         } else {
             Err(vm.new_recursion_error(format!(

@@ -2974,9 +2974,7 @@ mod escape_warnings {
                                 self,
                             )
                             .map_err(|mut error| {
-                                if interactive.is_some()
-                                    && let Some(column) = error_column
-                                {
+                                if let Some(column) = error_column {
                                     error.offset = column;
                                     if let Some(replacement) = &mut error.replacement {
                                         replacement.end_offset = column + 2;
