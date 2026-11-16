@@ -6,8 +6,8 @@
 //! payloads, so those ownership edges are detached explicitly before walking.
 //! No configured Python recursion limit is treated as a native-drop guarantee.
 use ast::visitor::transformer::{self, Transformer};
+use core::cell::RefCell;
 use ruff_python_ast as ast;
-use std::cell::RefCell;
 
 enum Node {
     Expr(ast::Expr),
@@ -48,7 +48,7 @@ impl Drain {
                 Node::ExceptHandler(n) => self.visit_except_handler(n),
                 Node::Constant(n) => match n {
                     ast::ConstantValue::Tuple(xs) | ast::ConstantValue::Frozenset(xs) => {
-                        for x in std::mem::take(xs) {
+                        for x in core::mem::take(xs) {
                             self.push(Node::Constant(x));
                         }
                     }
@@ -96,7 +96,7 @@ impl Drain {
             }
             ast::Expr::FString(n) => {
                 if let Some(xs) = n.runtime_joined_str.take() {
-                    for x in xs.into_iter() {
+                    for x in xs {
                         self.push(Node::Expr(x));
                     }
                 }
@@ -108,7 +108,7 @@ impl Drain {
             }
             ast::Expr::TString(n) => {
                 if let Some(xs) = n.runtime_template_str.take() {
-                    for x in xs.into_iter() {
+                    for x in xs {
                         self.push(Node::Expr(x));
                     }
                 }
@@ -132,7 +132,7 @@ impl Drain {
                     }
                 }
             }
-            ast::Expr::Constant(n) => self.push(Node::Constant(std::mem::replace(
+            ast::Expr::Constant(n) => self.push(Node::Constant(core::mem::replace(
                 &mut n.value,
                 ast::ConstantValue::None,
             ))),
@@ -301,13 +301,13 @@ impl Drain {
 }
 impl Transformer for Drain {
     fn visit_expr(&self, n: &mut ast::Expr) {
-        self.push(Node::Expr(std::mem::replace(
+        self.push(Node::Expr(core::mem::replace(
             n,
             ast::Expr::NoneLiteral(Default::default()),
         )));
     }
     fn visit_stmt(&self, n: &mut ast::Stmt) {
-        self.push(Node::Stmt(std::mem::replace(
+        self.push(Node::Stmt(core::mem::replace(
             n,
             ast::Stmt::Pass(ast::StmtPass {
                 node_index: Default::default(),
@@ -316,7 +316,7 @@ impl Transformer for Drain {
         )));
     }
     fn visit_pattern(&self, n: &mut ast::Pattern) {
-        self.push(Node::Pattern(std::mem::replace(
+        self.push(Node::Pattern(core::mem::replace(
             n,
             ast::Pattern::MatchAs(ast::PatternMatchAs {
                 node_index: Default::default(),
@@ -327,7 +327,7 @@ impl Transformer for Drain {
         )));
     }
     fn visit_interpolated_string_element(&self, n: &mut ast::InterpolatedStringElement) {
-        self.push(Node::Interpolation(std::mem::replace(
+        self.push(Node::Interpolation(core::mem::replace(
             n,
             ast::InterpolatedStringElement::Literal(ast::InterpolatedStringLiteralElement {
                 node_index: Default::default(),
