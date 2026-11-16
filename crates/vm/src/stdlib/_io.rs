@@ -6485,54 +6485,14 @@ mod _io {
 }
 #[cfg(all(feature = "host_io", not(native_host_io)))]
 mod fileio_host {
-    pub(super) use io::{
-        FileMode, is_interrupted_error, is_would_block_error, parse_fileio_mode,
-        should_forget_fd_after_inspect_error,
+    pub(super) use rustpython_host_env::crt_fd::ftruncate as truncate;
+    pub(super) use rustpython_host_env::io::{
+        FileMode, inspect_file_target, is_interrupted_error, is_seekable, is_would_block_error,
+        parse_fileio_mode, read_once, reads_without_waiting, seek, seek_to_end,
+        should_forget_fd_after_inspect_error, tell, write_once,
     };
-    use rustpython_host_env::{crt_fd, io};
-    #[inline]
-    pub(super) fn inspect_file_target(
-        fd: &crt_fd::Borrowed<'_>,
-    ) -> std::io::Result<io::FileTargetInfo> {
-        io::inspect_file_target(*fd)
-    }
-    #[inline]
-    pub(super) fn seek_to_end(fd: &crt_fd::Borrowed<'_>) -> std::io::Result<crt_fd::Offset> {
-        io::seek_to_end(*fd)
-    }
-    #[inline]
-    pub(super) fn is_seekable(fd: &crt_fd::Borrowed<'_>) -> bool {
-        io::is_seekable(*fd)
-    }
-    #[inline]
-    pub(super) fn reads_without_waiting(fd: &crt_fd::Borrowed<'_>) -> bool {
-        io::reads_without_waiting(*fd)
-    }
-    #[inline]
-    pub(super) fn tell(fd: &crt_fd::Borrowed<'_>) -> std::io::Result<crt_fd::Offset> {
-        io::tell(*fd)
-    }
-    #[inline]
-    pub(super) fn read_once(fd: &crt_fd::Borrowed<'_>, buf: &mut [u8]) -> std::io::Result<usize> {
-        io::read_once(*fd, buf)
-    }
-    #[inline]
-    pub(super) fn write_once(fd: &crt_fd::Borrowed<'_>, buf: &[u8]) -> std::io::Result<usize> {
-        io::write_once(*fd, buf)
-    }
-    #[inline]
-    pub(super) fn seek(
-        fd: &crt_fd::Borrowed<'_>,
-        offset: crt_fd::Offset,
-        how: i32,
-    ) -> std::io::Result<crt_fd::Offset> {
-        io::seek(*fd, offset, how)
-    }
-    #[inline]
-    pub(super) fn truncate(fd: &crt_fd::Borrowed<'_>, len: crt_fd::Offset) -> std::io::Result<()> {
-        crt_fd::ftruncate(*fd, len)
-    }
 }
+
 // FileIO requires host descriptor access, not the full Python OS module.
 #[cfg(feature = "host_io")]
 #[pymodule]
@@ -6565,6 +6525,10 @@ mod fileio {
     type FileHandle<'a> = rustpython_wasi_host::Handle;
     #[cfg(not(native_host_io))]
     type FileHandle<'a> = crt_fd::Borrowed<'a>;
+    #[cfg(native_host_io)]
+    type BorrowedFileHandle<'a> = &'a rustpython_wasi_host::Handle;
+    #[cfg(not(native_host_io))]
+    type BorrowedFileHandle<'a> = crt_fd::Borrowed<'a>;
 
     #[pyattr]
     #[pyclass(module = "_io", name, base = _RawIOBase)]
@@ -6718,7 +6682,9 @@ mod fileio {
             };
             // TODO: _Py_set_inheritable
 
-            match host_io::inspect_file_target(&fd) {
+            #[cfg(native_host_io)]
+            let fd = &fd;
+            match host_io::inspect_file_target(fd) {
                 Ok(info) => {
                     if let Some(blksize) = info.blksize {
                         zelf.blksize.store(blksize);
@@ -6750,7 +6716,7 @@ mod fileio {
             }
 
             if mode.is_superset(&host_io::FileMode::APPENDING) {
-                let _ = host_io::seek_to_end(&fd);
+                let _ = host_io::seek_to_end(fd);
             }
 
             Ok(())
@@ -6833,7 +6799,7 @@ mod fileio {
 
         /// One `read()` into `buf`, retried on EINTR (PEP 475). `None` on EAGAIN.
         fn read_once_into(
-            handle: &FileHandle<'_>,
+            handle: BorrowedFileHandle<'_>,
             buf: &mut [u8],
             vm: &VirtualMachine,
         ) -> PyResult<Option<usize>> {
@@ -6910,11 +6876,13 @@ mod fileio {
                 ));
             }
             let handle = zelf.get_fd(vm)?;
+            #[cfg(native_host_io)]
+            let handle = &handle;
             let bytes = if let Some(read_byte) = read_byte.to_usize() {
                 let mut bytes = vm.new_zeroed_bytes(read_byte)?;
                 // Loop on EINTR (PEP 475)
                 let n = loop {
-                    match vm.allow_threads(|| host_io::read_once(&handle, &mut bytes)) {
+                    match vm.allow_threads(|| host_io::read_once(handle, &mut bytes)) {
                         Ok(n) => break n,
                         Err(e) if host_io::is_interrupted_error(&e) => {
                             vm.check_signals()?;
@@ -6949,7 +6917,7 @@ mod fileio {
                             .map_err(|_| vm.no_memory_error())?;
                         bytes.resize(size, 0);
                     }
-                    match FileIO::read_once_into(&handle, &mut bytes[used..], vm)? {
+                    match FileIO::read_once_into(handle, &mut bytes[used..], vm)? {
                         Some(0) => break,
                         Some(n) => used += n,
                         None if used == 0 => return Ok(None),
@@ -6978,13 +6946,15 @@ mod fileio {
             }
 
             let handle = zelf.get_fd(vm)?;
+            #[cfg(native_host_io)]
+            let handle = &handle;
 
-            if host_io::reads_without_waiting(&handle) {
+            if host_io::reads_without_waiting(handle) {
                 // The read answers from the file itself, so it returns without
                 // waiting on anyone; write where the caller asked directly.
                 // Seekability is not the question -- a pipe on Windows seeks.
                 let mut buf = buffer.borrow_buf_mut();
-                return FileIO::read_once_into(&handle, &mut buf, vm);
+                return FileIO::read_once_into(handle, &mut buf, vm);
             }
 
             // A pipe, socket or terminal answers only when the other end
@@ -6996,7 +6966,7 @@ mod fileio {
             // across the wait stops the world from being stopped at all. Read
             // aside and take the lock for the copy.
             let mut scratch = vm.new_zeroed_bytes(buffer.len())?;
-            let ret = FileIO::read_once_into(&handle, &mut scratch, vm)?;
+            let ret = FileIO::read_once_into(handle, &mut scratch, vm)?;
             if let Some(n) = ret {
                 buffer.borrow_buf_mut()[..n].copy_from_slice(&scratch[..n]);
             }
@@ -7013,6 +6983,8 @@ mod fileio {
             }
 
             let handle = zelf.get_fd(vm)?;
+            #[cfg(native_host_io)]
+            let handle = &handle;
 
             // A pipe, socket or terminal takes the bytes only when the other
             // end makes room, which may be never; see readinto above for what
@@ -7021,7 +6993,7 @@ mod fileio {
 
             // Loop on EINTR (PEP 475)
             let len = loop {
-                match vm.allow_threads(|| host_io::write_once(&handle, &buf)) {
+                match vm.allow_threads(|| host_io::write_once(handle, &buf)) {
                     Ok(n) => break n,
                     Err(e) if host_io::is_interrupted_error(&e) => {
                         vm.check_signals()?;
@@ -7066,8 +7038,10 @@ mod fileio {
         #[pymethod]
         fn seekable(&self, vm: &VirtualMachine) -> PyResult<bool> {
             let fd = self.get_fd(vm)?;
+            #[cfg(native_host_io)]
+            let fd = &fd;
             Ok(self.seekable.load().unwrap_or_else(|| {
-                let seekable = host_io::is_seekable(&fd);
+                let seekable = host_io::is_seekable(fd);
                 self.seekable.store(Some(seekable));
                 seekable
             }))
@@ -7084,15 +7058,19 @@ mod fileio {
                 );
             }
             let fd = self.get_fd(vm)?;
+            #[cfg(native_host_io)]
+            let fd = &fd;
             let offset = get_offset(&pos, vm)?;
 
-            host_io::seek(&fd, offset, how).map_err(|e| e.into_pyexception(vm))
+            host_io::seek(fd, offset, how).map_err(|e| e.into_pyexception(vm))
         }
 
         #[pymethod]
         fn tell(&self, vm: &VirtualMachine) -> PyResult<Offset> {
             let fd = self.get_fd(vm)?;
-            host_io::tell(&fd).map_err(|e| e.into_pyexception(vm))
+            #[cfg(native_host_io)]
+            let fd = &fd;
+            host_io::tell(fd).map_err(|e| e.into_pyexception(vm))
         }
 
         #[pymethod]
@@ -7112,16 +7090,18 @@ mod fileio {
             }
             let fd = self.get_fd(vm)?;
             #[cfg(native_host_io)]
+            let fd = &fd;
+            #[cfg(native_host_io)]
             let len = match size {
                 Some(size) => size,
-                None => host_io::tell(&fd).map_err(|e| e.into_pyexception(vm))?,
+                None => host_io::tell(fd).map_err(|e| e.into_pyexception(vm))?,
             };
             #[cfg(not(native_host_io))]
             let len = match len.size {
                 Some(l) => get_offset(&l, vm)?,
-                None => host_io::tell(&fd).map_err(|e| e.into_pyexception(vm))?,
+                None => host_io::tell(fd).map_err(|e| e.into_pyexception(vm))?,
             };
-            host_io::truncate(&fd, len).map_err(|e| e.into_pyexception(vm))?;
+            host_io::truncate(fd, len).map_err(|e| e.into_pyexception(vm))?;
             Ok(len)
         }
 
