@@ -1,10 +1,11 @@
+use alloc::sync::Arc;
 use core::{
     cell::Cell,
     fmt,
     ops::{Deref, DerefMut, Index, IndexMut, Range},
     sync::atomic::{AtomicBool, AtomicU8, Ordering},
 };
-use std::sync::{Arc, mpsc};
+use std::sync::mpsc;
 
 #[cfg(windows)]
 use core::sync::atomic::AtomicIsize;
