@@ -2,6 +2,16 @@
 
 pub(crate) use _socket::module_def;
 
+// A direct VM dependency may enable threading without the stdlib feature.
+// Reject that mismatched p2 configuration rather than exposing recyclable fd
+// snapshots to concurrent close/reuse. Enabling stdlib threading selects the
+// fail-closed shim instead.
+#[cfg(all(target_os = "wasi", target_env = "p2"))]
+const _: () = assert!(
+    !rustpython_vm::THREADING_ENABLED,
+    "threaded WASI p2 sockets are unsupported; enable rustpython-stdlib/threading to select the fail-closed shim"
+);
+
 #[cfg(feature = "ssl")]
 pub(super) use _socket::{PySocket, timeout_error_msg};
 #[cfg(any(

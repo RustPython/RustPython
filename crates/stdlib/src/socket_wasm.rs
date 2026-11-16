@@ -1,7 +1,9 @@
 //! Wasm `_socket` surface so `Lib/socket.py` and `Lib/ssl.py` can import.
 //!
 //! There are no BSD sockets on wasm32-unknown-unknown, and WASI does not
-//! expose the host_env socket engine yet. Constants, address conversion,
+//! expose a supported descriptor engine in this configuration. Threaded p2
+//! also uses this shim until concurrent descriptor ownership is safe.
+//! Constants, address conversion,
 //! timeouts, and the `socket` type are provided for imports. Until a real
 //! descriptor backend is available, construction and OS operations fail.
 
