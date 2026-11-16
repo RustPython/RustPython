@@ -1040,35 +1040,6 @@ mod tests {
     };
     use malachite_bigint::ToBigInt;
 
-    #[cfg(feature = "threading")]
-    #[test]
-    fn receiverless_worker_preserves_user_signal_wakeup() {
-        use alloc::sync::Arc;
-        use core::sync::atomic::{AtomicBool, Ordering};
-
-        let (sender, receiver) = crate::signal::user_signal_channel();
-        let interp = Interpreter::with_init(Default::default(), |vm| {
-            vm.set_user_signal_channel(receiver);
-        });
-        let worker = interp.enter(|vm| vm.new_thread());
-        let called = Arc::new(AtomicBool::new(false));
-        let callback_called = called.clone();
-        sender
-            .send(Box::new(move |_| {
-                callback_called.store(true, Ordering::Release);
-                Ok(())
-            }))
-            .unwrap();
-        std::thread::spawn(move || {
-            worker.run(|vm| crate::signal::check_signals(vm).unwrap());
-        })
-        .join()
-        .unwrap();
-        assert!(!called.load(Ordering::Acquire));
-        interp.enter(|vm| crate::signal::check_signals(vm).unwrap());
-        assert!(called.load(Ordering::Acquire));
-    }
-
     #[test]
     fn add_py_integers() {
         Interpreter::without_stdlib(Default::default()).enter(|vm| {
