@@ -2,8 +2,8 @@
 //!
 //! There are no BSD sockets on wasm32-unknown-unknown, and WASI does not
 //! expose the host_env socket engine yet. Constants, address conversion,
-//! timeouts, and a constructible `socket` type are provided; connect-side
-//! operations raise `OSError`.
+//! timeouts, and the `socket` type are provided for imports. Until a real
+//! descriptor backend is available, construction and OS operations fail.
 
 pub(crate) use _socket::module_def;
 
@@ -38,7 +38,11 @@ mod _socket {
         vm: &VirtualMachine,
         op: &str,
     ) -> PyRef<rustpython_vm::builtins::PyBaseException> {
-        vm.new_os_error(format!("{op} is not available"))
+        vm.new_errno_error(
+            rustpython_host_env::errno::errors::ENOSYS,
+            format!("{op} is not available"),
+        )
+        .into()
     }
 
     #[pyattr]
@@ -224,7 +228,7 @@ mod _socket {
                 kind: AtomicI32::new(SOCK_STREAM),
                 proto: AtomicI32::new(0),
                 timeout: PyMutex::new(None),
-                closed: PyMutex::new(false),
+                closed: PyMutex::new(true),
             }
         }
     }
@@ -233,14 +237,19 @@ mod _socket {
     impl PySocket {
         fn ensure_open(&self, vm: &VirtualMachine) -> PyResult<()> {
             if *self.closed.lock() {
-                return Err(vm.new_os_error("Bad file descriptor"));
+                return Err(vm
+                    .new_errno_error(
+                        rustpython_host_env::errno::errors::EBADF,
+                        "Bad file descriptor",
+                    )
+                    .into());
             }
             Ok(())
         }
 
         #[pymethod]
-        fn fileno(zelf: &Py<Self>) -> i32 {
-            if *zelf.closed.lock() { -1 } else { 0 }
+        fn fileno(_zelf: &Py<Self>) -> i32 {
+            -1
         }
 
         #[pymethod]
@@ -294,17 +303,11 @@ mod _socket {
         #[pymethod]
         fn getsockopt(
             zelf: &Py<Self>,
-            level: i32,
-            optname: i32,
+            _level: i32,
+            _optname: i32,
             vm: &VirtualMachine,
         ) -> PyResult<i32> {
             zelf.ensure_open(vm)?;
-            if level == SOL_SOCKET && optname == SO_TYPE {
-                return Ok(zelf.kind.load(Ordering::Relaxed));
-            }
-            if level == SOL_SOCKET && optname == SO_ERROR {
-                return Ok(0);
-            }
             Err(unsupported(vm, "getsockopt").into())
         }
 
@@ -317,7 +320,7 @@ mod _socket {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             zelf.ensure_open(vm)?;
-            Ok(())
+            Err(unsupported(vm, "setsockopt").into())
         }
 
         #[pymethod]
@@ -369,7 +372,7 @@ mod _socket {
         #[pymethod]
         fn getsockname(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<(String, i32)> {
             zelf.ensure_open(vm)?;
-            Ok(("0.0.0.0".to_owned(), 0))
+            Err(unsupported(vm, "getsockname").into())
         }
 
         #[pymethod]
@@ -390,18 +393,12 @@ mod _socket {
     impl Initializer for PySocket {
         type Args = SocketInitArgs;
 
-        fn init(zelf: &Py<Self>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
-            let family = args.family.unwrap_or(AF_INET);
-            let kind = args.r#type.unwrap_or(SOCK_STREAM);
-            let proto = args.proto.unwrap_or(0);
-            let _ = args.fileno;
-            zelf.family.store(family, Ordering::Relaxed);
-            zelf.kind.store(kind, Ordering::Relaxed);
-            zelf.proto.store(proto, Ordering::Relaxed);
-            *zelf.closed.lock() = false;
-            let default = f64::from_bits(DEFAULT_TIMEOUT.load(Ordering::Relaxed));
-            *zelf.timeout.lock() = (default >= 0.0).then_some(default);
-            Ok(())
+        fn init(_zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            // Do not adopt an arbitrary integer as a socket, or return a fake fd.
+            // Lent descriptors need a backend that validates their file type and
+            // takes ownership only after initialization succeeds.
+            let _ = (args.family, args.r#type, args.proto, args.fileno);
+            Err(unsupported(vm, "socket").into())
         }
     }
 }
