@@ -53,7 +53,7 @@ mod _socket {
             rustpython_host_env::errno::errors::ENOTSUP,
             format!("{op} is not available"),
         )
-        .into()
+        .upcast()
     }
 
     #[pyattr]
@@ -253,7 +253,7 @@ mod _socket {
                         rustpython_host_env::errno::errors::EBADF,
                         "Bad file descriptor",
                     )
-                    .into());
+                    .upcast());
             }
             Ok(())
         }
