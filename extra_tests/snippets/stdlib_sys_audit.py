@@ -432,15 +432,18 @@ def check_winreg_audit_boundaries():
         blocked = None
         rejected_handle = events[-1][0]
         try:
-            winreg.QueryInfoKey(rejected_handle)
+            # Closing probes validity without requiring KEY_QUERY_VALUE, which
+            # CreateKeyEx's default KEY_WRITE handle does not grant.
+            winreg.CloseKey(rejected_handle)
         except OSError as error:
             assert error.winerror == 6
         else:
             # CPython fixed result-audit handle cleanup in 3.15.1. The CI
             # reference is still 3.15.0; RustPython must always close it.
-            if sys.implementation.name == "cpython" and sys.version_info < (3, 15, 1):
-                winreg.CloseKey(rejected_handle)
-            else:
+            # A successful close has also cleaned up that old reference leak.
+            if not (
+                sys.implementation.name == "cpython" and sys.version_info < (3, 15, 1)
+            ):
                 raise AssertionError("rejected registry handle leaked")
 
 
