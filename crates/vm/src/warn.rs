@@ -674,7 +674,7 @@ fn call_show_warning(
             filename.into(),
             lineno_obj,
             vm.ctx.none(),
-            vm.ctx.none(),
+            vm.unwrap_or_none(source_line),
             vm.unwrap_or_none(source),
             vm.unwrap_or_none(module),
         ],
