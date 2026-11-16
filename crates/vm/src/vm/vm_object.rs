@@ -14,15 +14,15 @@ impl VirtualMachine {
     /// `sys.stderr`.
     pub fn dump_object(&self, obj: &PyObject) {
         let class = obj.class();
-        eprintln!("object address  : {obj:p}");
-        eprintln!("object refcount : {}", obj.strong_count());
-        eprintln!("object type     : {class:p}");
-        eprintln!("object type name: {}", class.slot_name());
-        eprint!("object repr     : ");
+        self.write_stderr_fmt(format_args!("object address  : {obj:p}\n"));
+        self.write_stderr_fmt(format_args!("object refcount : {}\n", obj.strong_count()));
+        self.write_stderr_fmt(format_args!("object type     : {class:p}\n"));
+        self.write_stderr_fmt(format_args!("object type name: {}\n", class.slot_name()));
+        self.write_stderr_fmt(format_args!("object repr     : "));
         if let Ok(repr) = obj.repr(self) {
-            eprint!("{}", repr.as_wtf8());
+            self.write_stderr_fmt(format_args!("{}", repr.as_wtf8()));
         }
-        eprintln!();
+        self.write_stderr_fmt(format_args!("\n"));
     }
 
     #[track_caller]

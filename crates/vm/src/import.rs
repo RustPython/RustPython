@@ -9,7 +9,9 @@ use crate::{
 };
 
 use core::{cell::Cell, sync::atomic::Ordering, time::Duration};
-use std::{io::Write, time::Instant};
+#[cfg(not(native_host_io))]
+use std::io::Write;
+use std::time::Instant;
 
 /// Import for side effects and return the exact named module (PyImport_Import).
 /// Unlike ordinary imports, this re-reads globals' builtins and passes globals
@@ -117,8 +119,14 @@ pub(crate) struct ImportTimingState {
 }
 
 fn import_time_header(vm: &VirtualMachine) {
+    #[cfg(not(native_host_io))]
     let mut stderr = std::io::stderr().lock();
     if !vm.state.import_time_header.swap(true, Ordering::Relaxed) {
+        #[cfg(native_host_io)]
+        vm.write_stderr_fmt(format_args!(
+            "import time: self [us] | cumulative | imported package\n"
+        ));
+        #[cfg(not(native_host_io))]
         let _ = writeln!(
             stderr,
             "import time: self [us] | cumulative | imported package"
@@ -146,6 +154,12 @@ pub(crate) fn report_cached_import(name: &Py<PyStr>, vm: &VirtualMachine) {
         let name = import_time_name(name);
         // printf("%*s") counts encoded bytes, not Unicode scalar values.
         let padding = (vm.import_timing.get().depth * 2).saturating_sub(name.len());
+        #[cfg(native_host_io)]
+        vm.write_stderr_fmt(format_args!(
+            "import time: cached    | cached     | {:padding$}{}\n",
+            "", name
+        ));
+        #[cfg(not(native_host_io))]
         let _ = writeln!(
             std::io::stderr(),
             "import time: cached    | cached     | {:padding$}{}",
@@ -156,6 +170,8 @@ pub(crate) fn report_cached_import(name: &Py<PyStr>, vm: &VirtualMachine) {
 }
 
 struct ImportTimer<'a> {
+    #[cfg(native_host_io)]
+    vm: &'a VirtualMachine,
     state: &'a Cell<ImportTimingState>,
     parent: ImportTimingState,
     start: Instant,
@@ -173,6 +189,8 @@ impl<'a> ImportTimer<'a> {
             children: Duration::ZERO,
         });
         Some(Self {
+            #[cfg(native_host_io)]
+            vm,
             state: &vm.import_timing,
             parent,
             start: Instant::now(),
@@ -190,6 +208,15 @@ impl Drop for ImportTimer<'_> {
             children: self.parent.children.saturating_add(cumulative),
         });
         let width = self.parent.depth * 2;
+        #[cfg(native_host_io)]
+        self.vm.write_stderr_fmt(format_args!(
+            "import time: {:9} | {:10} | {:width$}{}\n",
+            own.as_nanos().div_ceil(1000),
+            cumulative.as_nanos().div_ceil(1000),
+            "",
+            import_time_name(self.name)
+        ));
+        #[cfg(not(native_host_io))]
         let _ = writeln!(
             std::io::stderr(),
             "import time: {:9} | {:10} | {:width$}{}",

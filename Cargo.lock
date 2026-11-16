@@ -4235,6 +4235,7 @@ dependencies = [
  "rustpython-ruff_text_size",
  "rustpython-sre_engine",
  "rustpython-unicode",
+ "rustpython-wasi-host",
  "scopeguard",
  "serde_core",
  "static_assertions",

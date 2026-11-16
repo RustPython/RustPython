@@ -82,8 +82,33 @@ The `rustpython-vm` feature `host_io` enables `_io.FileIO` and file-descriptor
 and path conversion without the `os`, signal, subprocess or ctypes modules.
 `host_env` includes `host_io`.
 
-On native targets, FileIO uses the host's file descriptors and paths
-directly, so `host_io` is not a sandbox. On `wasm32-unknown-unknown`,
+On native targets, `host_env` keeps direct host file descriptors and paths.
+With `host_io` but without `host_env`, each interpreter instead owns a
+`rustpython-wasi-host::Table`. The default table is empty: paths and numeric
+file descriptors, including 0, 1 and 2, provide no ambient access. Configure
+explicit preopens with `Table::with_preopens`, optionally lend owned or duplicated
+stdio files with `Table::lend_stdio`, then pass the table to
+`Interpreter::builder(settings).host_io(table).build()`. The `stdio` feature
+initializes Python standard streams only for explicitly lent descriptors.
+Subinterpreters start with empty tables rather than inheriting their parent's
+grants.
+
+Native file objects retain their table owner, including across reinitialization
+and finalization. Numeric arguments and custom opener results refer to that
+table, not process descriptors. Operations pin a resource before releasing the
+table lock, so blocking I/O does not lock unrelated files. Closing a table entry
+revokes subsequent lookups; an operation already in progress can finish.
+
+This mode shares WASI UTF-8 path and capability semantics, not every native
+filesystem behavior: non-UTF-8 paths are rejected, `isatty()` is false, and lent
+stdin/stdout/stderr grant read/write rights rather than unrestricted descriptor
+rights. WASI errors are translated to native symbolic errors, with capability
+denial represented by `EACCES`. Python I/O fallback diagnostics use the explicitly
+lent stderr, and are discarded if none was lent. This is an I/O authority boundary,
+not whole-process isolation from CPU/memory exhaustion, trusted native extensions,
+host Rust APIs, or host panic/logging hooks.
+
+On `wasm32-unknown-unknown`,
 `host_io` makes the guest import a subset of WASI preview1
 (`wasi_snapshot_preview1`: fd read/write/seek/close/sync/filestat_set_size/fdstat_get,
 prestat, path_open). Paths resolve through host preopens and the host decides

@@ -132,3 +132,6 @@ pub use rustpython_literal as literal;
 pub mod __exports {
     pub use paste;
 }
+
+#[cfg(native_host_io)]
+mod native_host_io;

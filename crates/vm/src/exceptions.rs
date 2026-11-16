@@ -202,7 +202,7 @@ impl VirtualMachine {
             return;
         }
         self.dump_object(exc.as_object());
-        eprintln!("lost sys.stderr");
+        self.write_stderr_fmt(format_args!("lost sys.stderr\n"));
         if let Err(err) = file {
             self.dump_object(err.as_object());
         }
@@ -221,7 +221,7 @@ impl VirtualMachine {
             .is_err()
         {
             self.dump_object(exc.as_object());
-            eprintln!("lost sys.stderr");
+            self.write_stderr_fmt(format_args!("lost sys.stderr\n"));
         }
         let _ = self.call_method(file, "flush", ());
     }
