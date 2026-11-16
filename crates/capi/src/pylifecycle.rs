@@ -50,7 +50,11 @@ pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
                 let path = rustpython_pylib::LIB_PATH.to_owned();
 
                 state.config.paths.stdlib_dir = Some(path.clone());
-                state.config.paths.module_search_paths.insert(0, path);
+                state
+                    .config
+                    .paths
+                    .module_search_paths
+                    .insert(0, path.into());
             })
             .build()
             .into();

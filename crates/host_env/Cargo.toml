@@ -87,7 +87,6 @@ object = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 paste = { workspace = true }
-memchr.workspace = true
 junction = { workspace = true }
 schannel = { workspace = true }
 windows-sys = { workspace = true, features = [

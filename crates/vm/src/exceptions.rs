@@ -1831,6 +1831,7 @@ impl ToPyException for rustpython_host_env::time::CheckedTmError {
 impl ToPyException for rustpython_host_env::winapi::BuildEnvironmentBlockError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
+            Self::Os(error) => error.to_pyexception(vm),
             Self::ContainsNul => vm.new_value_error("embedded null character"),
             Self::IllegalName => vm.new_value_error("illegal environment variable name"),
         }

@@ -104,7 +104,7 @@ fn cpy_compile_code<'a>(
 
 fn bench_rustpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &MicroBenchmark) {
     let mut settings = Settings::default();
-    settings.path_list.push("Lib/".to_string());
+    settings.path_list.push("Lib/".into());
     settings.write_bytecode = false;
     settings.user_site_directory = false;
     // Pin the str/bytes hash secret so dict/set probe sequences (and thus

@@ -322,6 +322,30 @@ proc = subprocess.run(args, stdout=subprocess.PIPE, universal_newlines=True, env
 assert proc.stdout.rstrip() == "True"
 assert proc.returncode == 0, proc
 
+# Native environment paths must survive startup before the codecs are imported.
+if os.name == "posix" and sys.platform not in ("wasi", "emscripten"):
+    with tempfile.TemporaryDirectory() as directory:
+        native_paths = [
+            os.fsencode(directory) + b"/first-\xff",
+            os.fsencode(directory) + b"/second-\xfe",
+        ]
+        path_env = dict(os.environ)
+        path_env.pop("RUSTPYTHONPATH", None)
+        path_env["PYTHONPATH"] = os.fsdecode(os.pathsep.encode().join(native_paths))
+        for mode in ("0", "1"):
+            for flag in (None, "-E", "-I"):
+                code = (
+                    "import os, sys; "
+                    f"expected = {native_paths!r}; "
+                    "actual = [os.fsencode(p) for p in sys.path]; "
+                    f"assert all((p in actual) == {flag is None} for p in expected)"
+                )
+                args = [sys.executable, "-S", "-X", f"utf8={mode}"]
+                if flag is not None:
+                    args.append(flag)
+                subprocess.run(args + ["-c", code], env=path_env, check=True)
+
+
 # -S must prevent the site import itself, not just its customizations.
 subprocess.run(
     [

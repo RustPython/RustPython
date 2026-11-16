@@ -1441,11 +1441,11 @@ impl VirtualMachine {
             if self.state.config.settings.home.is_some() {
                 return import_err;
             }
-            let rustpythonpath_env = crate::host_env::os::var("RUSTPYTHONPATH").ok();
-            let pythonpath_env = crate::host_env::os::var("PYTHONPATH").ok();
+            let rustpythonpath_env = crate::host_env::os::var_os("RUSTPYTHONPATH");
+            let pythonpath_env = crate::host_env::os::var_os("PYTHONPATH");
             let env_set = rustpythonpath_env.as_ref().is_some() || pythonpath_env.as_ref().is_some();
             let path_contains_env = self.state.config.paths.module_search_paths.iter().any(|s| {
-                Some(s.as_str()) == rustpythonpath_env.as_deref() || Some(s.as_str()) == pythonpath_env.as_deref()
+                Some(s.as_os_str()) == rustpythonpath_env.as_deref() || Some(s.as_os_str()) == pythonpath_env.as_deref()
             });
 
             let guide_message = if cfg!(feature = "freeze-stdlib") {
@@ -1812,7 +1812,11 @@ impl VirtualMachine {
         eprintln!("  sys.exec_prefix = {}", repr(&paths.exec_prefix));
         eprintln!("  sys.path = [");
         for path in &paths.module_search_paths {
-            eprintln!("    {},", repr(path));
+            let value = self
+                .fsdecode(path.clone())
+                .and_then(|path| path.repr(self))
+                .unwrap_or_else(|_| "?".to_owned());
+            eprintln!("    {value},");
         }
         eprintln!("  ]");
         // A startup import failure is fatal even if the imported module raised
