@@ -3531,3 +3531,7 @@ print(RegexFlag.NOFLAG & RegexFlag.DEBUG)
         dbg!(compiled.expect("compile error"));
     }
 }
+
+// Incubate ownership disposal without changing production drop paths.
+#[cfg(test)]
+mod owned_drop_wip;
