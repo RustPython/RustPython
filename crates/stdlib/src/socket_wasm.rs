@@ -19,6 +19,7 @@ mod _socket {
     use std::net::{Ipv4Addr, Ipv6Addr};
     use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 
+    #[cfg(not(all(target_os = "wasi", target_env = "p2")))]
     #[pyattr]
     use rustpython_host_env::socket::{
         AF_INET, AF_INET6, AF_UNIX, AF_UNSPEC, AI_ADDRCONFIG, AI_CANONNAME, AI_NUMERICHOST,
@@ -28,6 +29,16 @@ mod _socket {
         NI_NUMERICSERV, SHUT_RD, SHUT_RDWR, SHUT_WR, SO_BROADCAST, SO_ERROR, SO_KEEPALIVE,
         SO_RCVBUF, SO_REUSEADDR, SO_SNDBUF, SO_TYPE, SOCK_DGRAM, SOCK_RAW, SOCK_STREAM, SOL_SOCKET,
         SOL_TCP, TCP_NODELAY,
+    };
+    #[cfg(all(target_os = "wasi", target_env = "p2"))]
+    #[pyattr]
+    use rustpython_host_env::socket::{
+        AF_INET, AF_INET6, AF_UNSPEC, AI_ADDRCONFIG, AI_CANONNAME, AI_NUMERICHOST, AI_NUMERICSERV,
+        AI_PASSIVE, INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE, IPPROTO_IP,
+        IPPROTO_IPV6, IPPROTO_TCP, IPPROTO_TCP as SOL_TCP, IPPROTO_UDP, MSG_PEEK, NI_DGRAM,
+        NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV, SHUT_RD, SHUT_RDWR, SHUT_WR,
+        SO_BROADCAST, SO_ERROR, SO_KEEPALIVE, SO_RCVBUF, SO_REUSEADDR, SO_SNDBUF, SO_TYPE,
+        SOCK_DGRAM, SOCK_STREAM, SOL_SOCKET, TCP_NODELAY,
     };
     #[pyattr(name = "has_ipv6")]
     const HAS_IPV6: bool = true;
