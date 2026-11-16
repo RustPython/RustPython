@@ -132,15 +132,21 @@ pub unsafe fn connect_registry(
 
 pub unsafe fn create_key(
     key: Registry::HKEY,
-    sub_key: &widestring::WideCStr,
+    sub_key: Option<&widestring::WideCStr>,
     out_key: *mut Registry::HKEY,
 ) -> u32 {
-    unsafe { Registry::RegCreateKeyW(key, sub_key.as_ptr(), out_key) }
+    unsafe {
+        Registry::RegCreateKeyW(
+            key,
+            sub_key.map_or(core::ptr::null(), |key| key.as_ptr()),
+            out_key,
+        )
+    }
 }
 
 pub unsafe fn create_key_ex(
     key: Registry::HKEY,
-    sub_key: &widestring::WideCStr,
+    sub_key: Option<&widestring::WideCStr>,
     reserved: u32,
     class: *mut u16,
     options: u32,
@@ -152,7 +158,7 @@ pub unsafe fn create_key_ex(
     unsafe {
         Registry::RegCreateKeyExW(
             key,
-            sub_key.as_ptr(),
+            sub_key.map_or(core::ptr::null(), |key| key.as_ptr()),
             reserved,
             class,
             options,
@@ -518,7 +524,7 @@ pub fn set_default_value(
         let res = unsafe {
             create_key_ex(
                 hkey,
-                sub_key,
+                Some(sub_key),
                 0,
                 core::ptr::null_mut(),
                 0,
