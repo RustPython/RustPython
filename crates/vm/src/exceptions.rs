@@ -1578,6 +1578,7 @@ pub(crate) fn errno_to_exc_type(errno: i32, vm: &VirtualMachine) -> Option<&'sta
         // A process without the capability to reach a resource.
         #[cfg(any(
             target_vendor = "apple",
+            target_os = "wasi",
             all(target_arch = "wasm32", target_os = "unknown")
         ))]
         errors::ENOTCAPABLE => Some(excs.permission_error),
