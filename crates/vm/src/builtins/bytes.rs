@@ -431,8 +431,8 @@ impl Py<PyBytes> {
     }
 
     #[pymethod]
-    fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        options.matches(
+    fn endswith(&self, options: anystr::EndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        options.inner.matches(
             self.len(),
             "endswith",
             "bytes",

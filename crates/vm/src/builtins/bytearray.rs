@@ -1040,8 +1040,8 @@ impl Py<PyByteArray> {
     }
 
     #[pymethod]
-    fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        self.starts_ends_with(options, true, vm)
+    fn endswith(&self, options: anystr::EndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        self.starts_ends_with(options.inner, true, vm)
     }
 
     #[pymethod]

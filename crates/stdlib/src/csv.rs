@@ -194,7 +194,7 @@ mod _csv {
         name: PyObjectRef,
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "($module, name, /, dialect='excel', **fmtparams)")]
     fn register_dialect(name: PyObjectRef, opts: DialectArg, vm: &VirtualMachine) -> PyResult<()> {
         let name = name
             .downcast::<PyStr>()
@@ -276,7 +276,7 @@ mod _csv {
         }
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "($module, iterable, /, dialect='excel', **fmtparams)")]
     fn reader(iterable: PyIter, options: DialectArg, vm: &VirtualMachine) -> PyResult<Reader> {
         let dialect = options.result(vm)?;
         Ok(Reader {
@@ -290,7 +290,7 @@ mod _csv {
         })
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "($module, fileobj, /, dialect='excel', **fmtparams)")]
     fn writer(fileobj: PyObjectRef, options: DialectArg, vm: &VirtualMachine) -> PyResult<Writer> {
         let write = match vm.get_attribute_opt(&fileobj, "write")? {
             Some(write) if write.is_callable() => write,

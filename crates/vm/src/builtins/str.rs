@@ -1096,8 +1096,8 @@ impl Py<PyStr> {
     }
 
     #[pymethod]
-    fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        options.matches(
+    fn endswith(&self, options: anystr::EndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        options.inner.matches(
             self.len(),
             "endswith",
             "str",
@@ -1932,6 +1932,7 @@ impl ToPyObject for AsciiChar {
 type SplitArgs = anystr::SplitArgs<PyStrRef>;
 
 #[derive(FromArgs)]
+#[from_args(text_signature = "(sub[, start[, end]], /)")]
 pub(crate) struct FindArgs {
     #[pyarg(positional)]
     sub: PyStrRef,
