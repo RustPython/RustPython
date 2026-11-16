@@ -242,7 +242,7 @@ insta = "1.47"
 itertools = { version = "0.15.0", default-features = false, features = ["use_alloc"] }
 itoa = "1"
 is-macro = "0.3.7"
-jiff = "0.2"
+jiff = "1"
 js-sys = "0.3"
 junction = "2.0.0"
 lexical-parse-float = "1.0.6"
@@ -296,7 +296,7 @@ rustls-graviola = "0.4"
 rustls-native-certs = "0.8"
 rustls-pemfile = "2.2"
 rustls-webpki = { version = "0.103", default-features = false, features = ["std"] }
-rustyline = { version = "18", features = ["buffer-redux"] }
+rustyline = { version = "19", features = ["buffer-redux"] }
 serde = { package = "serde_core", version = "1.0.225", default-features = false, features = ["alloc"] }
 schannel = "0.1.29"
 scopeguard = "1"

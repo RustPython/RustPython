@@ -3,7 +3,7 @@
     reason = "build scripts cannot use rustpython-host_env"
 )]
 
-use jiff::{Timestamp, Zoned, tz::TimeZone};
+use jiff::{Timestamp, ZonedDateTime, tz::TimeZone};
 use std::{
     env, io,
     process::Command,
@@ -115,9 +115,9 @@ fn get_git_timestamp_raw() -> Option<Timestamp> {
     Timestamp::from_second(git_timestamp).ok()
 }
 
-fn get_git_timestamp_datetime() -> Zoned {
-    get_git_timestamp_raw().map_or_else(Zoned::now, |timestamp| {
-        Zoned::new(timestamp, TimeZone::system())
+fn get_git_timestamp_datetime() -> ZonedDateTime {
+    get_git_timestamp_raw().map_or_else(ZonedDateTime::now, |timestamp| {
+        ZonedDateTime::new(timestamp, TimeZone::system())
     })
 }
 
