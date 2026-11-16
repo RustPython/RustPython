@@ -2,8 +2,8 @@ use crate::{
     AsObject, Context, Py, PyAtomicRef, PyObject, PyObjectRef, PyResult, VirtualMachine,
     anystr::SplitLinesArgs,
     builtins::{
-        PyBaseExceptionRef, PyDict, PyDictRef, PyList, PyListRef, PyStr, PyStrInterned, PyStrRef,
-        PyTuple, PyTupleRef, PyType, PyTypeRef,
+        PyAnyDict, PyBaseExceptionRef, PyDict, PyDictRef, PyList, PyListRef, PyStr, PyStrInterned,
+        PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     convert::TryFromObject,
 };
@@ -219,22 +219,35 @@ pub(crate) fn get_source_line(
         return Ok(None);
     };
 
-    let module_name = if let Some(dict) = module_globals.downcast_ref::<PyDict>() {
-        match dict.inner_getitem_opt(identifier!(vm, __name__), vm)? {
+    let Some(globals) = PyAnyDict::from_object(module_globals) else {
+        return Ok(None);
+    };
+    // A script's __name__ can be __main__, while its loader requires the
+    // importable name recorded by the module spec. Use internal dictionary
+    // lookup, not a subclass override of __getitem__.
+    let spec = globals.inner_getitem_opt(vm.ctx.intern_str("__spec__"), vm)?;
+    let spec_name = match spec {
+        Some(spec) => vm.get_attribute_opt(&spec, vm.ctx.intern_str("name"))?,
+        None => None,
+    };
+    let module_name = match spec_name.filter(|name| !vm.is_none(name)) {
+        Some(name) => name,
+        None => match globals.inner_getitem_opt(identifier!(vm, __name__), vm)? {
             Some(name) => name,
             None => return Ok(None),
-        }
-    } else {
-        match module_globals.get_item(identifier!(vm, __name__), vm) {
-            Ok(name) => name,
-            Err(_) => return Ok(None),
-        }
+        },
     };
 
     let Some(get_source) = vm.get_attribute_opt(&loader, vm.ctx.intern_str("get_source"))? else {
         return Ok(None);
     };
-    let source = get_source.call((module_name,), vm)?;
+    let source = match get_source.call((module_name,), vm) {
+        Ok(source) => source,
+        Err(error) if error.fast_isinstance(vm.ctx.exceptions.import_error) => {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
     if vm.is_none(&source) {
         return Ok(None);
     }
@@ -243,14 +256,10 @@ pub(crate) fn get_source_line(
         return Err(vm.new_type_error(format!("expected str, not {}", source.class().name())));
     };
     let lines = source_str.splitlines(SplitLinesArgs { keepends: false }, vm);
-    if lineno == 0 {
-        return Err(vm.new_index_error("list index out of range"));
-    }
-    lines
-        .get(lineno - 1)
-        .cloned()
-        .ok_or_else(|| vm.new_index_error("list index out of range"))
-        .map(Some)
+    Ok(lineno
+        .checked_sub(1)
+        .and_then(|index| lines.get(index))
+        .cloned())
 }
 
 /// Get the default action from `sys.modules['warnings'].defaultaction`,
