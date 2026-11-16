@@ -6485,41 +6485,43 @@ mod _io {
 }
 #[cfg(all(feature = "host_io", not(native_host_io)))]
 mod fileio_host {
-    pub use io::{
+    pub(super) use io::{
         FileMode, is_interrupted_error, is_would_block_error, parse_fileio_mode,
         should_forget_fd_after_inspect_error,
     };
     use rustpython_host_env::{crt_fd, io};
     #[inline]
-    pub fn inspect_file_target(fd: &crt_fd::Borrowed<'_>) -> std::io::Result<io::FileTargetInfo> {
+    pub(super) fn inspect_file_target(
+        fd: &crt_fd::Borrowed<'_>,
+    ) -> std::io::Result<io::FileTargetInfo> {
         io::inspect_file_target(*fd)
     }
     #[inline]
-    pub fn seek_to_end(fd: &crt_fd::Borrowed<'_>) -> std::io::Result<crt_fd::Offset> {
+    pub(super) fn seek_to_end(fd: &crt_fd::Borrowed<'_>) -> std::io::Result<crt_fd::Offset> {
         io::seek_to_end(*fd)
     }
     #[inline]
-    pub fn is_seekable(fd: &crt_fd::Borrowed<'_>) -> bool {
+    pub(super) fn is_seekable(fd: &crt_fd::Borrowed<'_>) -> bool {
         io::is_seekable(*fd)
     }
     #[inline]
-    pub fn reads_without_waiting(fd: &crt_fd::Borrowed<'_>) -> bool {
+    pub(super) fn reads_without_waiting(fd: &crt_fd::Borrowed<'_>) -> bool {
         io::reads_without_waiting(*fd)
     }
     #[inline]
-    pub fn tell(fd: &crt_fd::Borrowed<'_>) -> std::io::Result<crt_fd::Offset> {
+    pub(super) fn tell(fd: &crt_fd::Borrowed<'_>) -> std::io::Result<crt_fd::Offset> {
         io::tell(*fd)
     }
     #[inline]
-    pub fn read_once(fd: &crt_fd::Borrowed<'_>, buf: &mut [u8]) -> std::io::Result<usize> {
+    pub(super) fn read_once(fd: &crt_fd::Borrowed<'_>, buf: &mut [u8]) -> std::io::Result<usize> {
         io::read_once(*fd, buf)
     }
     #[inline]
-    pub fn write_once(fd: &crt_fd::Borrowed<'_>, buf: &[u8]) -> std::io::Result<usize> {
+    pub(super) fn write_once(fd: &crt_fd::Borrowed<'_>, buf: &[u8]) -> std::io::Result<usize> {
         io::write_once(*fd, buf)
     }
     #[inline]
-    pub fn seek(
+    pub(super) fn seek(
         fd: &crt_fd::Borrowed<'_>,
         offset: crt_fd::Offset,
         how: i32,
@@ -6527,7 +6529,7 @@ mod fileio_host {
         io::seek(*fd, offset, how)
     }
     #[inline]
-    pub fn truncate(fd: &crt_fd::Borrowed<'_>, len: crt_fd::Offset) -> std::io::Result<()> {
+    pub(super) fn truncate(fd: &crt_fd::Borrowed<'_>, len: crt_fd::Offset) -> std::io::Result<()> {
         crt_fd::ftruncate(*fd, len)
     }
 }

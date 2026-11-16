@@ -306,7 +306,13 @@ assert input() == 'guest input'
             .as_nanos();
         let path = rustpython_host_env::os::temp_dir().join(format!("native-host-io-{unique}"));
         rustpython_host_env::fs::create_dir_all(&path).unwrap();
-        rustpython_host_env::fs::write(path.join("input"), b"capability").unwrap();
+        {
+            use std::io::Write;
+            rustpython_host_env::fs::create(path.join("input"))
+                .unwrap()
+                .write_all(b"capability")
+                .unwrap();
+        }
         struct Cleanup(std::path::PathBuf);
         impl Drop for Cleanup {
             fn drop(&mut self) {
@@ -314,12 +320,20 @@ assert input() == 'guest input'
             }
         }
         let _cleanup = Cleanup(path.clone());
-        let table = rustpython_wasi_host::Table::with_preopens([rustpython_wasi_host::Preopen {
-            host: path,
-            guest: b"/allowed".to_vec(),
-            write: true,
-        }])
-        .unwrap();
+        let diagnostics = path.join("diagnostics");
+        let mut table =
+            rustpython_wasi_host::Table::with_preopens([rustpython_wasi_host::Preopen {
+                host: path,
+                guest: b"/allowed".to_vec(),
+                write: true,
+            }])
+            .unwrap();
+        table
+            .lend_stdio(
+                rustpython_wasi_host::Stdio::Err,
+                rustpython_host_env::fs::create(&diagnostics).unwrap(),
+            )
+            .unwrap();
         let interp = Interpreter::builder(Default::default())
             .host_io(table)
             .build();
@@ -327,7 +341,16 @@ assert input() == 'guest input'
             &interp,
             r#"
 import _io
+invalid = _io.FileIO.__new__(_io.FileIO)
+try: invalid.__init__(4, 'rb')
+except OSError as e: assert e.errno == 9
+else: raise AssertionError('invalid table ID accepted')
+assert invalid.closed
 f = _io.FileIO('/allowed/input', 'rb')
+invalid.close()
+assert f.read(1) == b'c'
+f.seek(0)
+
 alias = _io.FileIO(f.fileno(), 'rb', closefd=False)
 alias.close()
 assert f.read(1) == b'c'
@@ -340,6 +363,15 @@ else:
     raise AssertionError('rights escalated')
 readonly.close()
 f.close()
+writer = _io.FileIO('/allowed/truncate', 'w+b')
+calls = []
+class Length:
+    def __index__(self):
+        calls.append(1)
+        return 3
+assert writer.truncate(Length()) == 3
+assert calls == [1]
+writer.close()
 obj = _io.FileIO.__new__(_io.FileIO)
 keep = _io.FileIO('/allowed/input', 'rb')
 seen = []
@@ -381,8 +413,14 @@ assert rebound.read(1) == b'c'
 rebound.close()
 try: replacement.close()
 except OSError as e: assert e.errno == 9
+import sys
+del sys.stderr
+sys.__excepthook__(RuntimeError, RuntimeError('explicit diagnostic grant'), None)
 "#,
         );
+        let diagnostic_output = rustpython_host_env::fs::read_to_string(diagnostics).unwrap();
+        assert!(diagnostic_output.contains("explicit diagnostic grant"));
+        assert!(diagnostic_output.contains("lost sys.stderr"));
         let child = interp.create_subinterpreter();
         for separate in [&child, &Interpreter::without_stdlib(Default::default())] {
             run(
@@ -395,5 +433,64 @@ else: raise AssertionError('interpreter inherited grants')
 "#,
             );
         }
+    }
+    #[test]
+    #[cfg(all(unix, feature = "threading"))]
+    fn blocked_read_releases_table_lock() {
+        use std::{io::Write, os::fd::FromRawFd, sync::mpsc, time::Duration};
+        let mut fds = [-1; 2];
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        // SAFETY: the successful pipe transfers ownership of both descriptors.
+        let reader = unsafe { std::fs::File::from_raw_fd(fds[0]) };
+        let mut writer = unsafe { std::fs::File::from_raw_fd(fds[1]) };
+        let output = rustpython_host_env::fs::create("/dev/null").unwrap();
+        let mut table = rustpython_wasi_host::Table::default();
+        table
+            .lend_stdio(rustpython_wasi_host::Stdio::In, reader)
+            .unwrap();
+        table
+            .lend_stdio(rustpython_wasi_host::Stdio::Out, output)
+            .unwrap();
+        let interp = Interpreter::builder(Default::default())
+            .host_io(table)
+            .build();
+        let reader_vm = interp.new_thread();
+        let writer_vm = interp.new_thread();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let read = std::thread::spawn(move || {
+            reader_vm.run(|vm| {
+                ready_tx.send(()).unwrap();
+                let scope = vm.new_scope_with_builtins();
+                assert!(
+                    vm.run_block_expr(
+                        scope,
+                        "import _io; assert _io.FileIO(0, 'rb', closefd=False).read(1) == b'x'"
+                    )
+                    .is_ok()
+                );
+            })
+        });
+        ready_rx.recv().unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        let write = std::thread::spawn(move || {
+            writer_vm.run(|vm| {
+                let scope = vm.new_scope_with_builtins();
+                let ok = vm
+                    .run_block_expr(
+                        scope,
+                        "import _io; assert _io.FileIO(1, 'wb', closefd=False).write(b'y') == 1",
+                    )
+                    .is_ok();
+                done_tx.send(ok).unwrap();
+            })
+        });
+        let completed = done_rx.recv_timeout(Duration::from_secs(2));
+        // Release the read even if the lock assertion fails, so the test cannot hang.
+        writer.write_all(b"x").unwrap();
+        drop(writer);
+        read.join().unwrap();
+        write.join().unwrap();
+        assert!(completed.unwrap());
     }
 }
