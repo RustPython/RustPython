@@ -687,7 +687,7 @@ DEPENDENCIES = {
             "test_popen.py",
         ],
     },
-    "pyrepl": {
+    "_pyrepl": {
         "test": [
             "test_pyrepl",
             "test_repl.py",
