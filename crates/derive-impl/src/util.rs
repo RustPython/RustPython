@@ -1019,11 +1019,12 @@ pub(crate) fn internal_doc_tokens(
     let selection = if let Some(signature) = text_signature {
         let text = &signature.text;
         let params = signature.params_tokens();
+        let validator = signature.validator();
         quote! {
             const BINDING_ARGS: &[::rustpython_vm::function::SigArg] = &[#(#binding),*];
             const _: () = {
                 assert!(SHARED.is_none(), "text_signature is already declared on the argument spec");
-                ::rustpython_vm::function::validate_text_signature(BINDING_ARGS, &[#(#params),*]);
+                #validator(BINDING_ARGS, &[#(#params),*]);
             };
             const OVERRIDE: Option<(&str, Option<&str>)> = Some((#text, None));
         }
@@ -1069,8 +1070,8 @@ pub(crate) fn flags_signature_doc_tokens(
     )
 }
 
-fn doc_from_signature_args(
-    py_name: &str,
+pub(crate) fn doc_from_signature_args(
+    py_name: &(impl ToTokens + ?Sized),
     doc: TokenStream,
     args_const: TokenStream,
 ) -> TokenStream {

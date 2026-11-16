@@ -198,6 +198,9 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 ///    ...
 /// }
 /// ```
+/// A constructor or initializer argument spec can use `#[from_args(text_signature = "(...)")]`
+/// for an explicit class display signature. The receiverless override is checked
+/// against that spec and composed with the existing class documentation.
 /// ## Docstrings
 /// A `///` doc comment on the struct, or on a `#[pymethod]` / `#[pyclassmethod]` /
 /// `#[pystaticmethod]` / `#[pygetset]` / `#[pymember]` item, is the Python

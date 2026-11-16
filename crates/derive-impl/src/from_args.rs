@@ -925,9 +925,10 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
     let text_signature = signature.map_or_else(TokenStream::new, |signature| {
         let text = signature.text.clone();
         let params = signature.params_tokens();
+        let validator = signature.validator();
         quote! {
             const TEXT_SIGNATURE: Option<&'static str> = {
-                ::rustpython_vm::function::validate_text_signature(
+                #validator(
                     &[::rustpython_vm::function::SigArg::from_arg::<Self>("")],
                     &[#(#params),*],
                 );

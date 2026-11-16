@@ -8,6 +8,7 @@ use syn::{Error, Result};
 pub(crate) struct TextSignature {
     pub(crate) text: String,
     params: Vec<Parameter>,
+    pub(crate) omitted_slash: bool,
 }
 
 struct Parameter {
@@ -71,8 +72,89 @@ impl TextSignature {
             .strip_prefix('(')
             .and_then(|s| s.strip_suffix(')'))
             .ok_or_else(invalid)?;
+        if body.contains('\0') {
+            return Err(invalid());
+        }
         let mut params = Vec::new();
-        if body.contains("[,") {
+        let mut quote = None;
+        let has_group = body.chars().any(|ch| {
+            if matches!(ch, '\'' | '"') {
+                quote = if quote == Some(ch) { None } else { Some(ch) };
+            }
+            ch == '[' && quote.is_none()
+        });
+        let omitted_slash = has_group && !body.ends_with(", /");
+        if omitted_slash {
+            // CPython's explicit deque bracket signatures omit '/' notation.
+            // Brackets describe omission only; parameter kinds come from the binder.
+            let mut groups = Vec::new();
+            let mut token = String::new();
+            let mut closed = false;
+            let mut require_comma = false;
+            let mut last_comma = false;
+            for ch in body.chars().chain(['\0']) {
+                if matches!(ch, '[' | ']' | ',' | '\0') {
+                    let name = token.trim();
+                    let had_name = !name.is_empty();
+                    if closed && !matches!(ch, ']' | '\0') {
+                        return Err(invalid());
+                    }
+                    if ch == ',' && !had_name && !require_comma {
+                        return Err(invalid());
+                    }
+                    if had_name {
+                        if closed {
+                            return Err(invalid());
+                        }
+                        params.push(Parameter {
+                            name: name.into(),
+                            positional: false,
+                            optional: !groups.is_empty(),
+                            keywords: false,
+                        });
+                        token.clear();
+                        last_comma = false;
+                    }
+                    match ch {
+                        '[' => {
+                            if closed || require_comma {
+                                return Err(invalid());
+                            }
+                            groups.push(params.len());
+                            require_comma = had_name;
+                            last_comma = false;
+                        }
+                        ']' => {
+                            if last_comma {
+                                return Err(invalid());
+                            }
+                            let start = groups.pop().ok_or_else(invalid)?;
+                            if params.len() == start {
+                                return Err(invalid());
+                            }
+                            closed = true;
+                        }
+                        ',' => {
+                            require_comma = false;
+                            last_comma = true;
+                        }
+                        _ => {
+                            if last_comma || require_comma {
+                                return Err(invalid());
+                            }
+                        }
+                    }
+                } else {
+                    if require_comma && !ch.is_whitespace() {
+                        return Err(invalid());
+                    }
+                    token.push(ch);
+                }
+            }
+            if !groups.is_empty() || params.is_empty() {
+                return Err(invalid());
+            }
+        } else if body.contains("[,") {
             let mut parts = body.split("[,").collect::<Vec<_>>();
             let optional_count = parts.len() - 1;
             let ending = format!("{}, /", "]".repeat(optional_count));
@@ -162,14 +244,18 @@ impl TextSignature {
                 || params[..index].iter().any(|other| other.name == param.name)
                 || (param.name.starts_with('$')
                     && (index != 0
-                        || !param.positional
+                        || (!param.positional && !omitted_slash)
                         || param.optional
                         || !matches!(param.name.as_str(), "$self" | "$type" | "$cls" | "$module")))
             {
                 return Err(invalid());
             }
         }
-        Ok(Self { text, params })
+        Ok(Self {
+            text,
+            params,
+            omitted_slash,
+        })
     }
 
     pub(crate) fn validate_receiver(&self, expected: Option<&str>, span: Span) -> Result<()> {
@@ -187,6 +273,14 @@ impl TextSignature {
         Ok(())
     }
 
+    pub(crate) fn validator(&self) -> TokenStream {
+        if self.omitted_slash {
+            quote!(::rustpython_vm::function::validate_text_signature_without_slash)
+        } else {
+            quote!(::rustpython_vm::function::validate_text_signature)
+        }
+    }
+
     pub(crate) fn params_tokens(&self) -> Vec<TokenStream> {
         self.params.iter().filter(|param| !param.name.starts_with('$')).map(|param| {
             let name = &param.name;
@@ -200,6 +294,38 @@ impl TextSignature {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_class_and_handwritten_signatures() {
+        for text in [
+            "([iterable[, maxlen]])",
+            "($self, value, [start, [stop]])",
+            "(name='[', other=None)",
+            "($cls, name, bases, /, **kwds)",
+        ] {
+            assert!(
+                TextSignature::parse(text.into(), Span::call_site()).is_ok(),
+                "{text}"
+            );
+        }
+        for text in [
+            "([a]",
+            "([])",
+            "([a], b)",
+            "(a, [b], c)",
+            "(a, [b]])",
+            "(a[b])",
+            "([, a])",
+            "([a,,b])",
+            "([a],,,)",
+            "([a,])",
+        ] {
+            assert!(
+                TextSignature::parse(text.into(), Span::call_site()).is_err(),
+                "{text}"
+            );
+        }
+    }
 
     #[test]
     fn supported_overrides() {
@@ -258,6 +384,8 @@ mod tests {
     fn malformed_overrides() {
         for text in [
             "()",
+            "(a[[b]])",
+            "(a[ [b]])",
             "(class, /)",
             "(value=01, /)",
             "($self, sub[, ], /)",
