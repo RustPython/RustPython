@@ -324,8 +324,10 @@ jobs:
           cargo build --locked --no-default-features --features stdlib,importlib,stdio,encodings,freeze-stdlib
 
       - name: Test FileIO without other host modules
-        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
-        run: cargo test --locked -p rustpython-vm --no-default-features --features compiler,host_io --test host_io
+        if: env.RUN_RUST_TESTS == 'true' && (runner.os == 'Linux' || runner.os == 'Windows')
+        run: >-
+          cargo check --locked -p rustpython-vm --no-default-features --features compiler,host_io &&
+          cargo test --locked -p rustpython-vm --no-default-features --features compiler,host_io,stdio,threading --test host_io
 
       - name: sandbox smoke test
         if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
