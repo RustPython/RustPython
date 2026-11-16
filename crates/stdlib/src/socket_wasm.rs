@@ -224,8 +224,8 @@ mod _socket {
     impl Default for PySocket {
         fn default() -> Self {
             Self {
-                family: AtomicI32::new(AF_INET),
-                kind: AtomicI32::new(SOCK_STREAM),
+                family: AtomicI32::new(0),
+                kind: AtomicI32::new(0),
                 proto: AtomicI32::new(0),
                 timeout: PyMutex::new(None),
                 closed: PyMutex::new(true),
@@ -287,12 +287,13 @@ mod _socket {
                     Some(value)
                 }
             };
-            Ok(())
+            zelf.ensure_open(vm)
         }
 
         #[pymethod]
-        fn setblocking(zelf: &Py<Self>, blocking: bool) {
+        fn setblocking(zelf: &Py<Self>, blocking: bool, vm: &VirtualMachine) -> PyResult<()> {
             *zelf.timeout.lock() = if blocking { None } else { Some(0.0) };
+            zelf.ensure_open(vm)
         }
 
         #[pymethod]
