@@ -39,7 +39,7 @@ mod _socket {
         op: &str,
     ) -> PyRef<rustpython_vm::builtins::PyBaseException> {
         vm.new_errno_error(
-            rustpython_host_env::errno::errors::ENOSYS,
+            rustpython_host_env::errno::errors::ENOTSUP,
             format!("{op} is not available"),
         )
         .into()
@@ -404,12 +404,7 @@ mod _socket {
                     return Err(vm.new_value_error("negative file descriptor"));
                 }
             }
-            Err(vm
-                .new_errno_error(
-                    rustpython_host_env::errno::errors::ENOTSUP,
-                    "socket is not available",
-                )
-                .into())
+            Err(unsupported(vm, "socket"))
         }
     }
 }
