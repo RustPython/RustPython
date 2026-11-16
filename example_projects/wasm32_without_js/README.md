@@ -69,10 +69,17 @@ filesystem. Absolute paths and escapes (`..` past the root, symlinks that
 leave the directory) are denied. Paths must be valid UTF-8, as WASI
 preview1 requires.
 
+The capability table and guest-memory validation live in the workspace
+`rustpython-wasi-host` crate, which depends only on `cap-std` and `std`.
+The runner supplies thin Wasmer memory bindings; the shared core does not
+depend on Wasmer or the VM. Native `host_io` and browser integration are
+separate work and are not enabled by this extraction.
+
 The same contract tests run against this runner and against `wasm32-wasip1`
 RustPython under `wasmer`:
 
 ```shell
+cargo test --locked --manifest-path ../../Cargo.toml -p rustpython-wasi-host
 cargo test --locked --release --manifest-path wasm-runtime/Cargo.toml
 python3 test_wasi_fs.py -v \
   --runtime wasm-runtime/target/release/wasm-runtime \
