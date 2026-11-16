@@ -6,8 +6,10 @@ not a copy of the preview1 archive.
 
 - Archive member: `wasi-sysroot-34.0/lib/wasm32-wasip2/libwasi-emulated-signal.a`
 - SHA-256: `49b9844a3a29ea00e4adb58338bbf7ef8f2053078646e78c77ac9a2952deebf6`
-- License: Apache-2.0 WITH LLVM-exception, as distributed by
-  [wasi-libc](https://github.com/WebAssembly/wasi-libc/blob/main/LICENSE).
+- Licensing: wasi-libc is multi-licensed under Apache-2.0 WITH LLVM-exception,
+  Apache-2.0, and MIT, with original notices for derived code. The upstream
+  `LICENSE`, license texts, and musl copyright notice are included here; see
+  [wasi-libc licensing](https://github.com/WebAssembly/wasi-libc/blob/main/LICENSE).
 
 This is wasi-libc's synchronous, in-process `signal()`/`raise()` handler
 emulation. It does **not** supply asynchronous OS signal delivery. The p2
