@@ -23,17 +23,17 @@ mod _socket {
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyListRef, PyModule, PyOSError, PyStrRef, PyTupleRef, PyTypeRef,
-            PyUtf8StrRef,
+            PyBaseExceptionRef, PyModule, PyOSError, PyStrRef, PyTupleRef, PyTypeRef, PyUtf8StrRef,
         },
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
             ArgBytesLike, ArgIndex, ArgIntoFloat, ArgMemoryBuffer, ArgSpec, ArgStrOrBytesLike,
-            FsPath, FuncArgs, OptionalArg,
+            FuncArgs, OptionalArg,
         },
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
-        utils::ToCString,
     };
+    #[cfg(not(target_os = "wasi"))]
+    use crate::vm::{builtins::PyListRef, function::FsPath, utils::ToCString};
     use rustpython_common::wtf8::wtf8_concat;
     use rustpython_host_env::os::ErrorExt;
     #[cfg(any(unix, windows, all(target_os = "wasi", target_env = "p2")))]
@@ -1453,7 +1453,14 @@ mod _socket {
                     // Start the clock after the snapshot so lock/scheduling
                     // delay is not subtracted from a short timeout before poll.
                     if deadline.is_none() {
-                        *deadline = timeout.map(Deadline::new);
+                        #[cfg(not(target_os = "wasi"))]
+                        {
+                            *deadline = timeout.map(Deadline::new);
+                        }
+                        #[cfg(all(target_os = "wasi", target_env = "p2"))]
+                        {
+                            *deadline = timeout.map(Deadline::new).transpose()?;
+                        }
                     }
                     sock_wait_deadline(&sock, wait_kind, deadline.as_ref(), vm)?;
                 }
@@ -2952,11 +2959,16 @@ mod _socket {
             let timeout = match object {
                 Some(t) => {
                     let f = t.into_float();
-                    if f.is_nan() {
-                        return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-                    }
-                    if f < 0.0 || !f.is_finite() {
-                        return Err(vm.new_value_error("Timeout value out of range"));
+                    #[cfg(all(target_os = "wasi", target_env = "p2"))]
+                    let f = validate_wasi_timeout(f, vm)?;
+                    #[cfg(not(target_os = "wasi"))]
+                    {
+                        if f.is_nan() {
+                            return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+                        }
+                        if f < 0.0 || !f.is_finite() {
+                            return Err(vm.new_value_error("Timeout value out of range"));
+                        }
                     }
                     Some(f)
                 }
@@ -3552,6 +3564,7 @@ mod _socket {
         Ok(vm.ctx.new_str(inet::ntoa(packed_ip)))
     }
 
+    #[cfg(not(target_os = "wasi"))]
     fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const core::ffi::c_char {
         x.as_ref().map_or_else(core::ptr::null, |s| s.as_ptr())
     }
@@ -3703,7 +3716,14 @@ mod _socket {
         timeout: Option<Duration>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        match sock_wait_deadline(sock, wait_kind, timeout.map(Deadline::new).as_ref(), vm) {
+        #[cfg(not(target_os = "wasi"))]
+        let deadline = timeout.map(Deadline::new);
+        #[cfg(all(target_os = "wasi", target_env = "p2"))]
+        let deadline = timeout
+            .map(Deadline::new)
+            .transpose()
+            .map_err(|error| error.into_pyexception(vm))?;
+        match sock_wait_deadline(sock, wait_kind, deadline.as_ref(), vm) {
             Ok(()) => Ok(false),
             Err(IoOrPyException::Timeout) => Ok(true),
             Err(e) => Err(e.into_pyexception(vm)),
@@ -4305,14 +4325,47 @@ mod _socket {
     }
 
     impl Deadline {
+        #[cfg(not(target_os = "wasi"))]
         fn new(timeout: Duration) -> Self {
             Self {
                 deadline: Instant::now() + timeout,
             }
         }
+        #[cfg(all(target_os = "wasi", target_env = "p2"))]
+        fn new(timeout: Duration) -> io::Result<Self> {
+            Instant::now()
+                .checked_add(timeout)
+                .map(|deadline| Self { deadline })
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "socket deadline overflow")
+                })
+        }
         fn instant(&self) -> Instant {
             self.deadline
         }
+    }
+
+    /// Match CPython's PyTime nanosecond conversion with ROUND_TIMEOUT:
+    /// round away from zero, check signed range, then reject negative timeouts.
+    #[cfg(all(target_os = "wasi", target_env = "p2"))]
+    fn validate_wasi_timeout(seconds: f64, vm: &VirtualMachine) -> PyResult<f64> {
+        if seconds.is_nan() {
+            return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+        }
+        let nanos = seconds * 1_000_000_000.0;
+        let nanos = if nanos >= 0.0 {
+            nanos.ceil()
+        } else {
+            nanos.floor()
+        };
+        let minimum = i64::MIN as f64;
+        if !(minimum <= nanos && nanos < -minimum) {
+            return Err(vm.new_overflow_error("timestamp out of range for C PyTime_t"));
+        }
+        if nanos < 0.0 {
+            return Err(vm.new_value_error("Timeout value out of range"));
+        }
+        Ok(nanos / 1_000_000_000.0)
     }
 
     static DEFAULT_TIMEOUT: AtomicCell<f64> = AtomicCell::new(-1.0);
@@ -4328,11 +4381,16 @@ mod _socket {
         let val = match object {
             Some(t) => {
                 let f = t.into_float();
-                if f.is_nan() {
-                    return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-                }
-                if f < 0.0 || !f.is_finite() {
-                    return Err(vm.new_value_error("Timeout value out of range"));
+                #[cfg(all(target_os = "wasi", target_env = "p2"))]
+                let f = validate_wasi_timeout(f, vm)?;
+                #[cfg(not(target_os = "wasi"))]
+                {
+                    if f.is_nan() {
+                        return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+                    }
+                    if f < 0.0 || !f.is_finite() {
+                        return Err(vm.new_value_error("Timeout value out of range"));
+                    }
                 }
                 f
             }
