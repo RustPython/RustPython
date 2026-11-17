@@ -29,6 +29,11 @@ assert str() == ""
 assert str("abc") == "abc"
 
 assert_raises(TypeError, lambda: str("abc", "utf-8"))
+assert_raises(ValueError, lambda: str(b"abc", "utf-8\x00"))
+assert_raises(ValueError, lambda: str(b"abc", "utf-8", "strict\x00"))
+assert_raises(ValueError, lambda: str(b"abc", "\x00", []))
+assert_raises(ValueError, lambda: str(encoding="\x00"))
+assert_raises(ValueError, lambda: str(errors="\x00"))
 assert str(b"abc", "utf-8") == "abc"
 assert str(b"abc", encoding="ascii") == "abc"
 

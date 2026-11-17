@@ -17,7 +17,9 @@ use crate::{
     },
     convert::{ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
-    function::{ArgIndex, ArgIterable, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
+    function::{
+        ArgIndex, ArgIterable, ArgNulFreeStr, FuncArgs, OptionalArg, PyComparisonValue, PySsize,
+    },
     intern::PyInterned,
     object::{MaybeTraverse, TraverseFn},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
@@ -392,27 +394,9 @@ pub struct StrArgs {
     #[pyarg(any, optional)]
     object: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]
-    encoding: OptionalArg<PyObjectRef>,
+    encoding: OptionalArg<ArgNulFreeStr>,
     #[pyarg(any, optional)]
-    errors: OptionalArg<PyObjectRef>,
-}
-
-/// The `encoding` or `errors` argument of `str()`, which must be a str.
-fn str_new_str_arg(
-    arg: OptionalArg<PyObjectRef>,
-    name: &str,
-    vm: &VirtualMachine,
-) -> PyResult<Option<PyUtf8StrRef>> {
-    let OptionalArg::Present(arg) = arg else {
-        return Ok(None);
-    };
-    let arg = arg.downcast::<PyStr>().map_err(|arg| {
-        vm.new_type_error(format!(
-            "str() argument '{name}' must be str, not {}",
-            arg.class().name()
-        ))
-    })?;
-    Ok(Some(arg.try_into_utf8(vm)?))
+    errors: OptionalArg<ArgNulFreeStr>,
 }
 
 impl Constructor for PyStr {
@@ -457,8 +441,8 @@ impl Constructor for PyStr {
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         match args.object {
             OptionalArg::Present(input) => {
-                let encoding = str_new_str_arg(args.encoding, "encoding", vm)?;
-                let errors = str_new_str_arg(args.errors, "errors", vm)?;
+                let encoding = args.encoding.into_option();
+                let errors = args.errors.into_option().map(ArgNulFreeStr::into_utf8_ref);
                 // CPython parity: presence of `encoding` OR `errors` triggers
                 // decode mode. When `errors` is given alone, the encoding
                 // defaults to UTF-8.
