@@ -685,6 +685,19 @@ def test_dialect_name_hashing():
     with assert_raises(ValueError):
         csv.unregister_dialect(UnhashableName())
 
+    class UnhashableStr(str):
+        def __hash__(self):
+            raise ValueError("unhashable name")
+
+    with assert_raises(ValueError):
+        csv.register_dialect(UnhashableStr("excel"))
+    with assert_raises(ValueError):
+        csv.get_dialect(UnhashableStr("excel"))
+    with assert_raises(ValueError):
+        csv.unregister_dialect(UnhashableStr("excel"))
+    with assert_raises(TypeError):
+        csv.register_dialect(UnhashableStr("excel"), delimiter="ab")
+
     # An empty registry misses before the name is hashed.
     csv.unregister_dialect("excel")
     csv.unregister_dialect("excel-tab")

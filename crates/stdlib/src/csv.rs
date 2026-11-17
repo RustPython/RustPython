@@ -202,6 +202,7 @@ mod _csv {
 
         let dialect = opts.result(vm)?;
         validate_dialect(vm, &dialect)?;
+        name.as_object().hash(vm)?;
         GLOBAL_HASHMAP
             .lock()
             .insert(name.as_wtf8().to_owned(), dialect);
@@ -209,15 +210,11 @@ mod _csv {
         Ok(())
     }
 
-    // Hash a non-str name as the dict lookup would; only str names are registered.
+    // Hash the name as the dict lookup would; only str names are registered.
     fn registry_key(name: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        match name.downcast::<PyStr>() {
-            Ok(name) => Ok(name),
-            Err(obj) => {
-                obj.hash(vm)?;
-                Err(new_csv_error(vm, "unknown dialect"))
-            }
-        }
+        name.hash(vm)?;
+        name.downcast::<PyStr>()
+            .map_err(|_| new_csv_error(vm, "unknown dialect"))
     }
 
     #[pyfunction]
