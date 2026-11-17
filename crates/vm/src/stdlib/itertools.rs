@@ -19,7 +19,7 @@ mod decl {
     use rustpython_common::wtf8::Wtf8Buf;
 
     use alloc::fmt;
-    use num_traits::ToPrimitive;
+    use num_traits::{One, ToPrimitive};
 
     #[pyattr]
     #[pyclass(name = "chain", traverse)]
@@ -219,6 +219,17 @@ mod decl {
             if !PyNumber::check(&start) || !PyNumber::check(&step) {
                 return Err(vm.new_type_error("a number is required"));
             }
+
+            let step_is_one = step
+                .downcast_ref::<PyInt>()
+                .is_some_and(|step| step.as_bigint().is_one());
+            let start = match start
+                .downcast_ref::<PyInt>()
+                .and_then(|start| start.as_bigint().to_isize())
+            {
+                Some(value) if step_is_one => vm.ctx.new_int(value).into(),
+                _ => start,
+            };
 
             Ok(Self {
                 cur: PyRwLock::new(start),

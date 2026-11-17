@@ -88,6 +88,14 @@ c = itertools.count(5, 0)
 assert next(c) == 5
 assert next(c) == 5
 
+c = itertools.count(True)
+assert repr(c) == "count(1)"
+assert type(next(c)) is int
+
+c = itertools.count(True, 2)
+assert repr(c) == "count(True, 2)"
+assert next(c) is True
+
 # itertools.count TODOs: kwargs and floats
 
 # step kwarg
