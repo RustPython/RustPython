@@ -170,6 +170,7 @@ where
         thread_count: AtomicCell::new(0),
         atexit_funcs: PyMutex::default(),
         audit_hooks: PyMutex::default(),
+        signal_handlers: Default::default(),
         codec_registry,
         filesystem_codec_ready: AtomicBool::new(false),
         unicode_names_loaded: AtomicBool::new(false),

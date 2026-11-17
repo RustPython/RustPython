@@ -1,5 +1,6 @@
+use alloc::sync::Arc;
 use core::{
-    cell::{Cell, RefCell},
+    cell::Cell,
     fmt,
     ops::{Deref, DerefMut, Index, IndexMut, Range},
     sync::atomic::{AtomicBool, AtomicU8, Ordering},
@@ -106,18 +107,24 @@ impl Drop for SignalHandlerGuard {
 #[cfg_attr(feature = "flame-it", flame)]
 #[inline(always)]
 pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
-    if vm.signal_handlers.get().is_none() {
+    // Read-only check first: avoids cache-line invalidation on every
+    // instruction when no signal is pending (the common case).
+    let user_pending = vm
+        .signal_rx
+        .as_ref()
+        .is_some_and(UserSignalReceiver::is_pending);
+    if !EVAL_BREAKER.contains(&EvalBreakerFlag::Signal) && !user_pending {
         return Ok(());
     }
 
-    // Read-only check first: avoids cache-line invalidation on every
-    // instruction when no signal is pending (the common case).
-    if !EVAL_BREAKER.contains(&EvalBreakerFlag::Signal) {
+    // A thread with neither OS-signal dispatch permission nor its own user
+    // signal receiver must not consume another VM's wakeup.
+    if vm.signal_rx.is_none() && !(vm.is_main_thread() && vm.state.is_main_interpreter()) {
         return Ok(());
     }
 
     // Atomic RMW only when a signal is actually pending.
-    if !EVAL_BREAKER.remove(EvalBreakerFlag::Signal) {
+    if !EVAL_BREAKER.remove(EvalBreakerFlag::Signal) && !user_pending {
         return Ok(());
     }
 
@@ -136,10 +143,7 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
 
     let can_handle_signals = vm.is_main_thread() && vm.state.is_main_interpreter();
     if can_handle_signals {
-        let signal_handlers = vm
-            .signal_handlers
-            .get()
-            .expect("should never fail since we check above");
+        let signal_handlers = &vm.state.signal_handlers;
         let frame = crate::frame::current_complete_frame_for_trace(vm);
 
         for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
@@ -151,10 +155,10 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
             // SAFETY: TRIGGERS has the same length as the signal_handlers
             let signum = unsafe { SignalNum::new_unchecked(signum as i32) };
 
-            // Read the handler out and drop the borrow before running it. A
-            // handler is free to call signal.signal(), which takes the same cell
-            // mutably, and a live read borrow turns that into a panic.
-            let handler = signal_handlers.borrow()[signum].clone();
+            // Read the handler out and drop the lock before running it. A
+            // handler is free to call signal.signal(), which takes the same lock.
+            // Release it before calling Python to avoid deadlock.
+            let handler = signal_handlers.lock()[signum].clone();
 
             let Some(handler) = handler.filter(|handler| !vm.is_none(handler)) else {
                 continue;
@@ -191,8 +195,12 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
     }
 
     if let Some(signal_rx) = &vm.signal_rx {
+        // Clear before draining: a concurrent send after this point sets the
+        // owning VM's hint again, independently of other VMs and OS signals.
+        signal_rx.pending.store(false, Ordering::Release);
         for f in signal_rx.rx.try_iter() {
             if let Err(exc) = f(vm) {
+                signal_rx.pending.store(true, Ordering::Release);
                 set_triggered();
                 return Err(exc);
             }
@@ -389,11 +397,19 @@ pub type UserSignal = Box<dyn FnOnce(&VirtualMachine) -> PyResult<()> + Send>;
 #[derive(Clone, Debug)]
 pub struct UserSignalSender {
     tx: mpsc::Sender<UserSignal>,
+    pending: Arc<AtomicBool>,
 }
 
 #[derive(Debug)]
 pub struct UserSignalReceiver {
     rx: mpsc::Receiver<UserSignal>,
+    pending: Arc<AtomicBool>,
+}
+
+impl UserSignalReceiver {
+    pub(crate) fn is_pending(&self) -> bool {
+        self.pending.load(Ordering::Acquire)
+    }
 }
 
 impl UserSignalSender {
@@ -401,7 +417,7 @@ impl UserSignalSender {
         self.tx
             .send(sig)
             .map_err(|mpsc::SendError(sig)| UserSignalSendError(sig))?;
-        set_triggered();
+        self.pending.store(true, Ordering::Release);
         Ok(())
     }
 }
@@ -424,7 +440,14 @@ impl fmt::Display for UserSignalSendError {
 #[must_use]
 pub fn user_signal_channel() -> (UserSignalSender, UserSignalReceiver) {
     let (tx, rx) = mpsc::channel();
-    (UserSignalSender { tx }, UserSignalReceiver { rx })
+    let pending = Arc::new(AtomicBool::new(false));
+    (
+        UserSignalSender {
+            tx,
+            pending: pending.clone(),
+        },
+        UserSignalReceiver { rx, pending },
+    )
 }
 
 #[cfg(windows)]
@@ -460,16 +483,18 @@ impl IndexMut<SignalNum> for SignalHandlersInner {
     }
 }
 
-pub struct SignalHandlers(Box<RefCell<SignalHandlersInner>>);
+pub struct SignalHandlers(Box<crate::common::lock::PyMutex<SignalHandlersInner>>);
 
 impl Default for SignalHandlers {
     fn default() -> Self {
-        Self(Box::new(RefCell::new(SignalHandlersInner::default())))
+        Self(Box::new(crate::common::lock::PyMutex::new(
+            SignalHandlersInner::default(),
+        )))
     }
 }
 
 impl Deref for SignalHandlers {
-    type Target = Box<RefCell<SignalHandlersInner>>;
+    type Target = Box<crate::common::lock::PyMutex<SignalHandlersInner>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

@@ -803,11 +803,6 @@ pub mod module {
             crate::stdlib::_imp::after_fork_child_imp_lock_release()
         };
 
-        // Initialize signal handlers for the child's main thread.
-        // When forked from a worker thread, the OnceCell is empty.
-        vm.signal_handlers
-            .get_or_init(crate::signal::SignalHandlers::default);
-
         #[cfg(feature = "threading")]
         _stopped.finish_child_repair();
 
@@ -846,6 +841,7 @@ pub mod module {
             reinit_mutex_after_fork(&vm.state.global_profile_func);
             reinit_mutex_after_fork(&vm.state.type_mutex);
             reinit_mutex_after_fork(&vm.state.monitoring);
+            reinit_mutex_after_fork(&vm.state.signal_handlers);
 
             // PyGlobalState parking_lot::Mutex locks
             reinit_mutex_after_fork(&vm.state.thread_frames);
@@ -896,6 +892,7 @@ pub mod module {
                 reinit_mutex_after_fork(&state.global_profile_func);
                 reinit_mutex_after_fork(&state.type_mutex);
                 reinit_mutex_after_fork(&state.monitoring);
+                reinit_mutex_after_fork(&state.signal_handlers);
                 reinit_mutex_after_fork(&state.thread_frames);
                 reinit_mutex_after_fork(&state.thread_handles);
                 reinit_mutex_after_fork(&state.shutdown_handles);

@@ -9,7 +9,7 @@ pub(crate) mod _signal {
     use crate::{
         Py, PyObjectRef, PyResult, VirtualMachine,
         function::ArgIntoBool,
-        signal::{self, SignalHandlers, SignalNum},
+        signal::{self, SignalNum},
     };
     use core::sync::atomic::{self, Ordering};
 
@@ -204,17 +204,15 @@ pub(crate) mod _signal {
                 // SAFETY: Trust `SignalNum::VALID_RANGE`
                 let signum = unsafe { SignalNum::new_unchecked(signum) };
 
-                let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
+                let signal_handlers = &vm.state.signal_handlers;
                 let _old_handler =
-                    core::mem::replace(&mut signal_handlers.borrow_mut()[signum], py_handler);
+                    core::mem::replace(&mut signal_handlers.lock()[signum], py_handler);
                 // Replacing a handler can run its destructor, which may install
-                // another handler. Release the table borrow before dropping it.
+                // another handler. Release the table lock before dropping it.
             }
 
-            let default_sigint = vm
-                .signal_handlers
-                .get()
-                .and_then(|handlers| handlers.borrow()[SignalNum::SIGINT].clone())
+            let sigint_handler = vm.state.signal_handlers.lock()[SignalNum::SIGINT].clone();
+            let default_sigint = sigint_handler
                 .is_some_and(|handler| handler_disposition(&handler, vm) == Some(SIG_DFL));
             if default_sigint {
                 let int_handler = module
@@ -301,15 +299,15 @@ pub(crate) mod _signal {
         unsafe { host_signal::install_handler(signalnum.into(), sig_handler) }
             .map_err(|err| err.into_pyexception(vm))?;
 
-        let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
-        let old_handler = signal_handlers.borrow_mut()[signalnum].replace(handler);
+        let signal_handlers = &vm.state.signal_handlers;
+        let old_handler = signal_handlers.lock()[signalnum].replace(handler);
         Ok(old_handler)
     }
 
     #[pyfunction]
     fn getsignal(signalnum: SignalNum, vm: &VirtualMachine) -> PyObjectRef {
-        let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
-        signal_handlers.borrow()[signalnum]
+        let signal_handlers = &vm.state.signal_handlers;
+        signal_handlers.lock()[signalnum]
             .clone()
             .unwrap_or_else(|| vm.ctx.none())
     }
