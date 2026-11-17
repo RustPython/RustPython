@@ -88,6 +88,27 @@ c = itertools.count(5, 0)
 assert next(c) == 5
 assert next(c) == 5
 
+c = itertools.count(True)
+assert repr(c) == "count(1)"
+assert type(next(c)) is int
+
+c = itertools.count(True, 2)
+assert repr(c) == "count(True, 2)"
+assert next(c) is True
+
+
+class RaisingAdd(int):
+    def __add__(self, other):
+        raise RuntimeError
+
+    def __radd__(self, other):
+        raise RuntimeError
+
+
+c = itertools.count(RaisingAdd(0), RaisingAdd(1))
+assert next(c) == 0
+assert next(c) == 1
+
 # itertools.count TODOs: kwargs and floats
 
 # step kwarg
