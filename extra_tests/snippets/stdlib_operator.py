@@ -1,4 +1,5 @@
 import _operator
+from collections import Counter
 
 from testutils import assert_raises
 
@@ -56,3 +57,41 @@ assert _operator.length_hint(object(), -1) == -1
 assert _operator.length_hint([], -1) == 0
 assert_raises(TypeError, _operator.length_hint, TupleHint(), -1)
 assert_raises(OverflowError, _operator.length_hint, object(), -(2**70))
+
+
+class AddsAnything:
+    def __getitem__(self, index):
+        return 0
+
+    def __add__(self, other):
+        return "added"
+
+    def __iadd__(self, other):
+        return "iadded"
+
+
+class ListWithIadd(list):
+    def __iadd__(self, other):
+        return "iadded"
+
+
+class ListWithBoth(list):
+    def __add__(self, other):
+        return "added"
+
+    def __iadd__(self, other):
+        return "iadded"
+
+
+assert _operator.concat(AddsAnything(), [1]) == "added"
+assert_raises(TypeError, _operator.concat, AddsAnything(), 1)
+assert _operator.iconcat(AddsAnything(), [1]) == "iadded"
+assert_raises(TypeError, _operator.iconcat, AddsAnything(), 1)
+receiver = ListWithIadd([1])
+result = _operator.iconcat(receiver, [2])
+assert type(result) is list
+assert result == [1, 2]
+assert receiver == [1]
+assert _operator.iconcat(ListWithBoth([1]), [2]) == "iadded"
+assert_raises(TypeError, _operator.concat, Counter(a=1), Counter(b=1))
+assert_raises(TypeError, _operator.iconcat, Counter(a=1), Counter(b=1))

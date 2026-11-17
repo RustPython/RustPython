@@ -1861,10 +1861,20 @@ impl PyType {
                 };
                 self.slots.as_sequence.concat.store(concat);
             }
-            SlotAccessor::SqInplaceConcat if !ADD => {
-                // Sequence concat uses sq_concat slot - no generic wrapper needed
-                // (handled by number protocol fallback)
-                accessor.inherit_from_mro(self);
+            SlotAccessor::SqInplaceConcat => {
+                // Python __iadd__ overrides use nb_inplace_add, not the
+                // inherited sq_inplace_concat.
+                let inplace_concat = match self.lookup_slot_in_mro(name, ctx, |sf| {
+                    if let SlotFunc::SeqConcat(f) = sf {
+                        Some(*f)
+                    } else {
+                        None
+                    }
+                }) {
+                    SlotLookupResult::NativeSlot(func) => Some(func),
+                    SlotLookupResult::PythonMethod | SlotLookupResult::NotFound => None,
+                };
+                self.slots.as_sequence.inplace_concat.store(inplace_concat);
             }
             SlotAccessor::SqRepeat | SlotAccessor::SqInplaceRepeat => {
                 // Python `__mul__`/`__rmul__`/`__imul__` overrides use the number slots and
