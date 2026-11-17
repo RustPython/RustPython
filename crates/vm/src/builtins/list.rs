@@ -184,9 +184,8 @@ impl PyList {
 pub(crate) struct SortOptions {
     #[pyarg(named, optional)]
     key: Option<PyObjectRef>,
-    #[pytraverse(skip)]
-    #[pyarg(named, default)]
-    reverse: bool,
+    #[pyarg(named, default, py_default = "False")]
+    reverse: Option<PyObjectRef>,
 }
 
 pub type PyListRef = PyRef<PyList>;
@@ -203,6 +202,10 @@ impl PyList {
     }
 
     pub(crate) fn sort(&self, options: SortOptions, vm: &VirtualMachine) -> PyResult<()> {
+        let reverse = match &options.reverse {
+            Some(reverse) => reverse.try_to_bool(vm)?,
+            None => false,
+        };
         // replace list contents with [] for duration of sort.
         // this prevents keyfunc from messing with the list and makes it easy to
         // check if it tries to append elements to it.
@@ -211,7 +214,7 @@ impl PyList {
             let version_before = self.mutation_counter.load(Ordering::Relaxed);
             (core::mem::take(&mut *guard), version_before)
         };
-        let res = do_sort(vm, &mut elements, options.key.as_deref(), options.reverse);
+        let res = do_sort(vm, &mut elements, options.key.as_deref(), reverse);
         let mutated = {
             let mut guard = self.elements.write();
             let mutated = self.mutation_counter.load(Ordering::Relaxed) != version_before;

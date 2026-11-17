@@ -271,6 +271,27 @@ for size in [1, 2, 3, 4, 5, 8, 10, 100, 1000]:
     assert sorted(lst, key=lambda x: -x) == lst
     assert sorted(lst, key=lambda x: -x, reverse=True) == orig
 
+
+class Truthy:
+    def __bool__(self):
+        return True
+
+
+assert sorted([1, 2, 3], reverse=Truthy()) == [3, 2, 1]
+assert sorted([1, 2, 3], reverse=[]) == [1, 2, 3]
+lst = [1, 2, 3]
+lst.sort(reverse=Truthy())
+assert lst == [3, 2, 1]
+
+
+class RaisingBool:
+    def __bool__(self):
+        raise ZeroDivisionError
+
+
+assert_raises(ZeroDivisionError, sorted, [1, 2, 3], reverse=RaisingBool())
+assert_raises(TypeError, sorted, None, reverse=RaisingBool())
+
 assert sorted([(1, 2, 3), (0, 3, 6)]) == [(0, 3, 6), (1, 2, 3)]
 assert sorted([(1, 2, 3), (0, 3, 6)], key=lambda x: x[0]) == [(0, 3, 6), (1, 2, 3)]
 assert sorted([(1, 2, 3), (0, 3, 6)], key=lambda x: x[1]) == [(1, 2, 3), (0, 3, 6)]
