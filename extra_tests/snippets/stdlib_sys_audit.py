@@ -448,3 +448,143 @@ def check_winreg_audit_boundaries():
 
 
 check_winreg_audit_boundaries()
+
+
+def check_winapi_audit_boundaries():
+    if sys.platform != "win32":
+        return
+    import _winapi
+
+    class Denied(Exception):
+        pass
+
+    class Name(str):
+        pass
+
+    blocked = None
+    seen = []
+
+    def hook(event, args):
+        if event == blocked:
+            seen.append(args)
+            raise Denied
+
+    sys.addaudithook(hook)
+    cases = [
+        ("CreateEventW", (0, -1, 256, Name("audit-event")), (-1, 256, "audit-event")),
+        ("CreateMutexW", (0, 2, None), (2, None)),
+        (
+            "CreateFile",
+            (Name("missing-audit-file"), 0, 0, 0, 3, 0, 0),
+            ("missing-audit-file", 0, 0, 3, 0),
+        ),
+        (
+            "CreateNamedPipe",
+            (Name(r"\\.\pipe\audit-boundary"), 3, 8, 1, 0, 0, 0, 0),
+            (r"\\.\pipe\audit-boundary", 3, 8),
+        ),
+        ("CreatePipe", (None, 0), ()),
+        (
+            "CreateJunction",
+            (Name("missing-audit-source"), Name("missing-audit-destination")),
+            ("missing-audit-source", "missing-audit-destination"),
+        ),
+        ("OpenEventW", (1, 2, Name("missing-audit-event")), (1, "missing-audit-event")),
+        (
+            "OpenMutexW",
+            (1, -1, Name("missing-audit-mutex")),
+            (1, "missing-audit-mutex"),
+        ),
+        ("OpenProcess", (1, 2, 0), (0, 1)),
+        ("TerminateProcess", (0, 123), (0, 123)),
+        (
+            "CopyFile2",
+            (Name("missing-audit-source"), Name("missing-audit-destination"), 0),
+            ("missing-audit-source", "missing-audit-destination", 0),
+        ),
+    ]
+    for name, args, expected in cases:
+        blocked = "_winapi." + name
+        seen.clear()
+        try:
+            getattr(_winapi, name)(*args)
+        except Denied:
+            pass
+        else:
+            raise AssertionError(name)
+        assert seen == [expected], (name, seen)
+        assert all(
+            type(actual) is type(want) for actual, want in zip(seen[0], expected)
+        )
+
+    if sys.implementation.name == "rustpython":
+        # CPython's Unicode-format audit path is unsafe for this sentinel.
+        accesses = []
+
+        class Unused:
+            def __getattribute__(self, name):
+                accesses.append(name)
+                raise AssertionError("CreateProcess processed arguments before audit")
+
+        command_line = object()
+        blocked = "_winapi.CreateProcess"
+        seen.clear()
+        try:
+            _winapi.CreateProcess(
+                None, command_line, None, None, 0, 0, Unused(), None, Unused()
+            )
+        except Denied:
+            pass
+        else:
+            raise AssertionError("CreateProcess audit did not deny the call")
+        assert seen == [(None, command_line, None)]
+        assert seen[0][1] is command_line
+        assert not accesses
+
+    # Unicode conversion must run before a later integer converter or audit.
+    calls = []
+
+    class Index:
+        def __index__(self):
+            calls.append("index")
+            return 0
+
+    blocked = "_winapi.CreateFile"
+    seen.clear()
+    try:
+        _winapi.CreateFile("bad\0name", Index(), 0, 0, 3, 0, 0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("embedded NUL accepted")
+    assert not calls and not seen
+
+    # BOOL arguments use C int conversion, not truth testing.
+    class Truth:
+        def __bool__(self):
+            raise AssertionError("BOOL must not call __bool__")
+
+    blocked = "_winapi.CreateEventW"
+    seen.clear()
+    try:
+        _winapi.CreateEventW(0, Truth(), 0, None)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("BOOL accepted a truth-only object")
+    assert not seen
+
+    # CreateJunction performs its invalid-prefix check before the audit.
+    blocked = "_winapi.CreateJunction"
+    seen.clear()
+    try:
+        _winapi.CreateJunction(r"\??\invalid", "unused")
+    except OSError as error:
+        assert error.winerror == 87
+    else:
+        raise AssertionError("invalid junction prefix accepted")
+    assert not seen
+    blocked = None
+
+
+check_winapi_audit_boundaries()
