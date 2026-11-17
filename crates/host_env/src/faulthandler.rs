@@ -130,6 +130,92 @@ impl Default for RegisteredUserSignal {
 #[cfg(unix)]
 static USER_SIGNALS: Mutex<Option<Vec<RegisteredUserSignal>>> = Mutex::new(None);
 
+// Signal handlers cannot take USER_SIGNALS: delivery may interrupt a thread
+// holding that mutex. Publish only the copyable dump configuration separately.
+// Keep the original descriptor number (not a dup), including its dup2 behavior.
+// Previous dispositions and chaining remain in the existing bookkeeping path;
+// this does not make concurrent chain/unregister signal-safe.
+#[cfg(all(unix, target_has_atomic = "64"))]
+mod user_signal_config {
+    use super::{USER_SIGNAL_CAPACITY, UserSignal};
+    use core::sync::atomic::{AtomicU64, Ordering};
+
+    const ENABLED: u64 = 1 << 32;
+    const ALL_THREADS: u64 = 1 << 33;
+    const CHAIN: u64 = 1 << 34;
+    static SLOTS: [AtomicU64; USER_SIGNAL_CAPACITY] =
+        [const { AtomicU64::new(0) }; USER_SIGNAL_CAPACITY];
+
+    fn encode(signal: UserSignal) -> u64 {
+        u64::from(signal.fd as u32)
+            | ENABLED
+            | if signal.all_threads { ALL_THREADS } else { 0 }
+            | if signal.chain { CHAIN } else { 0 }
+    }
+
+    fn decode(value: u64) -> Option<UserSignal> {
+        (value & ENABLED != 0).then_some(UserSignal {
+            fd: value as u32 as i32,
+            all_threads: value & ALL_THREADS != 0,
+            chain: value & CHAIN != 0,
+        })
+    }
+
+    pub(super) fn store(signum: usize, signal: Option<UserSignal>) {
+        SLOTS[signum].store(signal.map_or(0, encode), Ordering::SeqCst);
+    }
+
+    pub(super) fn load(signum: usize) -> Option<UserSignal> {
+        decode(SLOTS.get(signum)?.load(Ordering::SeqCst))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn configuration_preserves_descriptor_bits_and_flags() {
+            for fd in [0, 1, i32::MAX, i32::MIN, -1] {
+                for all_threads in [false, true] {
+                    for chain in [false, true] {
+                        let actual = decode(encode(UserSignal {
+                            fd,
+                            all_threads,
+                            chain,
+                        }))
+                        .unwrap();
+                        assert_eq!(actual.fd, fd);
+                        assert_eq!(actual.all_threads, all_threads);
+                        assert_eq!(actual.chain, chain);
+                    }
+                }
+            }
+            assert!(decode(0).is_none());
+        }
+
+        #[test]
+        fn reading_configuration_does_not_lock_registration_bookkeeping() {
+            // Slot zero is never a valid registration. Model a signal interrupting
+            // the writer, without installing a process-global test disposition.
+            let _writer = super::super::USER_SIGNALS.lock();
+            store(
+                0,
+                Some(UserSignal {
+                    fd: 17,
+                    all_threads: true,
+                    chain: false,
+                }),
+            );
+            let actual = super::super::get_user_signal(0).unwrap();
+            store(0, None);
+            assert_eq!(actual.fd, 17);
+            assert!(actual.all_threads);
+            assert!(!actual.chain);
+            assert!(super::super::get_user_signal(USER_SIGNAL_CAPACITY).is_none());
+        }
+    }
+}
+
 pub fn write_fd(fd: i32, buf: &[u8]) {
     let _ = unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len() as _) };
 }
@@ -262,7 +348,14 @@ pub fn exit_immediately(code: libc::c_int) -> ! {
     unsafe { libc::_exit(code) }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, target_has_atomic = "64"))]
+pub fn get_user_signal(signum: usize) -> Option<UserSignal> {
+    user_signal_config::load(signum)
+}
+
+// Preserve the existing implementation on targets without lock-free 64-bit
+// atomics. Its signal-context mutex limitation is not fixed by this change.
+#[cfg(all(unix, not(target_has_atomic = "64")))]
 pub fn get_user_signal(signum: usize) -> Option<UserSignal> {
     let guard = USER_SIGNALS.lock();
     guard
@@ -319,6 +412,15 @@ pub fn register_user_signal(
     entry.fd = fd;
     entry.all_threads = all_threads;
     entry.chain = chain;
+    #[cfg(target_has_atomic = "64")]
+    user_signal_config::store(
+        signum,
+        Some(UserSignal {
+            fd,
+            all_threads,
+            chain,
+        }),
+    );
     Ok(())
 }
 
@@ -340,6 +442,8 @@ pub fn unregister_user_signal(signum: libc::c_int) -> bool {
     }
 
     let previous = entry.previous;
+    #[cfg(target_has_atomic = "64")]
+    user_signal_config::store(signum, None);
     *entry = RegisteredUserSignal::default();
     restore_sigaction(signum as libc::c_int, &previous);
     true

@@ -901,7 +901,10 @@ mod decl {
 
         let user = match host_faulthandler::get_user_signal(signum as usize) {
             Some(u) => u,
-            _ => return,
+            _ => {
+                set_errno(save_errno);
+                return;
+            }
         };
 
         faulthandler_dump_traceback(user.fd, user.all_threads);
@@ -910,6 +913,7 @@ mod decl {
             set_errno(save_errno);
             let _ = host_faulthandler::reraise_user_signal(signum, faulthandler_user_signal);
         }
+        set_errno(save_errno);
     }
 
     #[cfg(unix)]
