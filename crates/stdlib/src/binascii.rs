@@ -629,26 +629,26 @@ mod decl {
     struct A2bQpArgs {
         #[pyarg(any)]
         data: ArgAsciiBuffer,
-        #[pyarg(any, default)]
-        header: bool,
+        #[pyarg(any, default = ArgIntoBool::FALSE)]
+        header: ArgIntoBool,
     }
 
     #[pyfunction]
     fn a2b_qp(args: A2bQpArgs) -> Vec<u8> {
         let A2bQpArgs { data, header } = args;
-        data.with_ref(|buffer| binascii::a2b_qp(buffer, header))
+        data.with_ref(|buffer| binascii::a2b_qp(buffer, header.into_bool()))
     }
 
     #[derive(FromArgs)]
     struct B2aQpArgs {
         #[pyarg(any)]
         data: ArgBytesLike,
-        #[pyarg(any, default)]
-        quotetabs: bool,
-        #[pyarg(any, default = true)]
-        istext: bool,
-        #[pyarg(any, default)]
-        header: bool,
+        #[pyarg(any, default = ArgIntoBool::FALSE)]
+        quotetabs: ArgIntoBool,
+        #[pyarg(any, default = ArgIntoBool::TRUE)]
+        istext: ArgIntoBool,
+        #[pyarg(any, default = ArgIntoBool::FALSE)]
+        header: ArgIntoBool,
     }
 
     #[pyfunction]
@@ -659,7 +659,14 @@ mod decl {
             istext,
             header,
         } = args;
-        data.with_ref(|buf| binascii::b2a_qp(buf, quotetabs, istext, header))
+        data.with_ref(|buf| {
+            binascii::b2a_qp(
+                buf,
+                quotetabs.into_bool(),
+                istext.into_bool(),
+                header.into_bool(),
+            )
+        })
     }
 
     #[pyfunction]
@@ -670,8 +677,8 @@ mod decl {
 
     #[derive(FromArgs)]
     struct BacktickArg {
-        #[pyarg(named, default)]
-        backtick: bool,
+        #[pyarg(named, default = ArgIntoBool::FALSE)]
+        backtick: ArgIntoBool,
     }
 
     #[pyfunction]
@@ -680,7 +687,7 @@ mod decl {
         BacktickArg { backtick }: BacktickArg,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        data.with_ref(|b| binascii::b2a_uu(b, backtick))
+        data.with_ref(|b| binascii::b2a_uu(b, backtick.into_bool()))
             .map_err(|e| new_binascii_error(e, vm))
     }
 }
