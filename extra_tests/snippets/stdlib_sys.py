@@ -618,3 +618,15 @@ for set_hook, get_hook in [
             set_hook(old)
         assert not any(name == "suppressed_after_change" for name, _ in changed_events)
         assert (("later", "call") in changed_events) == replace_hook
+
+# Shutdown must not import threading for a program that never did.
+proc = subprocess.run(
+    [
+        sys.executable,
+        "-c",
+        "import atexit, sys; atexit.register(lambda: print('threading' in sys.modules))",
+    ],
+    stdout=subprocess.PIPE,
+    universal_newlines=True,
+)
+assert proc.stdout == "False\n", proc.stdout
