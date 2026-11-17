@@ -126,3 +126,31 @@ def test_findall_group_that_did_not_participate():
 
 
 test_findall_group_that_did_not_participate()
+
+
+def test_backtracking_restores_repeat_state():
+    # A {m,n} repeat that stopped at its maximum kept the extra count when the
+    # rest of the pattern failed and the matcher went back into the repeat.
+    assert re.match(r"(?:a*|b){2}x", "bbx").span() == (0, 3)
+    assert re.fullmatch(r"(?:b*|a){2}", "aa").span() == (0, 2)
+    assert re.fullmatch(r"(?:b*|a){1,2}", "aa").span() == (0, 2)
+
+    # A lazy repeat nested in another one.
+    assert re.fullmatch(r"(?:x(?:ab)*?){2,3}?", "xabxab").span() == (0, 6)
+
+    # A group set before a lookaround must be unset again when the matcher
+    # backtracks past it.
+    assert re.match(r"(a)?(?<!a)", "a").groups() == (None,)
+    assert re.match(r"(?:(a)(?!x)z|a)", "ax").groups() == (None,)
+    assert re.match(r"(?:(a)(?=xy|x)z|a)", "axy").groups() == (None,)
+    assert re.match(r"(?:(a)(?=x*y)z|a)", "axy").groups() == (None,)
+    assert re.match(r"(?:(a)(?=x*?y)z|a)", "axy").groups() == (None,)
+    assert re.match(r"(?:(a)(?=(?:xy)*?x)z|a)", "axy").groups() == (None,)
+
+    # The empty-match guard of a lazy repeat. Without it this one keeps
+    # backtracking until it runs out of memory.
+    assert re.match(r"(?:a*)+?b", "a") is None
+    assert re.match(r"(?:a*)+?b", "aab").span() == (0, 3)
+
+
+test_backtracking_restores_repeat_state()

@@ -103,9 +103,9 @@ impl Marks {
     }
 
     fn pop_keep(&mut self) {
-        let (marks, last_index) = self.marks_stack.last().unwrap().clone();
-        self.marks = marks;
-        self.last_index = last_index;
+        let (marks, last_index) = self.marks_stack.last().unwrap();
+        self.marks.clone_from(marks);
+        self.last_index = *last_index;
     }
 
     fn pop_discard(&mut self) {
@@ -290,6 +290,7 @@ enum Jump {
     MaxUntil2,
     MaxUntil3,
     MinUntil1,
+    MinUntil2,
     RepeatOne1,
     RepeatOne2,
     MinRepeatOne1,
@@ -323,6 +324,7 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                     }
                     Jump::AssertNot1 => {
                         if popped_result {
+                            state.marks.pop_discard();
                             break 'result false;
                         }
                         state.marks.pop();
@@ -342,6 +344,7 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                     }
                     Jump::Branch2 => {
                         if popped_result {
+                            state.marks.pop_discard();
                             break 'result true;
                         }
                         state.marks.pop_keep();
@@ -387,6 +390,7 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                     }
                     Jump::MinUntil1 => {
                         if popped_result {
+                            state.marks.pop_discard();
                             break 'result true;
                         }
                         ctx.repeat_ctx_id = ctx.count as usize;
@@ -404,10 +408,19 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                         }
 
                         /* zero-width match protection */
+                        ctx.count = repeat_ctx.last_position as isize;
                         repeat_ctx.last_position = state.cursor.position;
 
-                        break 'context ctx
-                            .next_at(repeat_ctx.code_position + 4, Jump::UntilBacktrace);
+                        break 'context ctx.next_at(repeat_ctx.code_position + 4, Jump::MinUntil2);
+                    }
+                    Jump::MinUntil2 => {
+                        let repeat_ctx = &mut state.repeat_stack[ctx.repeat_ctx_id];
+                        repeat_ctx.last_position = ctx.count as usize;
+                        if !popped_result {
+                            repeat_ctx.count -= 1;
+                            state.cursor = ctx.cursor;
+                        }
+                        break 'result popped_result;
                     }
                     Jump::RepeatOne1 => {
                         let min_count = ctx.peek_code(req, 2) as isize;
@@ -432,6 +445,7 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                     }
                     Jump::RepeatOne2 => {
                         if popped_result {
+                            state.marks.pop_discard();
                             break 'result true;
                         }
 
@@ -459,6 +473,7 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                     }
                     Jump::MinRepeatOne2 => {
                         if popped_result {
+                            state.marks.pop_discard();
                             break 'result true;
                         }
 
@@ -745,12 +760,13 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
 
                             /* cannot match more repeated items here.  make sure the
                             tail matches */
+                            repeat_ctx.count -= 1;
                             let mut next_ctx = ctx.next_offset(1, Jump::MaxUntil3);
                             next_ctx.repeat_ctx_id = repeat_ctx.prev_id;
                             break 'context next_ctx;
                         }
                         SreOpcode::MIN_UNTIL => {
-                            let repeat_ctx = state.repeat_stack.last_mut().unwrap();
+                            let repeat_ctx = &mut state.repeat_stack[ctx.repeat_ctx_id];
                             state.cursor = ctx.cursor;
                             repeat_ctx.count += 1;
 
