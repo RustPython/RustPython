@@ -93,6 +93,18 @@ with assert_raises(ValueError):
 with assert_raises(ValueError):
     struct.Struct(b"\xff")
 
+with assert_raises(struct.error):
+    struct.pack_into("Z", bytearray(4), 10**100)
+
+with assert_raises(struct.error):
+    struct.unpack_from("Z", b"", 10**100)
+
+with assert_raises(struct.error):
+    struct.unpack("Z", 5)
+
+with assert_raises(struct.error):
+    struct.iter_unpack("Z", 5)
+
 
 # A value the format has no room for names the format and the range it holds.
 for fmt, message in (
