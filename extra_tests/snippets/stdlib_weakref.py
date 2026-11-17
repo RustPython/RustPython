@@ -54,3 +54,4 @@ assert_raises(ReferenceError, lambda: p.h)
 
 assert_raises(TypeError, ref, staticmethod(len))
 assert_raises(TypeError, ref, classmethod(len))
+assert_raises(TypeError, ref, property(len))
