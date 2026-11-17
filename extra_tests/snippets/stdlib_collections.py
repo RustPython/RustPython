@@ -172,6 +172,15 @@ with assert_raises(AttributeError):
     _count_elements([], "a")
 
 
+class IterReturnsInt:
+    def __iter__(self):
+        return 1
+
+
+with assert_raises(TypeError):
+    _count_elements([], IterReturnsInt())
+
+
 # defaultdict union constructs the subclass with its factory and left operand.
 def check_defaultdict_subclass_union():
     calls = []
