@@ -517,6 +517,30 @@ def check_winapi_audit_boundaries():
             type(actual) is type(want) for actual, want in zip(seen[0], expected)
         )
 
+    if sys.implementation.name == "rustpython":
+        # CPython's Unicode-format audit path is unsafe for this sentinel.
+        accesses = []
+
+        class Unused:
+            def __getattribute__(self, name):
+                accesses.append(name)
+                raise AssertionError("CreateProcess processed arguments before audit")
+
+        command_line = object()
+        blocked = "_winapi.CreateProcess"
+        seen.clear()
+        try:
+            _winapi.CreateProcess(
+                None, command_line, None, None, 0, 0, Unused(), None, Unused()
+            )
+        except Denied:
+            pass
+        else:
+            raise AssertionError("CreateProcess audit did not deny the call")
+        assert seen == [(None, command_line, None)]
+        assert seen[0][1] is command_line
+        assert not accesses
+
     # Unicode conversion must run before a later integer converter or audit.
     calls = []
 
