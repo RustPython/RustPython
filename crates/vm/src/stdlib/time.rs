@@ -31,7 +31,7 @@ mod decl {
     };
     use core::time::Duration;
     #[cfg(not(any(unix, windows)))]
-    use jiff::{Timestamp, Zoned, civil::DateTime, tz::TimeZone};
+    use jiff::{Timestamp, ZonedDateTime, civil::DateTime, tz::TimeZone};
     #[cfg(target_os = "wasi")]
     use rustpython_host_env::time::ClockId;
     #[cfg(any(unix, windows))]
@@ -321,10 +321,10 @@ mod decl {
     }
 
     #[cfg(not(any(unix, windows)))]
-    fn naive_or_local(secs: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Zoned> {
+    fn naive_or_local(secs: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<ZonedDateTime> {
         Ok(match secs {
-            Some(secs) => pyobj_to_timestamp(secs, vm)?.to_zoned(TimeZone::system()),
-            None => Zoned::now(),
+            Some(secs) => pyobj_to_timestamp(secs, vm)?.to_zoned_datetime(TimeZone::system()),
+            None => ZonedDateTime::now(),
         })
     }
 
@@ -343,7 +343,7 @@ mod decl {
         fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<DateTime> {
             Ok(match self {
                 Self::Present(t) => t.to_date_time(vm)?,
-                Self::Missing => Zoned::now().datetime(),
+                Self::Missing => ZonedDateTime::now().datetime(),
             })
         }
     }
@@ -363,8 +363,8 @@ mod decl {
             }
             _ => {
                 let instant = match secs {
-                    Some(secs) => pyobj_to_timestamp(secs, vm)?.to_zoned(TimeZone::UTC),
-                    None => Zoned::now().with_time_zone(TimeZone::UTC),
+                    Some(secs) => pyobj_to_timestamp(secs, vm)?.to_zoned_datetime(TimeZone::UTC),
+                    None => ZonedDateTime::now().with_time_zone(TimeZone::UTC),
                 };
                 Ok(StructTimeData::new_utc(vm, instant))
             }
@@ -410,7 +410,7 @@ mod decl {
             let datetime = object.to_date_time(vm)?;
             // mktime interprets struct_time as local time
             let local_dt = datetime
-                .to_zoned(TimeZone::system())
+                .to_zoned_datetime(TimeZone::system())
                 .map_err(|_| vm.new_overflow_error("mktime argument out of range"))?;
             let seconds_since_epoch = local_dt.timestamp().as_second() as f64;
             Ok(seconds_since_epoch)
@@ -664,7 +664,7 @@ mod decl {
 
     impl StructTimeData {
         #[cfg(not(any(unix, windows)))]
-        fn new_inner(vm: &VirtualMachine, tm: Zoned, isdst: i32) -> Self {
+        fn new_inner(vm: &VirtualMachine, tm: ZonedDateTime, isdst: i32) -> Self {
             Self {
                 tm_year: vm.ctx.new_int(tm.year()).into(),
                 tm_mon: vm.ctx.new_int(tm.month()).into(),
@@ -682,14 +682,14 @@ mod decl {
 
         /// Create struct_time for UTC (gmtime)
         #[cfg(not(any(unix, windows)))]
-        fn new_utc(vm: &VirtualMachine, tm: Zoned) -> Self {
+        fn new_utc(vm: &VirtualMachine, tm: ZonedDateTime) -> Self {
             Self::new_inner(vm, tm, 0)
         }
 
         /// Create struct_time for local timezone (localtime)
         #[cfg(not(any(unix, windows)))]
         fn new_local(vm: &VirtualMachine, tm: DateTime, isdst: i32) -> PyResult<Self> {
-            tm.to_zoned(TimeZone::system())
+            tm.to_zoned_datetime(TimeZone::system())
                 .map(|tm| Self::new_inner(vm, tm, isdst))
                 .map_err(|_| {
                     vm.new_overflow_error("timestamp is ambiguous for the system timezone")
@@ -1213,7 +1213,7 @@ mod platform {
                 tm.tm_sec as i8,
                 0,
             )
-            .and_then(|dt| dt.to_zoned(jiff::tz::TimeZone::UTC))
+            .and_then(|dt| dt.to_zoned_datetime(jiff::tz::TimeZone::UTC))
             .map_err(|_| vm.new_overflow_error("timestamp out of range for Windows FILETIME"))?;
             i32::try_from(wall_time.timestamp().as_second() - when)
                 .map_err(|_| vm.new_overflow_error("timezone offset out of range"))?
