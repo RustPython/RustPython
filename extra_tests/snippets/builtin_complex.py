@@ -58,6 +58,10 @@ assert_raises(TypeError, lambda: divmod(2, complex(2, -3)))
 # assert 1j ** 2 == -1
 assert complex(1) ** 2 == 1
 assert 2 ** complex(2) == 4
+assert_raises(ValueError, pow, complex(1, 2), 2, 3)
+assert_raises(ValueError, pow, 2, complex(1, 2), 3)
+assert_raises(TypeError, pow, complex(1, 2), "x", 3)
+assert_raises(TypeError, pow, "x", complex(1, 2), 3)
 
 # __pos__
 
