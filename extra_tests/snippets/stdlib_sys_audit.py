@@ -221,3 +221,230 @@ def check_fileio_reinitialization_audit():
 
 
 check_fileio_reinitialization_audit()
+
+
+def check_winreg_audit_boundaries():
+    if sys.platform != "win32":
+        return
+    import winreg
+
+    class RegistryDenied(Exception):
+        pass
+
+    blocked = None
+    events = []
+
+    def hook(event, args):
+        if event == blocked:
+            events.append(args)
+            raise RegistryDenied
+
+    sys.addaudithook(hook)
+    # Valid conversion reaches the hook before accessing an invalid native handle.
+    negative_access = (1 << 32) - 1 if sys.maxsize > (1 << 32) else -1
+    cases = [
+        ("ConnectRegistry", (None, 0), "ConnectRegistry", (None, 0)),
+        ("CreateKey", (0, "x"), "CreateKey", (0, "x", winreg.KEY_WRITE)),
+        ("CreateKey", (0, None), "CreateKey", (0, None, winreg.KEY_WRITE)),
+        ("CreateKeyEx", (0, None), "CreateKey", (0, None, winreg.KEY_WRITE)),
+        ("CreateKeyEx", (0, "x", -1, -1), "CreateKey", (0, "x", negative_access)),
+        ("OpenKey", (0, "x", -1, -1), "OpenKey", (0, "x", negative_access)),
+        ("DeleteKeyEx", (0, "x", -1, -1), "DeleteKey", (0, "x", negative_access)),
+        (
+            "CreateKeyEx",
+            (0, "x", 0, winreg.KEY_READ),
+            "CreateKey",
+            (0, "x", winreg.KEY_READ),
+        ),
+        ("DeleteKey", (0, "x"), "DeleteKey", (0, "x", 0)),
+        (
+            "DeleteKeyEx",
+            (0, "x", winreg.KEY_WOW64_64KEY),
+            "DeleteKey",
+            (0, "x", winreg.KEY_WOW64_64KEY),
+        ),
+        ("DeleteValue", (0, None), "DeleteValue", (0, None)),
+        ("EnumValue", (0, -1), "EnumValue", (0, -1)),
+        ("LoadKey", (0, "x", "x.dat"), "LoadKey", (0, "x", "x.dat")),
+        ("SaveKey", (0, "x.dat"), "SaveKey", (0, "x.dat")),
+        (
+            "SetValue",
+            (0, "x", winreg.REG_SZ, "a\0b"),
+            "SetValue",
+            (0, "x", winreg.REG_SZ, "a\0b"),
+        ),
+        (
+            "SetValueEx",
+            (0, None, None, winreg.REG_SZ, "a\0b"),
+            "SetValue",
+            (0, None, winreg.REG_SZ, "a\0b"),
+        ),
+        ("DisableReflectionKey", (0,), "DisableReflectionKey", (0,)),
+        ("EnableReflectionKey", (0,), "EnableReflectionKey", (0,)),
+        ("QueryReflectionKey", (0,), "QueryReflectionKey", (0,)),
+        (
+            "ExpandEnvironmentStrings",
+            ("%PATH%",),
+            "ExpandEnvironmentStrings",
+            ("%PATH%",),
+        ),
+    ]
+    for name, args, event, expected in cases:
+        blocked = "winreg." + event
+        events.clear()
+        try:
+            getattr(winreg, name)(*args)
+        except RegistryDenied:
+            pass
+        else:
+            raise AssertionError(name)
+        assert events == [expected], (name, events)
+    # Argument Clinic rejects values outside C int before emitting the event.
+    for name, event in (
+        ("CreateKeyEx", "CreateKey"),
+        ("OpenKey", "OpenKey"),
+        ("DeleteKeyEx", "DeleteKey"),
+    ):
+        for invalid in (1 << 31, -(1 << 31) - 1):
+            for parameter in ("access", "reserved"):
+                blocked = "winreg." + event
+                events.clear()
+                try:
+                    getattr(winreg, name)(0, "x", **{parameter: invalid})
+                except OverflowError:
+                    pass
+                else:
+                    raise AssertionError((name, parameter, invalid))
+                assert events == []
+    blocked = "winreg.SetValue"
+    events.clear()
+    for kind, value in (
+        (winreg.REG_DWORD, "bad"),
+        (winreg.REG_QWORD, "bad"),
+        (winreg.REG_SZ, 0),
+        (winreg.REG_EXPAND_SZ, 0),
+        (winreg.REG_MULTI_SZ, "bad"),
+        (winreg.REG_MULTI_SZ, ["ok", 0]),
+    ):
+        try:
+            winreg.SetValueEx(0, None, None, kind, value)
+        except ValueError as exc:
+            assert str(exc) == "Could not convert the data to the specified type."
+        else:
+            raise AssertionError("data conversion must precede audit")
+        assert events == []
+    for kind, value in (
+        (winreg.REG_DWORD, -1),
+        (winreg.REG_DWORD, 1 << 32),
+        (winreg.REG_QWORD, -1),
+        (winreg.REG_QWORD, 1 << 64),
+    ):
+        try:
+            winreg.SetValueEx(0, None, None, kind, value)
+        except OverflowError:
+            pass
+        else:
+            raise AssertionError("numeric overflow must precede audit")
+        assert events == []
+    try:
+        winreg.SetValueEx(0, None, None, winreg.REG_BINARY, object())
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("binary conversion must precede audit")
+    assert events == []
+
+    blocked = None
+    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Software")
+    for count in (2, 4):
+        try:
+            key.__exit__(*([None] * count))
+        except TypeError:
+            pass
+        else:
+            raise AssertionError("incorrect context exit arity accepted")
+        assert int(key) != 0
+    try:
+        handle = int(key)
+        blocked = "winreg.PyHKEY.Detach"
+        try:
+            key.Detach()
+        except RegistryDenied:
+            pass
+        else:
+            raise AssertionError("detach veto ignored")
+        assert int(key) == handle
+        blocked = None
+        assert key.Detach() == handle
+        assert int(key) == 0
+        winreg.CloseKey(handle)
+        winreg.CloseKey(None)
+        winreg.CloseKey(0)
+    finally:
+        blocked = None
+        key.__exit__(None, None, None)
+        winreg.CloseKey(key)
+
+    # A reentrant hook may detach first; the outer call must return zero.
+    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Software")
+    nested = []
+    active = True
+
+    def detach_again(event, args):
+        nonlocal active
+        if active and event == "winreg.PyHKEY.Detach":
+            active = False
+            nested.append(key.Detach())
+
+    sys.addaudithook(detach_again)
+    try:
+        assert key.Detach() == 0
+        winreg.CloseKey(nested[0])
+    finally:
+        active = False
+        key.Close()
+
+    # The temporary key must survive argument conversion and the hook.
+    class Index:
+        def __index__(self):
+            import gc
+
+            gc.collect()
+            return -1
+
+    try:
+        winreg.EnumKey(winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Software"), Index())
+    except OSError as error:
+        assert error.winerror == 259  # No more items, not invalid handle (6).
+    else:
+        raise AssertionError("out-of-range enumeration succeeded")
+
+    # A result hook can reject the newly created owner; its handle must not leak.
+    for open_key in (winreg.OpenKey, winreg.CreateKey, winreg.CreateKeyEx):
+        blocked = "winreg.OpenKey/result"
+        events.clear()
+        try:
+            open_key(winreg.HKEY_CURRENT_USER, "Software")
+        except RegistryDenied:
+            pass
+        else:
+            raise AssertionError("result veto ignored")
+        blocked = None
+        rejected_handle = events[-1][0]
+        try:
+            # Closing probes validity without requiring KEY_QUERY_VALUE, which
+            # CreateKeyEx's default KEY_WRITE handle does not grant.
+            winreg.CloseKey(rejected_handle)
+        except OSError as error:
+            assert error.winerror == 6
+        else:
+            # CPython fixed result-audit handle cleanup in 3.15.1. The CI
+            # reference is still 3.15.0; RustPython must always close it.
+            # A successful close has also cleaned up that old reference leak.
+            if not (
+                sys.implementation.name == "cpython" and sys.version_info < (3, 15, 1)
+            ):
+                raise AssertionError("rejected registry handle leaked")
+
+
+check_winreg_audit_boundaries()

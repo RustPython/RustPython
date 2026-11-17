@@ -110,7 +110,6 @@ class AuditTest(unittest.TestCase):
             "RuntimeError('nonfatal-error') Exception ignored for audit hook test",
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_winreg(self):
         import_helper.import_module("winreg")
         returncode, events, stderr = self.run_python("test_winreg")
