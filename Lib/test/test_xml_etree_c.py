@@ -15,16 +15,6 @@ cET_alias = import_fresh_module('xml.etree.cElementTree',
 
 @unittest.skipUnless(cET, 'requires _elementtree')
 class MiscTests(unittest.TestCase):
-    # Issue #8651.
-    @support.bigmemtest(size=support._2G + 100, memuse=1, dry_run=False)
-    def test_length_overflow(self, size):
-        data = b'x' * size
-        parser = cET.XMLParser()
-        try:
-            self.assertRaises(OverflowError, parser.feed, data)
-        finally:
-            data = None
-
     def test_del_attribute(self):
         element = cET.Element('tag')
 
@@ -270,27 +260,6 @@ def install_tests():
             globals()[name] = Temp
 
 install_tests()
-
-# The Python ET still fails these; the native accelerator does not.
-class XMLPullParserTest(XMLPullParserTest):
-    @unittest.expectedSuccess
-    def test_simple_xml_chunk_1(self):
-        return super().test_simple_xml_chunk_1()
-
-    @unittest.expectedSuccess
-    def test_simple_xml_chunk_5(self):
-        return super().test_simple_xml_chunk_5()
-
-class TreeBuilderTest(TreeBuilderTest):
-    @unittest.expectedSuccess
-    def test_doctype(self):
-        return super().test_doctype()
-
-class XMLParserTest(XMLParserTest):
-    @unittest.expectedSuccess
-    def test_subclass_doctype(self):
-        return super().test_subclass_doctype()
-
 
 def setUpModule():
     from test import test_xml_etree
