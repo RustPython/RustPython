@@ -1,6 +1,14 @@
 import os
 import sys
-from io import BufferedReader, BytesIO, FileIO, RawIOBase, StringIO, TextIOWrapper
+from io import (
+    BufferedReader,
+    BytesIO,
+    FileIO,
+    IncrementalNewlineDecoder,
+    RawIOBase,
+    StringIO,
+    TextIOWrapper,
+)
 
 from testutils import assert_raises
 
@@ -366,3 +374,17 @@ for original in ("/nonexistent/x", b"/nonexistent/x"):
 
 with FileIO(__file__, "rbb") as rbb:
     assert rbb.mode == "rb"
+
+fd = os.open("README.md", os.O_RDONLY)
+falsy_closefd = FileIO(fd, "r", None)
+assert not falsy_closefd.closefd
+falsy_closefd.close()
+os.close(fd)
+
+decoder = IncrementalNewlineDecoder(None, "yes")
+assert decoder.decode("a\r\nb") == "a\nb"
+decoder = IncrementalNewlineDecoder(None, None)
+assert decoder.decode("a\r\nb") == "a\r\nb"
+decoder = IncrementalNewlineDecoder(None, True)
+assert decoder.decode("a\r", None) == "a"
+assert decoder.decode("\nb", "yes") == "\nb"

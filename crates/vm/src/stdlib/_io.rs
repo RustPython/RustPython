@@ -174,8 +174,9 @@ mod _io {
         convert::ToPyObject,
         exceptions::nul_char_error,
         function::{
-            ArgBytesLike, ArgContiguousBytesLike, ArgIterable, ArgMemoryBuffer, Either, FsPath,
-            FuncArgs, IntoFuncArgs, OptionalArg, OptionalOption, PySetterValue, PySsize,
+            ArgBytesLike, ArgContiguousBytesLike, ArgIntoBool, ArgIterable, ArgMemoryBuffer,
+            Either, FsPath, FuncArgs, IntoFuncArgs, OptionalArg, OptionalOption, PySetterValue,
+            PySsize,
         },
         protocol::{
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
@@ -3661,7 +3662,11 @@ mod _io {
                 if let Newlines::Universal | Newlines::Passthrough = newline {
                     let args = IncrementalNewlineDecoderArgs {
                         decoder,
-                        translate: matches!(newline, Newlines::Universal),
+                        translate: if matches!(newline, Newlines::Universal) {
+                            ArgIntoBool::TRUE
+                        } else {
+                            ArgIntoBool::FALSE
+                        },
                         errors: None,
                     };
                     Some(IncrementalNewlineDecoder::construct_and_init(args, vm)?.into())
@@ -4936,7 +4941,7 @@ mod _io {
         #[pyarg(any)]
         decoder: PyObjectRef,
         #[pyarg(any)]
-        translate: bool,
+        translate: ArgIntoBool,
         // Accepted and ignored. strict is the reported default.
         #[pyarg(any, default, py_default = "'strict'")]
         errors: Option<PyObjectRef>,
@@ -4950,7 +4955,7 @@ mod _io {
                 let mut data = zelf.lock_opt(vm)?;
                 data.replace(IncrementalNewlineDecoderData {
                     decoder: args.decoder,
-                    translate: args.translate,
+                    translate: args.translate.into_bool(),
                     pendingcr: false,
                     seennl: SeenNewline::empty(),
                 })
@@ -4983,16 +4988,17 @@ mod _io {
     impl Py<IncrementalNewlineDecoder> {
         #[pymethod]
         fn decode(&self, args: NewlineDecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let r#final = args.r#final.into_bool();
             let decoder = self.lock(vm)?.decoder.clone();
             let output = if vm.is_none(&decoder) {
                 args.input
             } else {
-                vm.call_method(&decoder, "decode", (args.input, args.r#final))?
+                vm.call_method(&decoder, "decode", (args.input, r#final))?
             };
             let output = check_decoded(output, vm)?;
             // The input subclass remains owned by this scope until after the
             // newline-state guard has been released.
-            let result = self.lock(vm)?.decode(&output, args.r#final, vm);
+            let result = self.lock(vm)?.decode(&output, r#final, vm);
             Ok(result.unwrap_or(output))
         }
 
@@ -5049,8 +5055,8 @@ mod _io {
     struct NewlineDecodeArgs {
         #[pyarg(any)]
         input: PyObjectRef,
-        #[pyarg(any, default)]
-        r#final: bool,
+        #[pyarg(any, default = ArgIntoBool::FALSE)]
+        r#final: ArgIntoBool,
     }
 
     impl IncrementalNewlineDecoderData {
@@ -6496,7 +6502,7 @@ mod fileio {
         common::wtf8::Wtf8Buf,
         convert::{IntoPyException, ToPyException},
         exceptions::ToOSErrorBuilder,
-        function::{ArgBytesLike, ArgMemoryBuffer},
+        function::{ArgBytesLike, ArgIntoBool, ArgMemoryBuffer},
         ospath::OsPath,
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
@@ -6526,8 +6532,8 @@ mod fileio {
         // The input default is r; the mode property normalizes it to rb.
         #[pyarg(any, default, py_default = "'r'")]
         mode: Option<PyUtf8StrRef>,
-        #[pyarg(any, default = true)]
-        closefd: bool,
+        #[pyarg(any, default = ArgIntoBool::TRUE)]
+        closefd: ArgIntoBool,
         #[pyarg(any, optional)]
         opener: Option<PyObjectRef>,
     }
@@ -6581,11 +6587,11 @@ mod fileio {
             vm.audit("open", || (name.clone(), mode_str, flags))?;
 
             let fd = if let Some(fd) = arg_fd {
-                zelf.closefd.store(args.closefd);
+                zelf.closefd.store(args.closefd.into_bool());
                 fd
             } else {
                 zelf.closefd.store(true);
-                if !args.closefd {
+                if !args.closefd.into_bool() {
                     return Err(vm.new_value_error("Cannot use closefd=False with file name"));
                 }
 
