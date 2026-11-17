@@ -99,14 +99,30 @@ impl Py<PyTraceback> {
     }
 }
 
+#[derive(FromArgs)]
+pub struct TracebackArgs {
+    #[pyarg(any)]
+    tb_next: Option<PyRef<PyTraceback>>,
+    #[pyarg(any)]
+    tb_frame: FrameObjectRef,
+    #[pyarg(any)]
+    tb_lasti: i32,
+    #[pyarg(any)]
+    tb_lineno: usize,
+}
+
 impl Constructor for PyTraceback {
-    type Args = (Option<PyRef<Self>>, FrameObjectRef, i32, usize);
+    type Args = TracebackArgs;
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-        let (next, frame, lasti, lineno) = args;
-        let lineno =
-            OneIndexed::new(lineno).ok_or_else(|| vm.new_value_error("lineno must be positive"))?;
-        Ok(Self::new(next, frame, lasti, lineno))
+        let lineno = OneIndexed::new(args.tb_lineno)
+            .ok_or_else(|| vm.new_value_error("lineno must be positive"))?;
+        Ok(Self::new(
+            args.tb_next,
+            args.tb_frame,
+            args.tb_lasti,
+            lineno,
+        ))
     }
 }
 
