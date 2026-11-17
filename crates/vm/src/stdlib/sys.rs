@@ -1,8 +1,10 @@
 pub(crate) mod monitoring;
 
-use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
+#[cfg(not(native_host_io))]
+use crate::PyPayload;
+use crate::{Py, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
 
-#[cfg(all(not(feature = "host_env"), feature = "stdio"))]
+#[cfg(all(not(feature = "host_env"), feature = "stdio", not(native_host_io)))]
 pub(crate) use sys::SandboxStdio;
 pub use sys::{COPYRIGHT, PLATFORM};
 pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, module_def, multiarch};
@@ -54,10 +56,9 @@ pub mod sys {
     use core::ffi::CStr;
     use core::sync::atomic::Ordering;
     use num_traits::ToPrimitive;
-    use std::{
-        env,
-        io::{IsTerminal, Write},
-    };
+    use std::env;
+    #[cfg(not(native_host_io))]
+    use std::io::{IsTerminal, Write};
 
     // Rust target triple (e.g., "x86_64-unknown-linux-gnu")
     pub(crate) const RUST_MULTIARCH: &str = env!("RUSTPYTHON_TARGET_TRIPLE");
@@ -71,13 +72,16 @@ pub mod sys {
     #[pymodule(name = "monitoring", with(super::monitoring::sys_monitoring))]
     pub(super) mod monitoring {}
 
+    #[cfg(not(native_host_io))]
     #[pyclass(no_attr, name = "_BootstrapStderr")]
     #[derive(Debug, PyPayload)]
     pub(super) struct BootstrapStderr;
 
+    #[cfg(not(native_host_io))]
     #[pyclass(with(Py))]
     impl BootstrapStderr {}
 
+    #[cfg(not(native_host_io))]
     #[pyclass]
     impl Py<BootstrapStderr> {
         #[pymethod]
@@ -95,6 +99,7 @@ pub mod sys {
 
     // Lightweight stdio wrapper for sandbox mode (no host_env).
     // Directly uses Rust's std::io for stdin/stdout/stderr without FileIO.
+    #[cfg(not(native_host_io))]
     #[pyclass(no_attr, name = "_SandboxStdio")]
     #[derive(Debug, PyPayload)]
     pub struct SandboxStdio {
@@ -103,9 +108,11 @@ pub mod sys {
         pub mode: String,
     }
 
+    #[cfg(not(native_host_io))]
     #[pyclass(with(Py))]
     impl SandboxStdio {}
 
+    #[cfg(not(native_host_io))]
     #[pyclass]
     impl Py<SandboxStdio> {
         #[pymethod]
@@ -768,7 +775,7 @@ pub mod sys {
             .collect()
     }
 
-    #[cfg(feature = "rustpython-compiler")]
+    #[cfg(all(feature = "rustpython-compiler", not(native_host_io)))]
     #[pyfunction]
     fn _baserepl(vm: &VirtualMachine) {
         // PyRun_AnyFileExFlags(stdin, "<stdin>", 0, &cf)
@@ -2231,8 +2238,10 @@ pub(crate) fn init_module(
 }
 
 pub(crate) fn set_bootstrap_stderr(vm: &VirtualMachine) -> PyResult<()> {
-    let stderr = sys::BootstrapStderr.into_ref(&vm.ctx);
-    let stderr_obj: crate::PyObjectRef = stderr.into();
+    #[cfg(not(native_host_io))]
+    let stderr_obj: crate::PyObjectRef = sys::BootstrapStderr.into_ref(&vm.ctx).into();
+    #[cfg(native_host_io)]
+    let stderr_obj = vm.ctx.none();
     vm.sys_module.set_attr("stderr", stderr_obj.clone(), vm)?;
     vm.sys_module.set_attr("__stderr__", stderr_obj, vm)?;
     Ok(())
@@ -2262,7 +2271,7 @@ impl PyStderr<'_> {
                 return;
             }
         }
-        eprint!("{args}")
+        vm.write_stderr_fmt(args)
     }
 }
 

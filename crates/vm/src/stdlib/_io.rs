@@ -1848,6 +1848,9 @@ mod _io {
                     "Fatal Python error: _enter_buffered_busy: could not acquire lock for {} at interpreter shutdown, possibly due to daemon threads\n",
                     describe()
                 );
+                #[cfg(native_host_io)]
+                vm.write_stderr_fmt(format_args!("{message}"));
+                #[cfg(not(native_host_io))]
                 let _ = crate::host_env::crt_fd::write_noraise(2, message.as_bytes());
                 crate::host_env::os::abort()
             }
@@ -6480,13 +6483,24 @@ mod _io {
         Ok(())
     }
 }
+#[cfg(all(feature = "host_io", not(native_host_io)))]
+mod fileio_host {
+    pub(super) use rustpython_host_env::crt_fd::ftruncate as truncate;
+    pub(super) use rustpython_host_env::io::{
+        FileMode, inspect_file_target, is_interrupted_error, is_seekable, is_would_block_error,
+        parse_fileio_mode, read_once, reads_without_waiting, seek, seek_to_end,
+        should_forget_fd_after_inspect_error, tell, write_once,
+    };
+}
+
 // FileIO requires host descriptor access, not the full Python OS module.
 #[cfg(feature = "host_io")]
 #[pymodule]
 mod fileio {
     use super::{_io::*, Offset, iobase_finalize};
+    #[cfg(not(native_host_io))]
+    use crate::host_env::crt_fd;
     use crate::host_env::{
-        crt_fd,
         errno::errors::{EBADF, EINTR},
         os::ErrorExt,
     };
@@ -6501,16 +6515,31 @@ mod fileio {
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
 
+    #[cfg(not(native_host_io))]
+    use super::fileio_host as host_io;
+    #[cfg(native_host_io)]
+    use crate::native_host_io::file_ops as host_io;
     use core::sync::atomic::{AtomicBool, Ordering};
     use crossbeam_utils::atomic::AtomicCell;
-    use rustpython_host_env::io as host_io;
+    #[cfg(native_host_io)]
+    type FileHandle<'a> = rustpython_wasi_host::Handle;
+    #[cfg(not(native_host_io))]
+    type FileHandle<'a> = crt_fd::Borrowed<'a>;
+    #[cfg(native_host_io)]
+    type BorrowedFileHandle<'a> = &'a rustpython_wasi_host::Handle;
+    #[cfg(not(native_host_io))]
+    type BorrowedFileHandle<'a> = crt_fd::Borrowed<'a>;
 
     #[pyattr]
     #[pyclass(module = "_io", name, base = _RawIOBase)]
     #[derive(Debug)]
     pub(super) struct FileIO {
         _base: _RawIOBase,
+        #[cfg(not(native_host_io))]
         fd: AtomicCell<i32>,
+        #[cfg(native_host_io)]
+        fd: crate::native_host_io::Descriptor,
+        #[cfg(not(native_host_io))]
         closefd: AtomicCell<bool>,
         mode: AtomicCell<host_io::FileMode>,
         seekable: AtomicCell<Option<bool>>,
@@ -6536,7 +6565,11 @@ mod fileio {
         fn default() -> Self {
             Self {
                 _base: Default::default(),
+                #[cfg(not(native_host_io))]
                 fd: AtomicCell::new(-1),
+                #[cfg(native_host_io)]
+                fd: Default::default(),
+                #[cfg(not(native_host_io))]
                 closefd: AtomicCell::new(true),
                 mode: AtomicCell::new(host_io::FileMode::empty()),
                 seekable: AtomicCell::new(None),
@@ -6553,13 +6586,18 @@ mod fileio {
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             // Reinitialization detaches the old descriptor before validation or audit.
-            if zelf.closefd.load() {
+            #[cfg(native_host_io)]
+            zelf.internal_close().map_err(|e| e.to_pyexception(vm))?;
+            #[cfg(not(native_host_io))]
+            if zelf.closefd_value() {
                 zelf.internal_close()
                     .map_err(|err| err.to_pyexception(vm))?;
             } else {
-                zelf.fd.store(-1);
+                zelf.forget_fd();
             }
             // TODO: let atomic_flag_works
+            #[cfg(native_host_io)]
+            let owner = vm.state.host_io.clone();
             let name = args.file;
             let arg_fd = super::open_file_descriptor(&name, vm)?;
             // Resolve the path before mode validation, even with a custom opener.
@@ -6581,9 +6619,11 @@ mod fileio {
             vm.audit("open", || (name.clone(), mode_str, flags))?;
 
             let fd = if let Some(fd) = arg_fd {
+                #[cfg(not(native_host_io))]
                 zelf.closefd.store(args.closefd);
                 fd
             } else {
+                #[cfg(not(native_host_io))]
                 zelf.closefd.store(true);
                 if !args.closefd {
                     return Err(vm.new_value_error("Cannot use closefd=False with file name"));
@@ -6601,13 +6641,20 @@ mod fileio {
                     fd
                 } else {
                     let path = path.take().expect("a filename was resolved above");
-                    #[cfg(not(windows))]
+                    #[cfg(any(not(windows), native_host_io))]
                     let raw_path = path.into_cstring(vm)?;
-                    #[cfg(windows)]
+                    #[cfg(all(windows, not(native_host_io)))]
                     let raw_path = path.to_wide_cstring(vm)?;
                     loop {
-                        match vm.allow_threads(|| host_io::open_path(&raw_path, flags, 0o666)) {
-                            Ok(fd) => break fd.into_raw(),
+                        #[cfg(not(native_host_io))]
+                        let opened = vm.allow_threads(|| {
+                            rustpython_host_env::io::open_path(&raw_path, flags, 0o666)
+                                .map(|fd| fd.into_raw())
+                        });
+                        #[cfg(native_host_io)]
+                        let opened = vm.allow_threads(|| owner.open_path(&raw_path, flags));
+                        match opened {
+                            Ok(fd) => break fd,
                             Err(e) if e.posix_errno() == EINTR => vm.check_signals()?,
                             Err(e) => {
                                 return Err(e
@@ -6620,10 +6667,23 @@ mod fileio {
                 }
             };
             let fd_is_own = arg_fd.is_none();
+            #[cfg(not(native_host_io))]
             zelf.fd.store(fd);
-            let fd = unsafe { crt_fd::Borrowed::borrow_raw(fd) };
+            #[cfg(native_host_io)]
+            zelf.fd
+                .bind(owner, fd, args.closefd)
+                .map_err(|e| e.to_pyexception(vm))?;
+            let fd = match zelf.get_fd(vm) {
+                Ok(fd) => fd,
+                Err(error) => {
+                    zelf.forget_fd();
+                    return Err(error);
+                }
+            };
             // TODO: _Py_set_inheritable
 
+            #[cfg(native_host_io)]
+            let fd = &fd;
             match host_io::inspect_file_target(fd) {
                 Ok(info) => {
                     if let Some(blksize) = info.blksize {
@@ -6632,7 +6692,7 @@ mod fileio {
                 }
                 Err(err) => {
                     if host_io::should_forget_fd_after_inspect_error(&err, fd_is_own) {
-                        zelf.fd.store(-1);
+                        zelf.forget_fd();
                     }
                     if err.posix_errno() == EBADF {
                         return Err(err.to_pyexception(vm));
@@ -6645,12 +6705,12 @@ mod fileio {
                 }
             }
 
-            #[cfg(windows)]
+            #[cfg(all(windows, not(native_host_io)))]
             crate::host_env::msvcrt::setmode_binary(fd);
             if let Err(e) = zelf.as_object().set_attr("name", name, vm) {
                 // If fd was passed by user, don't close it on error
                 if !fd_is_own {
-                    zelf.fd.store(-1);
+                    zelf.forget_fd();
                 }
                 return Err(e);
             }
@@ -6673,7 +6733,11 @@ mod fileio {
             }
             let name_repr = repr_file_obj_name(zelf.as_object(), vm)?;
             let mode = zelf.mode();
-            let closefd = if zelf.closefd.load() { "True" } else { "False" };
+            let closefd = if zelf.closefd_value() {
+                "True"
+            } else {
+                "False"
+            };
             let repr = if let Some(name_repr) = name_repr {
                 format!("<{type_name} name={name_repr} mode='{mode}' closefd={closefd}>")
             } else {
@@ -6684,10 +6748,31 @@ mod fileio {
     }
 
     impl FileIO {
+        fn closefd_value(&self) -> bool {
+            #[cfg(native_host_io)]
+            {
+                self.fd.closefd()
+            }
+            #[cfg(not(native_host_io))]
+            {
+                self.closefd.load()
+            }
+        }
+        fn forget_fd(&self) {
+            #[cfg(native_host_io)]
+            self.fd.forget();
+            #[cfg(not(native_host_io))]
+            self.fd.store(-1);
+        }
+        #[cfg(native_host_io)]
+        fn internal_close(&self) -> std::io::Result<()> {
+            self.fd.close()
+        }
+        #[cfg(not(native_host_io))]
         fn internal_close(&self) -> std::io::Result<()> {
             let fd = self.fd.swap(-1);
             if fd >= 0 {
-                host_io::close_owned_fd(unsafe { crt_fd::Owned::from_raw(fd) })?;
+                rustpython_host_env::io::close_owned_fd(unsafe { crt_fd::Owned::from_raw(fd) })?;
             }
             Ok(())
         }
@@ -6701,14 +6786,20 @@ mod fileio {
             }
         }
 
-        fn get_fd(&self, vm: &VirtualMachine) -> PyResult<crt_fd::Borrowed<'_>> {
+        #[cfg(native_host_io)]
+        fn get_fd(&self, vm: &VirtualMachine) -> PyResult<FileHandle<'_>> {
+            self.fileno(vm)?;
+            self.fd.pin().map_err(|e| e.to_pyexception(vm))
+        }
+        #[cfg(not(native_host_io))]
+        fn get_fd(&self, vm: &VirtualMachine) -> PyResult<FileHandle<'_>> {
             self.fileno(vm)
                 .map(|fd| unsafe { crt_fd::Borrowed::borrow_raw(fd) })
         }
 
         /// One `read()` into `buf`, retried on EINTR (PEP 475). `None` on EAGAIN.
         fn read_once_into(
-            handle: crt_fd::Borrowed<'_>,
+            handle: BorrowedFileHandle<'_>,
             buf: &mut [u8],
             vm: &VirtualMachine,
         ) -> PyResult<Option<usize>> {
@@ -6738,7 +6829,7 @@ mod fileio {
 
         #[pygetset]
         fn closefd(&self) -> bool {
-            self.closefd.load()
+            self.closefd_value()
         }
 
         #[pygetset]
@@ -6785,6 +6876,8 @@ mod fileio {
                 ));
             }
             let handle = zelf.get_fd(vm)?;
+            #[cfg(native_host_io)]
+            let handle = &handle;
             let bytes = if let Some(read_byte) = read_byte.to_usize() {
                 let mut bytes = vm.new_zeroed_bytes(read_byte)?;
                 // Loop on EINTR (PEP 475)
@@ -6853,6 +6946,8 @@ mod fileio {
             }
 
             let handle = zelf.get_fd(vm)?;
+            #[cfg(native_host_io)]
+            let handle = &handle;
 
             if host_io::reads_without_waiting(handle) {
                 // The read answers from the file itself, so it returns without
@@ -6888,6 +6983,8 @@ mod fileio {
             }
 
             let handle = zelf.get_fd(vm)?;
+            #[cfg(native_host_io)]
+            let handle = &handle;
 
             // A pipe, socket or terminal takes the bytes only when the other
             // end makes room, which may be never; see readinto above for what
@@ -6915,8 +7012,9 @@ mod fileio {
         #[pymethod]
         fn close(zelf: &Self, vm: &VirtualMachine) -> PyResult<()> {
             let res = iobase_close(zelf.as_object(), vm);
-            if !zelf.closefd.load() {
-                zelf.fd.store(-1);
+            #[cfg(not(native_host_io))]
+            if !zelf.closefd_value() {
+                zelf.forget_fd();
                 return res;
             }
             let flush_exc = res.err();
@@ -6940,6 +7038,8 @@ mod fileio {
         #[pymethod]
         fn seekable(&self, vm: &VirtualMachine) -> PyResult<bool> {
             let fd = self.get_fd(vm)?;
+            #[cfg(native_host_io)]
+            let fd = &fd;
             Ok(self.seekable.load().unwrap_or_else(|| {
                 let seekable = host_io::is_seekable(fd);
                 self.seekable.store(Some(seekable));
@@ -6950,7 +7050,16 @@ mod fileio {
         #[pymethod]
         fn seek(&self, pos: PyObjectRef, whence: HowArg, vm: &VirtualMachine) -> PyResult<Offset> {
             let how = whence.whence;
+            #[cfg(native_host_io)]
+            if !(0..=2).contains(&how) {
+                return Err(
+                    crate::native_host_io::native_error(rustpython_wasi_host::INVAL)
+                        .to_pyexception(vm),
+                );
+            }
             let fd = self.get_fd(vm)?;
+            #[cfg(native_host_io)]
+            let fd = &fd;
             let offset = get_offset(&pos, vm)?;
 
             host_io::seek(fd, offset, how).map_err(|e| e.into_pyexception(vm))
@@ -6959,24 +7068,56 @@ mod fileio {
         #[pymethod]
         fn tell(&self, vm: &VirtualMachine) -> PyResult<Offset> {
             let fd = self.get_fd(vm)?;
+            #[cfg(native_host_io)]
+            let fd = &fd;
             host_io::tell(fd).map_err(|e| e.into_pyexception(vm))
         }
 
         #[pymethod]
         fn truncate(&self, len: ObjLen, vm: &VirtualMachine) -> PyResult<Offset> {
+            #[cfg(native_host_io)]
+            let size = len
+                .size
+                .as_ref()
+                .map(|size| get_offset(size, vm))
+                .transpose()?;
+            #[cfg(native_host_io)]
+            if size.is_some_and(|size| size < 0) {
+                return Err(
+                    crate::native_host_io::native_error(rustpython_wasi_host::INVAL)
+                        .to_pyexception(vm),
+                );
+            }
             let fd = self.get_fd(vm)?;
+            #[cfg(native_host_io)]
+            let fd = &fd;
+            #[cfg(native_host_io)]
+            let len = match size {
+                Some(size) => size,
+                None => host_io::tell(fd).map_err(|e| e.into_pyexception(vm))?,
+            };
+            #[cfg(not(native_host_io))]
             let len = match len.size {
                 Some(l) => get_offset(&l, vm)?,
                 None => host_io::tell(fd).map_err(|e| e.into_pyexception(vm))?,
             };
-            crt_fd::ftruncate(fd, len).map_err(|e| e.into_pyexception(vm))?;
+            host_io::truncate(fd, len).map_err(|e| e.into_pyexception(vm))?;
             Ok(len)
         }
 
         #[pymethod]
         fn isatty(&self, vm: &VirtualMachine) -> PyResult<bool> {
             let fd = self.fileno(vm)?;
-            Ok(host_io::isatty(fd))
+            #[cfg(native_host_io)]
+            {
+                let _ = fd;
+                self.fd.pin().map_err(|e| e.to_pyexception(vm))?;
+                Ok(false)
+            }
+            #[cfg(not(native_host_io))]
+            {
+                Ok(rustpython_host_env::io::isatty(fd))
+            }
         }
 
         #[pymethod]
@@ -6994,7 +7135,7 @@ mod fileio {
     impl FileIO {
         /// Issue ResourceWarning if fd is still open and closefd is true.
         fn dealloc_warn(zelf: &Py<Self>, source: &PyObject, vm: &VirtualMachine) {
-            if zelf.fd.load() >= 0 && zelf.closefd.load() {
+            if zelf.fd.load() >= 0 && zelf.closefd_value() {
                 let repr = source
                     .repr(vm)
                     .map_or_else(|_| Wtf8Buf::from("<file>"), |s| s.as_wtf8().to_owned());

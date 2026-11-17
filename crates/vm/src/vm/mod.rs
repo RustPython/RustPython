@@ -7,6 +7,9 @@ mod async_exception;
 #[cfg(feature = "rustpython-compiler")]
 mod compile;
 pub(crate) mod compile_mode;
+macro_rules! vm_eprintln {
+    ($vm:expr, $($arg:tt)*) => { $vm.write_stderr_fmt(format_args!("{}\n", format_args!($($arg)*))) };
+}
 #[cfg(feature = "rustpython-compiler")]
 pub use compile::VmCompileError;
 mod context;
@@ -862,6 +865,8 @@ pub(crate) struct CallableCache {
 /// `PyGlobalState`. Process-wide pieces live elsewhere (`Context::genesis`,
 /// GC, the interpreter registry in [`runtime`]).
 pub struct PyGlobalState {
+    #[cfg(native_host_io)]
+    pub(crate) host_io: crate::native_host_io::HostIo,
     /// Unique process-global interpreter id (main is [`MAIN_INTERPRETER_ID`]).
     pub interpreter_id: i64,
     /// Top-level interpreter whose runtime owns this interpreter.
@@ -1533,15 +1538,31 @@ impl VirtualMachine {
     }
 
     // PyUnicode_InitEncodings completes filesystem setup before creating stdio.
+    pub(crate) fn write_stderr_fmt(&self, args: core::fmt::Arguments<'_>) {
+        #[cfg(native_host_io)]
+        self.state.host_io.write_stderr(args);
+        #[cfg(not(native_host_io))]
+        eprint!("{args}");
+    }
+
     fn init_stdio(&self) -> PyResult<()> {
         let io = import::import_builtin(self, "_io")?;
 
         // CPython normalizes configured stdio encodings to CodecInfo.name.
-        #[cfg(all(feature = "host_env", feature = "stdio"))]
+        #[cfg(all(any(feature = "host_env", native_host_io), feature = "stdio"))]
         let stdio_encoding: PyRef<PyUtf8Str> = {
             let encoding = match self.state.config.settings.stdio_encoding.as_deref() {
                 Some(encoding) => self.ctx.new_utf8_str(encoding),
-                None => crate::stdlib::_io::default_text_encoding(self)?,
+                None => {
+                    #[cfg(native_host_io)]
+                    {
+                        self.ctx.new_utf8_str("utf-8")
+                    }
+                    #[cfg(not(native_host_io))]
+                    {
+                        crate::stdlib::_io::default_text_encoding(self)?
+                    }
+                }
             };
             self.state
                 .codec_registry
@@ -1553,9 +1574,16 @@ impl VirtualMachine {
         };
 
         // Full stdio: FileIO → BufferedWriter → TextIOWrapper
-        #[cfg(all(feature = "host_env", feature = "stdio"))]
+        #[cfg(all(any(feature = "host_env", native_host_io), feature = "stdio"))]
         let make_stdio = |name: &str, fd: i32, write: bool| -> PyResult<PyObjectRef> {
-            #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+            #[cfg(native_host_io)]
+            if !self.state.host_io.contains(fd) {
+                return Ok(self.ctx.none());
+            }
+            #[cfg(all(
+                not(native_host_io),
+                any(not(target_arch = "wasm32"), target_os = "wasi")
+            ))]
             if !rustpython_host_env::fileutils::is_valid_fd(fd) {
                 return Ok(self.ctx.none());
             }
@@ -1620,7 +1648,10 @@ impl VirtualMachine {
                 Ok::<_, self::PyBaseExceptionRef>(stdio)
             })();
 
-            #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+            #[cfg(all(
+                not(native_host_io),
+                any(not(target_arch = "wasm32"), target_os = "wasi")
+            ))]
             if let Err(ref exc) = result
                 && exc.fast_isinstance(self.ctx.exceptions.os_error)
                 && !rustpython_host_env::fileutils::is_valid_fd(fd)
@@ -1631,7 +1662,7 @@ impl VirtualMachine {
         };
 
         // Sandbox stdio: lightweight wrapper using Rust's std::io directly
-        #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
+        #[cfg(all(not(feature = "host_env"), not(native_host_io), feature = "stdio"))]
         let make_stdio = |name: &str, fd: i32, write: bool| {
             let mode = if write { "w" } else { "r" };
             let stdio = stdlib::sys::SandboxStdio {
@@ -1734,7 +1765,8 @@ impl VirtualMachine {
             && cfg!(feature = "rustpython-compiler")
             && let Err(e) = import::init_importlib_package(self, &importlib)
         {
-            eprintln!(
+            vm_eprintln!(
+                self,
                 "importlib initialization failed. This is critical for many complicated packages."
             );
             self.print_exception(&e);
@@ -1752,7 +1784,8 @@ impl VirtualMachine {
                 if self.state.config.settings.home.is_some() {
                     self.startup_error = Some(e);
                 } else {
-                    eprintln!(
+                    vm_eprintln!(
+                        self,
                         "encodings initialization failed. Only utf-8 encoding will be supported."
                     );
                     self.print_exception(&e);
@@ -1761,7 +1794,8 @@ impl VirtualMachine {
         } else {
             // Here may not be the best place to give general `path_list` advice,
             // but bare rustpython_vm::VirtualMachine users skipped proper settings must hit here while properly setup vm never enters here.
-            eprintln!(
+            vm_eprintln!(
+                self,
                 "feature `encodings` is enabled but `paths.module_search_paths` is empty. \
                 Please add the library path to `settings.path_list`. If you intended to disable the entire standard library (including the `encodings` feature), please also make sure to disable the `encodings` feature.\n\
                 Tip: You may also want to add `\"\"` to `settings.path_list` in order to enable importing from the current working directory."
@@ -1799,28 +1833,33 @@ impl VirtualMachine {
                 .repr(self)
                 .unwrap_or_else(|_| "?".to_owned())
         };
-        eprintln!("Python path configuration:");
-        eprintln!(
+        vm_eprintln!(self, "Python path configuration:");
+        vm_eprintln!(
+            self,
             "  PYTHONHOME = {}",
             settings
                 .home
                 .as_deref()
                 .map_or_else(|| "(not set)".to_owned(), repr)
         );
-        eprintln!("  isolated = {}", u8::from(settings.isolated));
-        eprintln!("  environment = {}", u8::from(!settings.ignore_environment));
-        eprintln!("  sys.executable = {}", repr(&paths.executable));
-        eprintln!("  sys.prefix = {}", repr(&paths.prefix));
-        eprintln!("  sys.exec_prefix = {}", repr(&paths.exec_prefix));
-        eprintln!("  sys.path = [");
+        vm_eprintln!(self, "  isolated = {}", u8::from(settings.isolated));
+        vm_eprintln!(
+            self,
+            "  environment = {}",
+            u8::from(!settings.ignore_environment)
+        );
+        vm_eprintln!(self, "  sys.executable = {}", repr(&paths.executable));
+        vm_eprintln!(self, "  sys.prefix = {}", repr(&paths.prefix));
+        vm_eprintln!(self, "  sys.exec_prefix = {}", repr(&paths.exec_prefix));
+        vm_eprintln!(self, "  sys.path = [");
         for path in &paths.module_search_paths {
             let value = self
                 .fsdecode(path.clone())
                 .and_then(|path| path.repr(self))
                 .unwrap_or_else(|_| "?".to_owned());
-            eprintln!("    {value},");
+            vm_eprintln!(self, "    {value},");
         }
-        eprintln!("  ]");
+        vm_eprintln!(self, "  ]");
         // A startup import failure is fatal even if the imported module raised
         // SystemExit(0) or SystemExit(None). Keep its exception as the cause,
         // without passing its exit code to ordinary user-code finalization.

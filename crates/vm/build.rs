@@ -11,6 +11,13 @@ use std::{
 };
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(native_host_io)");
+    if cfg!(feature = "host_io")
+        && !cfg!(feature = "host_env")
+        && env::var("CARGO_CFG_TARGET_ARCH").as_deref() != Ok("wasm32")
+    {
+        println!("cargo:rustc-cfg=native_host_io");
+    }
     let frozen_libs = if cfg!(feature = "freeze-stdlib") {
         "Lib/*/*.py"
     } else {
