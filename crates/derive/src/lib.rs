@@ -207,6 +207,11 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// docstring and overrides the stored documentation. The stored documentation
 /// is used only when that item has no `///` comment. Use `//` for developer notes.
 /// ## Inner markers
+/// With `with(Callable)`, `instance_text_signature` opts in to a read-only
+/// `__text_signature__` on instances, generated from `Callable::Args` metadata.
+/// This is separate from the constructor signature on the class. The argument
+/// type must provide `FromArgs::PARAMS`; no receiver is included in the result.
+///
 /// ### pymethod/pyclassmethod/pystaticmethod
 /// `pymethod` is used to mark a method of the Python class.
 /// `pyclassmethod` is used to mark a class method.

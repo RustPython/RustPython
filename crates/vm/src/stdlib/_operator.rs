@@ -388,13 +388,8 @@ mod _operator {
         }
     }
 
-    #[pyclass(with(Callable, Constructor, Representable))]
+    #[pyclass(with(Callable, Constructor, Representable), instance_text_signature)]
     impl Py<PyAttrGetter> {
-        #[pygetset]
-        fn __text_signature__(&self) -> &'static str {
-            "(obj, /)"
-        }
-
         #[pymethod]
         fn __reduce__(zelf: PyRef<PyAttrGetter>, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
             let attrs = vm.ctx.new_tuple(
@@ -456,9 +451,16 @@ mod _operator {
         }
     }
 
+    #[derive(FromArgs)]
+    struct GetterCallArgs {
+        #[pyarg(positional)]
+        obj: PyObjectRef,
+    }
+
     impl Callable for PyAttrGetter {
-        type Args = PyObjectRef;
-        fn call(zelf: &Py<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
+        type Args = GetterCallArgs;
+        fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            let obj = args.obj;
             // Handle case where we only have one attribute.
             if zelf.attrs.len() == 1 {
                 return Self::get_single_attr(obj, &zelf.attrs[0], vm);
@@ -500,13 +502,8 @@ mod _operator {
         items: Vec<PyObjectRef>,
     }
 
-    #[pyclass(with(Callable, Constructor, Representable))]
+    #[pyclass(with(Callable, Constructor, Representable), instance_text_signature)]
     impl Py<PyItemGetter> {
-        #[pygetset]
-        fn __text_signature__(&self) -> &'static str {
-            "(obj, /)"
-        }
-
         #[pymethod]
         fn __reduce__(zelf: PyRef<PyItemGetter>, vm: &VirtualMachine) -> PyObjectRef {
             let items = vm.ctx.new_tuple(zelf.items.to_vec());
@@ -538,8 +535,9 @@ mod _operator {
     }
 
     impl Callable for PyItemGetter {
-        type Args = PyObjectRef;
-        fn call(zelf: &Py<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
+        type Args = GetterCallArgs;
+        fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            let obj = args.obj;
             // Handle case where we only have one attribute.
             if zelf.items.len() == 1 {
                 return obj.get_item(&*zelf.items[0], vm);
@@ -582,13 +580,8 @@ mod _operator {
         args: FuncArgs,
     }
 
-    #[pyclass(with(Callable, Constructor, Representable))]
+    #[pyclass(with(Callable, Constructor, Representable), instance_text_signature)]
     impl Py<PyMethodCaller> {
-        #[pygetset]
-        fn __text_signature__(&self) -> &'static str {
-            "(obj, /)"
-        }
-
         #[pymethod]
         fn __reduce__(zelf: PyRef<PyMethodCaller>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             // With no kwargs, return (type(obj), (name, *args)) tuple.
@@ -652,10 +645,11 @@ mod _operator {
     }
 
     impl Callable for PyMethodCaller {
-        type Args = PyObjectRef;
+        type Args = GetterCallArgs;
 
         #[inline]
-        fn call(zelf: &Py<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            let obj = args.obj;
             obj.get_attr(&zelf.name, vm)?.call(zelf.args.clone(), vm)
         }
     }
