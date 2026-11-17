@@ -246,7 +246,9 @@ mod _remote_debugging {
         match error {
             binary::Error::Io(error) => error.into_pyexception(vm),
             binary::Error::Value(message) => vm.new_value_error(message),
-            binary::Error::Overflow(message) => vm.new_overflow_error(message),
+            binary::Error::Overflow(message) | binary::Error::Limit(message) => {
+                vm.new_overflow_error(message)
+            }
             binary::Error::Memory => vm.new_memory_error("unable to allocate profiling data"),
             binary::Error::Runtime(message) => vm.new_runtime_error(message),
         }
@@ -330,10 +332,20 @@ mod _remote_debugging {
         capture_features: i32,
     }
 
+    #[derive(Debug, Default, PartialEq, Eq)]
+    enum WriterStatus {
+        #[default]
+        Open,
+        LimitReached,
+        Broken,
+    }
+
     #[derive(Debug, Default)]
     struct WriterState {
         writer: Option<binary::Writer>,
         cached_total_samples: u64,
+        status: WriterStatus,
+        generation: u64,
     }
 
     #[pyattr]
@@ -357,6 +369,8 @@ mod _remote_debugging {
             let old = {
                 let mut state = zelf.state.lock();
                 state.cached_total_samples = 0;
+                state.status = WriterStatus::Open;
+                state.generation = state.generation.wrapping_add(1);
                 state.writer.take()
             };
             drop(old);
@@ -389,8 +403,8 @@ mod _remote_debugging {
 
     #[derive(FromArgs)]
     struct BinaryExitArgs {
-        #[pyarg(any, optional)]
-        exc_type: Option<PyObjectRef>,
+        #[pyarg(any, optional, name = "exc_type")]
+        _exc_type: Option<PyObjectRef>,
         #[pyarg(any, optional, name = "exc_val")]
         _exc_value: Option<PyObjectRef>,
         #[pyarg(any, optional, name = "exc_tb")]
@@ -441,12 +455,57 @@ mod _remote_debugging {
                 timestamp_us,
             } = args;
             let timestamp_us = timestamp_us.try_into_value::<u64>(vm)?;
-            if zelf.state.lock().writer.is_none() {
-                return Err(vm.new_value_error("Writer is closed"));
+            let (generation, error) = {
+                let mut state = zelf.state.lock();
+                let error = if state.writer.is_none() {
+                    Some("Writer is closed")
+                } else if state.status == WriterStatus::Broken {
+                    Some("Writer is broken")
+                } else {
+                    state.status = WriterStatus::Open;
+                    None
+                };
+                (state.generation, error)
+            };
+            if let Some(error) = error {
+                return Err(vm.new_value_error(error));
             }
-            for interpreter in list_items(&stack_frames, "stack_frames", vm)? {
+            let result =
+                Self::write_sample_inner(zelf, &stack_frames, timestamp_us, generation, vm);
+            if result.is_err() {
+                let mut state = zelf.state.lock();
+                if state.generation == generation
+                    && state.writer.is_some()
+                    && state.status != WriterStatus::LimitReached
+                {
+                    state.status = WriterStatus::Broken;
+                }
+            }
+            result
+        }
+
+        fn write_sample_inner(
+            zelf: &Py<Self>,
+            stack_frames: &PyObject,
+            timestamp_us: u64,
+            generation: u64,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            for interpreter in list_items(stack_frames, "stack_frames", vm)? {
                 let fields = record_fields(&interpreter, 2, "interpreter", vm)?;
-                let interpreter_id = fields[0].try_to_value::<u32>(vm)?;
+                let interpreter_id = fields[0].try_to_value::<u64>(vm)?;
+                let interpreter_id = u32::try_from(interpreter_id).map_err(|_| {
+                    {
+                        let mut state = zelf.state.lock();
+                        if state.generation == generation && state.writer.is_some() {
+                            state.status = WriterStatus::LimitReached;
+                        }
+                    }
+                    vm.new_overflow_error(format!(
+                        "interpreter_id {interpreter_id} exceeds maximum value {}",
+                        u32::MAX
+                    ))
+                })?;
                 for thread in list_items(&fields[1], "threads", vm)? {
                     let fields = record_fields(&thread, 3, "thread", vm)?;
                     let thread_id = fields[0].try_to_value::<u64>(vm)?;
@@ -475,14 +534,26 @@ mod _remote_debugging {
                     // All Python conversions above have finished before borrowing file state.
                     let result = {
                         let mut state = zelf.state.lock();
-                        state
-                            .writer
-                            .as_mut()
-                            .map(|writer| writer.write_sample(&sample))
+                        if state.generation == generation {
+                            state
+                                .writer
+                                .as_mut()
+                                .map(|writer| writer.write_sample(&sample))
+                        } else {
+                            None
+                        }
                     };
                     result
                         .ok_or_else(|| vm.new_value_error("Writer is closed"))?
-                        .map_err(|error| codec_error(error, vm))?;
+                        .map_err(|error| {
+                            if matches!(error, binary::Error::Limit(_)) {
+                                let mut state = zelf.state.lock();
+                                if state.generation == generation && state.writer.is_some() {
+                                    state.status = WriterStatus::LimitReached;
+                                }
+                            }
+                            codec_error(error, vm)
+                        })?;
                 }
             }
             Ok(())
@@ -518,13 +589,19 @@ mod _remote_debugging {
         fn finalize(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             let result = {
                 let mut state = zelf.state.lock();
-                if let Some(writer) = state.writer.as_mut() {
+                if state.writer.is_some() && state.status == WriterStatus::Broken {
+                    Err(Some(binary::Error::Value("Writer is broken".to_owned())))
+                } else if let Some(writer) = state.writer.as_mut() {
                     match writer.finalize() {
                         Ok(()) => {
                             state.cached_total_samples = writer.total_samples();
+                            state.generation = state.generation.wrapping_add(1);
                             Ok(state.writer.take())
                         }
-                        Err(error) => Err(Some(error)),
+                        Err(error) => {
+                            state.status = WriterStatus::Broken;
+                            Err(Some(error))
+                        }
                     }
                 } else {
                     Err(None)
@@ -539,7 +616,17 @@ mod _remote_debugging {
 
         #[pymethod]
         fn close(zelf: &Py<Self>) {
-            let _writer = zelf.state.lock().writer.take();
+            let _writer = {
+                let mut state = zelf.state.lock();
+                state.generation = state.generation.wrapping_add(1);
+                state.writer.take()
+            };
+        }
+
+        #[pygetset]
+        fn limit_reached(zelf: &Py<Self>) -> bool {
+            let state = zelf.state.lock();
+            state.writer.is_some() && state.status == WriterStatus::LimitReached
         }
 
         #[pygetset]
@@ -589,15 +676,16 @@ mod _remote_debugging {
         }
 
         #[pymethod]
-        fn __exit__(zelf: &Py<Self>, args: BinaryExitArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            if args.exc_type.as_ref().is_none_or(|value| vm.is_none(value)) {
-                let is_open = zelf.state.lock().writer.is_some();
-                if is_open && let Err(error) = Self::finalize(zelf, vm) {
-                    Self::close(zelf);
-                    return Err(error);
-                }
-            } else {
+        fn __exit__(zelf: &Py<Self>, _args: BinaryExitArgs, vm: &VirtualMachine) -> PyResult<bool> {
+            let (is_open, broken) = {
+                let state = zelf.state.lock();
+                (state.writer.is_some(), state.status == WriterStatus::Broken)
+            };
+            if broken {
                 Self::close(zelf);
+            } else if is_open && let Err(error) = Self::finalize(zelf, vm) {
+                Self::close(zelf);
+                return Err(error);
             }
             Ok(false)
         }
