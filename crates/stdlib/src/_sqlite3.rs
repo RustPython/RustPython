@@ -1198,19 +1198,38 @@ mod _sqlite3 {
         }
     }
 
+    #[derive(FromArgs)]
+    struct ConnectionCallArgs {
+        #[pyarg(positional)]
+        sql: PyUtf8StrRef,
+    }
+
+    // CPython checks the connection state before validating call arguments.
+    // Keep that order while deriving the displayed signature from the same
+    // typed arguments used below once the connection has been checked.
+    struct ConnectionForwardArgs(FuncArgs);
+
+    impl FromArgs for ConnectionForwardArgs {
+        const PARAMS: Option<&'static [Param]> = ConnectionCallArgs::PARAMS;
+        const BINDING_PARAMS: Option<&'static [Param]> = FuncArgs::BINDING_PARAMS;
+
+        fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            FuncArgs::from_args(vm, args).map(Self)
+        }
+    }
+
     impl Callable for Connection {
-        type Args = FuncArgs;
+        type Args = ConnectionForwardArgs;
 
         fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            with_deferred_drops(|| Self::call_inner(zelf, args, vm))
+            with_deferred_drops(|| Self::call_inner(zelf, args.0, vm))
         }
     }
 
     impl Connection {
         fn call_inner(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let _ = zelf.db_lock(vm)?;
-
-            let (sql,): (PyUtf8StrRef,) = args.bind(vm)?;
+            let ConnectionCallArgs { sql } = args.bind(vm)?;
 
             if let Some(stmt) = Statement::new(zelf, sql, vm)? {
                 Ok(stmt.into_ref(&vm.ctx).into())
@@ -1372,7 +1391,8 @@ mod _sqlite3 {
 
     #[pyclass(
         with(Constructor, Callable, Initializer, Destructor),
-        flags(BASETYPE, HAS_WEAKREF)
+        flags(BASETYPE, HAS_WEAKREF),
+        instance_text_signature
     )]
     impl Connection {
         fn cached_statement(
@@ -2225,11 +2245,6 @@ mod _sqlite3 {
                 Self::rollback(zelf, vm)?;
             }
             Ok(false)
-        }
-
-        #[pygetset]
-        fn __text_signature__(_zelf: &Py<Self>) -> &'static str {
-            "(sql, /)"
         }
 
         #[pygetset]
