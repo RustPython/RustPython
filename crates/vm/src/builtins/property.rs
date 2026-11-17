@@ -210,10 +210,7 @@ impl PyProperty {
     }
 }
 
-#[pyclass(
-    with(Constructor, Initializer, GetDescriptor),
-    flags(BASETYPE, HAS_WEAKREF)
-)]
+#[pyclass(with(Constructor, Initializer, GetDescriptor), flags(BASETYPE))]
 impl Py<PyProperty> {
     // Descriptor methods
 
