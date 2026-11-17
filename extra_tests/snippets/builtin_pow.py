@@ -182,3 +182,12 @@ def test_bug705231():
 tests = [f for name, f in locals().items() if name.startswith("test_")]
 for f in tests:
     f()
+
+
+class PowOnlyAsModulus:
+    def __pow__(self, other, mod=None):
+        return "called"
+
+
+assert_raises(TypeError, pow, None, None, PowOnlyAsModulus())
+assert_raises(TypeError, pow, "a", 2, PowOnlyAsModulus())

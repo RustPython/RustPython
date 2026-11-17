@@ -580,7 +580,10 @@ macro_rules! number_ternary_op_wrapper {
             if vm.is_none(c) {
                 vm.call_special_method(a, identifier!(vm, $name), (b.to_owned(),))
             } else {
-                vm.call_special_method(a, identifier!(vm, $name), (b.to_owned(), c.to_owned()))
+                // The modulus's slot is called with the original operands,
+                // so the first one may not define the method at all.
+                vm.call_special_method_opt(a, identifier!(vm, $name), (b.to_owned(), c.to_owned()))
+                    .map(|ret| ret.unwrap_or_else(|| vm.ctx.not_implemented()))
             }
         }
     };
