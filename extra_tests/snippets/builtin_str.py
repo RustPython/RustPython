@@ -28,6 +28,16 @@ assert str(2.1) == "2.1"
 assert str() == ""
 assert str("abc") == "abc"
 
+assert type(iter("abc")).__name__ == "str_ascii_iterator"
+assert type(iter("")).__name__ == "str_ascii_iterator"
+assert type(iter("\xe9")).__name__ == "str_iterator"
+ascii_iterator = iter("abc")
+assert next(ascii_iterator) == "a"
+assert ascii_iterator.__length_hint__() == 2
+assert ascii_iterator.__reduce__() == (iter, ("abc",), 1)
+ascii_iterator.__setstate__(2)
+assert list(ascii_iterator) == ["c"]
+
 assert_raises(TypeError, lambda: str("abc", "utf-8"))
 assert str(b"abc", "utf-8") == "abc"
 assert str(b"abc", encoding="ascii") == "abc"
