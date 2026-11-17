@@ -2788,12 +2788,18 @@ mod _ssl {
                         read.map_err(|error| self.remember_eof(error, vm))?;
                     }
                     TlsState::SendingAlert { error } => {
-                        let result = self.flush_pending_tls_output(vm, None);
-                        *self.state.lock() = TlsState::SendingAlert {
-                            error: error.clone(),
-                        };
-                        result?;
+                        if let Err(output_error) = self.flush_pending_tls_output(vm, None) {
+                            *self.state.lock() = TlsState::SendingAlert { error };
+                            return Err(output_error);
+                        }
+                        // Once the alert is sent, do not retain the exception:
+                        // its traceback can point back to this SSL object.
+                        *self.state.lock() = TlsState::Failed;
                         return Err(self.remember_eof(error, vm));
+                    }
+                    TlsState::Failed => {
+                        *self.state.lock() = TlsState::Failed;
+                        return Err(self.remember_eof(create_ssl_eof_error(vm).upcast(), vm));
                     }
                     state @ (TlsState::Handshaking
                     | TlsState::Connected
@@ -3194,7 +3200,10 @@ mod _ssl {
                         vm,
                     ) {
                         drop(conn_guard);
-                        if matches!(*zelf.state.lock(), TlsState::SendingAlert { .. }) {
+                        if matches!(
+                            *zelf.state.lock(),
+                            TlsState::SendingAlert { .. } | TlsState::Failed
+                        ) {
                             return Err(error);
                         }
                         zelf.reject_connection(error, super::handshake::sni_alert(40), vm);

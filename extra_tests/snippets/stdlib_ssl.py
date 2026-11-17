@@ -55,6 +55,34 @@ client.do_handshake()
 server.do_handshake()
 
 
+def test_failed_server_handshake_sends_one_alert():
+    # Once initialization sends its fatal alert, the caller must not enqueue
+    # another alert or replace the original TLS failure with a send failure.
+    rejecting_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    rejecting_context.minimum_version = ssl.TLSVersion.TLSv1_3
+    rejecting_context.load_cert_chain(str(CERT))
+    incoming, outgoing = ssl.MemoryBIO(), ssl.MemoryBIO()
+    peer_in, peer_out = ssl.MemoryBIO(), ssl.MemoryBIO()
+    peer = client_context.wrap_bio(peer_in, peer_out)
+    rejecting = rejecting_context.wrap_bio(incoming, outgoing, server_side=True)
+    try:
+        peer.do_handshake()
+    except ssl.SSLWantReadError:
+        pass
+    incoming.write(peer_out.read())
+    try:
+        rejecting.do_handshake()
+    except ssl.SSLError:
+        pass
+    else:
+        raise AssertionError("TLS 1.2 client connected to TLS 1.3-only server")
+    # One fatal protocol_version alert, not a second generic handshake_failure.
+    assert outgoing.read() == b"\x15\x03\x03\x00\x02\x02\x46"
+
+
+test_failed_server_handshake_sends_one_alert()
+
+
 def test_certificate_public_bytes(connection):
     import _ssl
     import inspect

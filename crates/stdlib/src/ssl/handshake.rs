@@ -18,6 +18,7 @@ pub(super) enum TlsState {
     ShuttingDown,
     ShutDown,
     SendingAlert { error: PyBaseExceptionRef },
+    Failed,
 }
 
 impl TlsState {
@@ -40,6 +41,7 @@ impl fmt::Debug for TlsState {
             Self::ShuttingDown => "ShuttingDown",
             Self::ShutDown => "ShutDown",
             Self::SendingAlert { .. } => "SendingAlert",
+            Self::Failed => "Failed",
         })
     }
 }
