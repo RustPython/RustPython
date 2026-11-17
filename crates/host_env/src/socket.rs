@@ -1219,7 +1219,8 @@ pub fn pack_ancillary_messages(
     Ok(control_buf)
 }
 
-#[cfg(all(test, unix, not(target_os = "redox")))]
+#[cfg(test)]
+#[cfg(all(unix, not(target_os = "redox")))]
 #[allow(
     clippy::tests_outside_test_module,
     reason = "the platform-gated module is compiled only for tests"
