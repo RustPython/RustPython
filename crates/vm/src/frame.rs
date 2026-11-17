@@ -3984,7 +3984,24 @@ impl ExecutingFrame<'_> {
                 self.localsplus.promote_stack();
                 break Ok(None);
             }
-            let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
+            // Native-call specializations bypass PyCallable's legacy profile
+            // events. Use the generic call only while tracing, without rewriting
+            // shared bytecode or touching the specialization's inline caches.
+            let result = if tracing
+                && matches!(
+                    op,
+                    Instruction::CallListAppend
+                        | Instruction::CallLen
+                        | Instruction::CallIsinstance
+                        | Instruction::CallMethodDescriptorNoargs
+                        | Instruction::CallMethodDescriptorO
+                        | Instruction::CallMethodDescriptorFast
+                        | Instruction::CallMethodDescriptorFastWithKeywords
+                ) {
+                self.execute_call_vectorcall(arg.into(), vm)
+            } else {
+                self.execute_instruction(op, arg, &mut do_extend_arg, vm)
+            };
             // Skip inline cache entries if instruction fell through (no jump).
             // `cache_entries()` is a table lookup, so it is done here rather
             // than before dispatch: computing it up front kept the count live
