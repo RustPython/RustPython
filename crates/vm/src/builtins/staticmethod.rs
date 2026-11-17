@@ -96,7 +96,7 @@ impl Initializer for PyStaticMethod {
 
 #[pyclass(
     with(Callable, GetDescriptor, Constructor, Initializer, Representable),
-    flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
+    flags(BASETYPE, HAS_DICT)
 )]
 impl Py<PyStaticMethod> {
     #[pygetset]
