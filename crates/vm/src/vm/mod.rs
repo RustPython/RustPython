@@ -58,7 +58,7 @@ use core::ptr::NonNull;
 #[cfg(feature = "threading")]
 use core::sync::atomic::AtomicU64;
 use core::{
-    cell::{Cell, OnceCell, RefCell},
+    cell::{Cell, RefCell},
     sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
