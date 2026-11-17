@@ -131,3 +131,12 @@ for tuple_type in (tuple, DestructibleTuple):
     if tuple_type is DestructibleTuple:
         expected.insert(0, "tuple")
     assert tuple_events == expected, tuple_events
+
+
+class EmptyLenTuple(tuple):
+    def __len__(self):
+        return 0
+
+
+assert not hasattr(tuple, "__bool__")
+assert bool(EmptyLenTuple((1, 2))) is False
