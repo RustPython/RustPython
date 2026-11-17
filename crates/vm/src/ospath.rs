@@ -186,10 +186,18 @@ impl OutputMode {
         fn inner(mode: OutputMode, path: PathBuf, vm: &VirtualMachine) -> PyResult {
             match mode {
                 OutputMode::String => vm.fsdecode(path).map(Into::into),
-                OutputMode::Bytes => Ok(vm
-                    .ctx
-                    .new_bytes(path.into_os_string().into_encoded_bytes())
-                    .into()),
+                OutputMode::Bytes => {
+                    #[cfg(windows)]
+                    if vm.state.config.settings.legacy_windows_fs_encoding {
+                        use std::os::windows::ffi::OsStrExt;
+                        let wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+                        return vm.fsencode_wide(&wide).map(Into::into);
+                    }
+                    Ok(vm
+                        .ctx
+                        .new_bytes(path.into_os_string().into_encoded_bytes())
+                        .into())
+                }
             }
         }
         inner(self, path.into(), vm)

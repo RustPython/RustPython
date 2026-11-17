@@ -45,7 +45,6 @@ class UTF8ModeTests(unittest.TestCase):
                 out = self.get_output('-c', code, LC_ALL=loc)
                 self.assertEqual(out, '1')
 
-    @unittest.expectedFailureIf(MS_WINDOWS, "TODO: RUSTPYTHON")
     def test_xoption(self):
         code = 'import sys; print(sys.flags.utf8_mode)'
 
@@ -66,7 +65,6 @@ class UTF8ModeTests(unittest.TestCase):
                                   PYTHONLEGACYWINDOWSFSENCODING='1')
             self.assertEqual(out, '0')
 
-    @unittest.expectedFailureIf(MS_WINDOWS, "TODO: RUSTPYTHON")
     def test_env_var(self):
         code = 'import sys; print(sys.flags.utf8_mode)'
 
@@ -99,7 +97,6 @@ class UTF8ModeTests(unittest.TestCase):
         self.assertIn('invalid PYTHONUTF8 environment variable value',
                       out.rstrip())
 
-    @unittest.expectedFailureIf(MS_WINDOWS, "TODO: RUSTPYTHON")
     def test_filesystemencoding(self):
         code = textwrap.dedent('''
             import sys

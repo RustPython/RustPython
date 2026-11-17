@@ -896,3 +896,55 @@ if os.name == "nt":
     for key, value in (("a=b", "x"), ("a\0b", "x"), ("a", "b\0c")):
         with assert_raises(ValueError):
             subprocess.run([sys.executable, "-S", "-c", "pass"], env={key: value})
+
+
+if sys.platform == "win32":
+    # Legacy filesystem bytes must not reinterpret native UTF-16 paths, argv,
+    # or environment values as bytes in the ANSI code page.
+    import subprocess
+    import textwrap
+
+    environment = os.environ.copy()
+    environment["PYTHONLEGACYWINDOWSFSENCODING"] = "1"
+    environment["RUSTPYTHON_LEGACY_WIDE"] = "\U0001f40d\ud800"
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            textwrap.dedent(r"""
+                import os
+                import sys
+                import tempfile
+
+                assert sys.getfilesystemencoding() == "mbcs"
+                assert sys.getfilesystemencodeerrors() == "replace"
+                assert sys.argv[1] == "\U0001f40d\ud800"
+                assert os.environ["RUSTPYTHON_LEGACY_WIDE"] == sys.argv[1]
+                assert os.getcwdb() == os.fsencode(os.getcwd())
+                with tempfile.TemporaryDirectory() as directory:
+                    name = "native-\U0001f40d\ud800"
+                    path = os.path.join(directory, name)
+                    with open(path, "wb") as file:
+                        file.write(b"wide")
+                    assert name in os.listdir(directory)
+                    byte_directory = os.fsencode(directory)
+                    assert os.fsencode(name) in os.listdir(byte_directory)
+                    with os.scandir(byte_directory) as entries:
+                        assert os.fsencode(name) in [entry.name for entry in entries]
+                    assert os.stat(path).st_size == 4
+                    # Valid UTF-8 bytes still require decoding with mbcs here.
+                    encoded = b"legacy-\xc3\xa9"
+                    decoded = encoded.decode("mbcs", "replace")
+                    assert os.path.normpath(encoded) == os.fsencode(decoded)
+                    assert os.path.splitroot(encoded)[2] == os.fsencode(decoded)
+                    if not any(c in decoded for c in '<>:"/\\|?*'):
+                        with open(os.path.join(directory, decoded), "wb") as file:
+                            file.write(b"bytes")
+                        bytepath = os.fsencode(directory) + b"\\" + encoded
+                        assert os.stat(bytepath).st_size == 5
+            """),
+            "\U0001f40d\ud800",
+        ],
+        env=environment,
+        check=True,
+    )
