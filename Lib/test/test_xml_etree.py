@@ -1498,7 +1498,6 @@ class IterparseTest(unittest.TestCase):
                 ('start-ns', ('cl\xe9', 'http://effbot.org/ns')),
             ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parsing_error(self):
         source = io.BytesIO(b"<document />junk")
         it = ET.iterparse(source)
@@ -1549,7 +1548,6 @@ class IterparseTest(unittest.TestCase):
         self.assertIn(repr(SIMPLE_XMLFILE), str(wm.warning))
         self.assertEqual(wm.filename, __file__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_resource_warnings_failed_iteration(self):
         self.addCleanup(os_helper.unlink, TESTFN)
         with open(TESTFN, "wb") as f:
