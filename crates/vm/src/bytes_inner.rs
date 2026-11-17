@@ -359,6 +359,7 @@ impl ByteInnerBuffer<'_> {
 }
 
 #[derive(FromArgs)]
+#[from_args(text_signature = "(sub[, start[, end]], /)")]
 pub struct ByteInnerFindOptions {
     #[pyarg(positional)]
     sub: PyObjectRef,

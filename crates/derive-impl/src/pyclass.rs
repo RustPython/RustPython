@@ -1413,6 +1413,13 @@ where
             ),
             args.context.self_ty_subst.as_ref(),
             None,
+            item_meta
+                .text_signature(match self.inner.attr_name {
+                    AttrName::Method => Some("$self"),
+                    AttrName::ClassMethod => Some("$type"),
+                    _ => None,
+                })?
+                .as_ref(),
         );
         let doc_body_pending =
             doc_body_pending_expr(args.context.self_ty_subst.as_ref(), &py_name, rust_doc);
@@ -1828,7 +1835,7 @@ impl ToTokens for GetSetNursery {
 struct MethodItemMeta(ItemMetaInner);
 
 impl ItemMeta for MethodItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw", "coexist"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw", "coexist", "text_signature"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -2731,78 +2738,59 @@ fn class_internal_doc(
     has_constructor: bool,
     has_structseq: bool,
 ) -> TokenStream {
-    let init_params = quote!(<<#payload as ::rustpython_vm::types::Initializer>::Args as ::rustpython_vm::function::FromArgs>::PARAMS);
-    let ctor_params = quote!(<<#payload as ::rustpython_vm::types::Constructor>::Args as ::rustpython_vm::function::FromArgs>::PARAMS);
-    let chosen = match (has_initializer, has_constructor) {
-        (true, true) => quote! {
-            ::rustpython_vm::function::choose_class_params(#init_params, #ctor_params)
-        },
-        (true, false) => quote! {
-            ::rustpython_vm::function::real_signature(#init_params)
-        },
-        (false, true) => quote! {
-            ::rustpython_vm::function::real_signature(#ctor_params)
-        },
-        (false, false) => quote!(None),
-    };
-    let chosen = if has_structseq {
+    let metadata = |trait_name: TokenStream| {
         quote! {
-            match #chosen {
-                Some(params) => Some(params),
-                None => ::rustpython_vm::types::STRUCT_SEQUENCE_PARAMS,
-            }
+            (
+                ::rustpython_vm::function::real_signature(
+                    <<#payload as ::rustpython_vm::types::#trait_name>::Args as ::rustpython_vm::function::FromArgs>::PARAMS,
+                ),
+                <<#payload as ::rustpython_vm::types::#trait_name>::Args as ::rustpython_vm::function::FromArgs>::TEXT_SIGNATURE,
+            )
         }
-    } else {
-        chosen
     };
-    quote! {
-        {
-            const CHOSEN: Option<&'static [::rustpython_vm::function::Param]> = #chosen;
-            if CHOSEN.is_none() {
+    let init = if has_initializer {
+        metadata(quote!(Initializer))
+    } else {
+        quote!((None, None))
+    };
+    let ctor = if has_constructor {
+        metadata(quote!(Constructor))
+    } else {
+        quote!((None, None))
+    };
+    let fallback = if has_structseq {
+        quote!(::rustpython_vm::types::STRUCT_SEQUENCE_PARAMS)
+    } else {
+        quote!(None)
+    };
+    crate::util::doc_from_signature_args(
+        &quote!(NAME),
+        quote! {
+            if CHOSEN.is_none() && OVERRIDE.is_none() {
                 ::rustpython_vm::function::ItemDoc::NONE
             } else {
-                const ARGS: &[::rustpython_vm::function::SigArg] = &[
-                    ::rustpython_vm::function::SigArg {
-                        name: "",
-                        params: CHOSEN,
-                        binding_params: CHOSEN,
-                        force_unpack_keywords: false,
-                    },
-                ];
-                const BASE: ::rustpython_vm::function::ItemDoc =
-                    <#payload as ::rustpython_vm::class::PyClassDef>::DOC;
-                const NAME: &str = <#payload as ::rustpython_vm::class::PyClassDef>::NAME;
-                if BASE.len != 0 {
-                    const N: usize = ::rustpython_vm::function::signature_prefix_len(NAME, ARGS);
-                    const B: [u8; N] =
-                        ::rustpython_vm::function::signature_prefix_bytes::<N>(NAME, ARGS);
-                    const PREFIX: &str = match ::core::str::from_utf8(&B) {
-                        Ok(s) => s,
-                        Err(_) => panic!(),
-                    };
-                    ::rustpython_vm::function::ItemDoc {
-                        text: Some(PREFIX),
-                        offset: BASE.offset,
-                        len: BASE.len,
-                    }
-                } else {
-                    const BODY: &str = match BASE.text {
-                        Some(text) => text,
-                        None => "",
-                    };
-                    const N: usize =
-                        ::rustpython_vm::function::internal_doc_len(NAME, ARGS, BODY);
-                    const B: [u8; N] =
-                        ::rustpython_vm::function::internal_doc_bytes::<N>(NAME, ARGS, BODY);
-                    const FULL: &str = match ::core::str::from_utf8(&B) {
-                        Ok(s) => s,
-                        Err(_) => panic!(),
-                    };
-                    ::rustpython_vm::function::ItemDoc::static_text(FULL)
-                }
+                <#payload as ::rustpython_vm::class::PyClassDef>::DOC
             }
-        }
-    }
+        },
+        quote! {
+            const NAME: &str = <#payload as ::rustpython_vm::class::PyClassDef>::NAME;
+            const INIT: (Option<&[::rustpython_vm::function::Param]>, Option<&str>) = #init;
+            const CTOR: (Option<&[::rustpython_vm::function::Param]>, Option<&str>) = #ctor;
+            const SELECTED: (Option<&[::rustpython_vm::function::Param]>, Option<&str>) =
+                if INIT.0.is_some() || INIT.1.is_some() { INIT } else { CTOR };
+            const CHOSEN: Option<&[::rustpython_vm::function::Param]> = match SELECTED.0 {
+                Some(params) => Some(params), None => #fallback,
+            };
+            const ARGS: &[::rustpython_vm::function::SigArg] = &[
+                ::rustpython_vm::function::SigArg {
+                    name: "", params: CHOSEN, binding_params: CHOSEN, force_unpack_keywords: false,
+                },
+            ];
+            const OVERRIDE: Option<(&str, Option<&str>)> = match SELECTED.1 {
+                Some(text) => Some((text, None)), None => None,
+            };
+        },
+    )
 }
 
 fn impl_item_new<Item>(
@@ -2907,4 +2895,21 @@ fn parse_vec_ident(
             )
         })?
         .to_string())
+}
+
+#[cfg(test)]
+mod text_signature_tests {
+    use super::*;
+
+    #[test]
+    fn class_doc_reuses_argument_overrides_and_central_docs() {
+        for (init, ctor) in [(true, false), (false, true), (true, true)] {
+            let tokens = class_internal_doc(&parse_quote!(Example), init, ctor, false).to_string();
+            assert!(tokens.contains("FromArgs > :: TEXT_SIGNATURE"));
+            assert!(tokens.contains("PyClassDef > :: DOC"));
+            assert!(tokens.contains("offset : BASE . offset"));
+            assert!(tokens.contains("text_signature_doc_bytes"));
+            assert!(!tokens.contains("SigArg :: implicit"));
+        }
+    }
 }

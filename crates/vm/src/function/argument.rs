@@ -1133,12 +1133,14 @@ impl ArgumentError {
 /// Binding and display metadata shared by owned and borrowed argument structs.
 /// Borrowed structs use the same strict Clinic signature as ordinary `FromArgs`.
 pub trait ArgsMetadata {
+    const TEXT_SIGNATURE: Option<&'static str> = None;
     const DISPLAY_PARAMS: Option<&'static [Param]>;
     const CLINIC_PARAMS: Option<&'static [Param]> = Self::DISPLAY_PARAMS;
     const UNPACK_KEYWORDS: bool = false;
 }
 
 impl<T: FromArgs> ArgsMetadata for T {
+    const TEXT_SIGNATURE: Option<&'static str> = T::TEXT_SIGNATURE;
     const DISPLAY_PARAMS: Option<&'static [Param]> = T::PARAMS;
     const CLINIC_PARAMS: Option<&'static [Param]> = T::BINDING_PARAMS;
     const UNPACK_KEYWORDS: bool = T::FORCE_UNPACK_KEYWORDS;
@@ -1183,6 +1185,18 @@ impl<'a, T: crate::convert::TryFromBorrowedObject<'a>> FromBorrowedArgOptional<'
 /// function.
 ///
 pub trait FromArgs: Sized {
+    /// Checked explicit signature for this complete argument spec, without a receiver.
+    /// Sharing the type shares the override, like an Argument Clinic clone.
+    /// Incompatible requiredness fails when the checked metadata is evaluated:
+    /// ```compile_fail
+    /// use rustpython_vm::{FromArgs, function::FromArgs as FromArgsTrait};
+    /// #[derive(FromArgs)]
+    /// #[from_args(text_signature = "(value=None, /)")]
+    /// struct Invalid { #[pyarg(positional)] value: u32 }
+    /// const _: Option<&str> = <Invalid as FromArgsTrait>::TEXT_SIGNATURE;
+    /// ```
+    const TEXT_SIGNATURE: Option<&'static str> = None;
+
     /// The range of positional arguments permitted by the function signature.
     ///
     /// By default this is computed from the binding parameters. An explicit
