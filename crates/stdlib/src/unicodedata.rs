@@ -8,24 +8,15 @@ pub(crate) use unicodedata::module_def;
 
 use rustpython_unicode::{self as unicode_core, NormalizeForm};
 
-use crate::vm::{
-    Py, PyObject, PyResult, VirtualMachine, builtins::PyStr, convert::TryFromBorrowedObject,
-};
+use crate::vm::{Py, PyResult, VirtualMachine, builtins::PyStr};
 
-struct NormalizeFormArg(NormalizeForm);
-
-impl<'a> TryFromBorrowedObject<'a> for NormalizeFormArg {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-        obj.try_value_with(
-            |form: &Py<PyStr>| match form.as_bytes() {
-                b"NFC" => Ok(Self(NormalizeForm::Nfc)),
-                b"NFKC" => Ok(Self(NormalizeForm::Nfkc)),
-                b"NFD" => Ok(Self(NormalizeForm::Nfd)),
-                b"NFKD" => Ok(Self(NormalizeForm::Nfkd)),
-                _ => Err(vm.new_value_error("invalid normalization form")),
-            },
-            vm,
-        )
+fn normalize_form(form: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<NormalizeForm> {
+    match form.as_bytes() {
+        b"NFC" => Ok(NormalizeForm::Nfc),
+        b"NFKC" => Ok(NormalizeForm::Nfkc),
+        b"NFD" => Ok(NormalizeForm::Nfd),
+        b"NFKD" => Ok(NormalizeForm::Nfkd),
+        _ => Err(vm.new_value_error("invalid normalization form")),
     }
 }
 
@@ -34,7 +25,7 @@ mod unicodedata {
     use alloc::ffi::CString;
     use rustpython_unicode::{UNICODE_VERSION, UNICODE_VERSION_LEGACY};
 
-    use super::{NormalizeFormArg, unicode_core};
+    use super::{normalize_form, unicode_core};
     use crate::vm::{
         Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBytes, PyModule, PyStr, PyStrRef, PyUtf8Str},
@@ -426,13 +417,31 @@ mod unicodedata {
         }
 
         #[pymethod]
-        fn normalize(zelf: &Py<Self>, form: NormalizeFormArg, unistr: PyStrRef) -> Wtf8Buf {
-            zelf.inner.normalize(form.0, unistr.as_wtf8())
+        fn normalize(
+            zelf: &Py<Self>,
+            form: PyStrRef,
+            unistr: PyStrRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<Wtf8Buf> {
+            if unistr.is_empty() {
+                return Ok(Wtf8Buf::new());
+            }
+            let form = normalize_form(&form, vm)?;
+            Ok(zelf.inner.normalize(form, unistr.as_wtf8()))
         }
 
         #[pymethod]
-        fn is_normalized(zelf: &Py<Self>, form: NormalizeFormArg, unistr: PyStrRef) -> bool {
-            zelf.inner.is_normalized(form.0, unistr.as_wtf8())
+        fn is_normalized(
+            zelf: &Py<Self>,
+            form: PyStrRef,
+            unistr: PyStrRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<bool> {
+            if unistr.is_empty() {
+                return Ok(true);
+            }
+            let form = normalize_form(&form, vm)?;
+            Ok(zelf.inner.is_normalized(form, unistr.as_wtf8()))
         }
 
         #[pymethod]
