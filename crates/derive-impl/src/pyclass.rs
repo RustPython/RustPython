@@ -2764,7 +2764,7 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
 fn instance_signature_getset(payload: &Ident) -> syn::ImplItem {
     parse_quote! {
         #[pygetset]
-        fn __text_signature__(&self) -> &'static str {
+        fn __text_signature__(_zelf: &::rustpython_vm::Py<#payload>) -> &'static str {
             const PARAMS: Option<&'static [::rustpython_vm::function::Param]> =
                 <<#payload as ::rustpython_vm::types::Callable>::Args as ::rustpython_vm::function::FromArgs>::PARAMS;
             const ARGS: &[::rustpython_vm::function::SigArg] = &[
@@ -2992,6 +2992,7 @@ mod instance_signature_tests {
             let generated = expand("with(Callable), instance_text_signature", item).unwrap();
             syn::parse2::<syn::File>(generated.clone()).unwrap();
             let generated = generated.to_string();
+            assert!(!generated.contains("compile_error"), "{generated}");
             assert!(generated.contains("__text_signature__"));
             assert!(generated.contains("< Example as :: rustpython_vm :: types :: Callable >"));
             assert!(generated.contains("signature_prefix_bytes"));
@@ -3015,7 +3016,7 @@ mod instance_signature_tests {
         );
         assert!(expand(
             "with(Callable), instance_text_signature",
-            "impl Example { #[pygetset] fn __text_signature__(&self) -> &'static str { \"()\" } }"
+            "impl Example { #[pygetset] fn __text_signature__(_zelf: &Py<Self>) -> &'static str { \"()\" } }"
         ).unwrap().to_string().contains("compile_error"));
     }
 }
