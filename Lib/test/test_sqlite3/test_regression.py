@@ -258,7 +258,6 @@ class RegressionTests(MemoryDatabaseMixin, unittest.TestCase):
             # Lone surrogate cannot be encoded to the default encoding (utf8)
             "\uDC80", collation_cb)
 
-    @unittest.skip("TODO: RUSTPYTHON; recursive cursor use causes lock contention")
     def test_recursive_cursor_use(self):
         """
         http://bugs.python.org/issue10811
@@ -466,7 +465,6 @@ class RegressionTests(MemoryDatabaseMixin, unittest.TestCase):
             self.assertEqual(steps, values)
 
 
-@unittest.skip("TODO: RUSTPYTHON; recursive cursor use causes lock contention")
 class RecursiveUseOfCursors(unittest.TestCase):
     # GH-80254: sqlite3 should not segfault for recursive use of cursors.
     msg = "Recursive use of cursors not allowed"

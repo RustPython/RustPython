@@ -83,6 +83,7 @@ mod _functools {
 
     #[derive(FromArgs)]
     struct KeyWrapperCallArgs {
+        #[pyarg(any)]
         obj: PyObjectRef,
     }
 
@@ -114,7 +115,11 @@ mod _functools {
         }
     }
 
-    #[pyclass(with(Callable), flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION))]
+    #[pyclass(
+        with(Callable),
+        flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION),
+        instance_text_signature
+    )]
     impl Py<PyKeyWrapper> {
         #[pygetset]
         fn obj(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -128,11 +133,6 @@ mod _functools {
                 PySetterValue::Delete => None,
             };
             let _old = core::mem::replace(&mut *self.object.write(), value);
-        }
-
-        #[pygetset]
-        fn __text_signature__(&self) -> &'static str {
-            "(obj)"
         }
 
         #[pyslot]

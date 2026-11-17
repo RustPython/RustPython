@@ -119,7 +119,6 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                         segment.ident == "Py" || segment.ident == "PyRef"
                     })
             );
-            extract_items_into_context(&mut context, imp.items.iter_mut());
 
             let attr_nonempty = !attr.is_empty();
             let (impl_ty, payload_guess, wrapped) = match imp.self_ty.as_ref() {
@@ -186,8 +185,13 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 sig_initializer,
                 sig_constructor,
                 sig_structseq,
+                instance_text_signature,
             } = extract_impl_attrs(attr, &impl_ty)?;
             let payload_ty = attr_payload.unwrap_or(payload_guess);
+            if instance_text_signature {
+                imp.items.push(instance_signature_getset(&payload_ty));
+            }
+            extract_items_into_context(&mut context, imp.items.iter_mut());
             let method_def = &context.method_items;
             let getset_impl = &context.getset_items;
             let extend_impl = context.attribute_items.validate()?;
@@ -321,8 +325,15 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
             let ExtractedImplAttrs {
                 with_impl,
                 with_slots,
+                instance_text_signature,
                 ..
             } = extract_impl_attrs(attr, &trai.ident)?;
+            if instance_text_signature {
+                bail_span!(
+                    trai.ident,
+                    "instance_text_signature requires a concrete class impl"
+                )
+            }
 
             let method_def = &context.method_items;
             let getset_impl = &context.getset_items;
@@ -2583,6 +2594,7 @@ struct ExtractedImplAttrs {
     sig_initializer: bool,
     sig_constructor: bool,
     sig_structseq: bool,
+    instance_text_signature: bool,
 }
 
 fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<ExtractedImplAttrs> {
@@ -2595,6 +2607,8 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
     let mut has_initializer = false;
     let mut has_constructor = false;
     let mut has_structseq = false;
+    let mut has_callable = false;
+    let mut instance_text_signature = false;
 
     for attr in attr {
         match attr {
@@ -2628,6 +2642,9 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                                 quote!(<Self as #path>::__extend_slots),
                             )
                         };
+                        if path.is_ident("Callable") {
+                            has_callable = true;
+                        }
                         if path.is_ident("Initializer") {
                             has_initializer = true;
                         } else if path.is_ident("Constructor") {
@@ -2698,10 +2715,19 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                     bail_span!(path, "Unknown pyimpl attribute")
                 }
             }
+            NestedMeta::Meta(Meta::Path(path)) if path.is_ident("instance_text_signature") => {
+                if instance_text_signature {
+                    bail_span!(path, "duplicate instance_text_signature")
+                }
+                instance_text_signature = true;
+            }
             attr => bail_span!(attr, "Unknown pyimpl attribute"),
         }
     }
 
+    if instance_text_signature && !has_callable {
+        bail_span!(item, "instance_text_signature requires with(Callable)")
+    }
     Ok(ExtractedImplAttrs {
         payload,
         flags: quote! {
@@ -2722,7 +2748,39 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
         sig_initializer: has_initializer,
         sig_constructor: has_constructor,
         sig_structseq: has_structseq,
+        instance_text_signature,
     })
+}
+
+// Render in the concrete payload context: stable Rust cannot size this array
+// from a generic Callable default. Callable metadata excludes its receiver.
+fn instance_signature_getset(payload: &Ident) -> syn::ImplItem {
+    parse_quote! {
+        #[pygetset]
+        fn __text_signature__(_zelf: &::rustpython_vm::Py<#payload>) -> &'static str {
+            const PARAMS: Option<&'static [::rustpython_vm::function::Param]> =
+                <<#payload as ::rustpython_vm::types::Callable>::Args as ::rustpython_vm::function::FromArgs>::PARAMS;
+            const ARGS: &[::rustpython_vm::function::SigArg] = &[
+                ::rustpython_vm::function::SigArg {
+                    name: "",
+                    params: PARAMS,
+                    binding_params: PARAMS,
+                    force_unpack_keywords: false,
+                },
+            ];
+            const N: usize = {
+                assert!(PARAMS.is_some(), "instance_text_signature requires known Callable arguments");
+                ::rustpython_vm::function::signature_prefix_len("", ARGS)
+            };
+            const BYTES: [u8; N] = ::rustpython_vm::function::signature_prefix_bytes::<N>("", ARGS);
+            const PREFIX: &str = match ::core::str::from_utf8(&BYTES) {
+                Ok(text) => text,
+                Err(_) => panic!(),
+            };
+            // The existing renderer appends the five-byte internal-doc separator.
+            &PREFIX[..N - 5]
+        }
+    }
 }
 
 fn class_internal_doc(
@@ -2907,4 +2965,53 @@ fn parse_vec_ident(
             )
         })?
         .to_string())
+}
+
+#[cfg(test)]
+mod instance_signature_tests {
+    use super::*;
+    use syn::parse::Parser;
+
+    fn expand(attrs: &str, item: &str) -> Result<TokenStream> {
+        impl_pyclass_impl(
+            PunctuatedNestedMeta::parse_terminated.parse_str(attrs)?,
+            syn::parse_str(item)?,
+        )
+    }
+
+    #[test]
+    fn instance_signature_is_explicit_and_concrete() {
+        let ordinary = expand("with(Callable)", "impl Py<Example> {}").unwrap();
+        assert!(!ordinary.to_string().contains("__text_signature__"));
+        for item in ["impl Example {}", "impl Py<Example> {}"] {
+            let generated = expand("with(Callable), instance_text_signature", item).unwrap();
+            syn::parse2::<syn::File>(generated.clone()).unwrap();
+            let generated = generated.to_string();
+            assert!(!generated.contains("compile_error"), "{generated}");
+            assert!(generated.contains("__text_signature__"));
+            assert!(generated.contains("< Example as :: rustpython_vm :: types :: Callable >"));
+            assert!(generated.contains("signature_prefix_bytes"));
+        }
+    }
+
+    #[test]
+    fn instance_signature_rejects_invalid_optins() {
+        for attrs in [
+            "instance_text_signature",
+            "with(Callable), instance_text_signature, instance_text_signature",
+        ] {
+            assert!(expand(attrs, "impl Example {}").is_err());
+        }
+        assert!(
+            expand(
+                "with(Callable), instance_text_signature",
+                "trait Example {}"
+            )
+            .is_err()
+        );
+        assert!(expand(
+            "with(Callable), instance_text_signature",
+            "impl Example { #[pygetset] fn __text_signature__(_zelf: &Py<Self>) -> &'static str { \"()\" } }"
+        ).unwrap().to_string().contains("compile_error"));
+    }
 }
