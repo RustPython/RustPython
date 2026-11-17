@@ -11,7 +11,7 @@ use crate::{
     dict_inner::DictKey,
     function::{Either, FuncArgs, PyArithmeticValue, PySetterValue},
     protocol::PyIter,
-    types::{Constructor, PyComparisonOp},
+    types::{Constructor, PyComparisonOp, PyTypeFlags},
 };
 
 /// Converts an index key the way a sequence does before it refuses the
@@ -232,9 +232,12 @@ impl PyObject {
         };
 
         if let PySetterValue::Assign(value) = value {
-            instance_dict
-                .get_or_insert(vm)
-                .set_item(attr_name, value, vm)?;
+            let dict = instance_dict.get_or_insert(vm);
+            if attr_name.class().is(vm.ctx.types.str_type) {
+                dict.set_item(attr_name, value, vm)?;
+            } else {
+                dict.set_item(attr_name.as_object(), value, vm)?;
+            }
             instance_dict.maybe_materialize_inline_values();
         } else if let Some(dict) = instance_dict.get() {
             dict.del_item(attr_name, vm).map_err(|e| {
@@ -284,7 +287,19 @@ impl PyObject {
         let attr = if let Some(dict) = dict {
             // `Py<PyStr>` rather than its `&Wtf8`: the key type carries the
             // cached hash and compares interned keys by pointer.
-            dict.get_item_opt(name_str, vm)?
+            if name_str.class().is(vm.ctx.types.str_type) {
+                dict.get_item_opt(name_str, vm)?
+            } else if dict.is_empty()
+                && !(obj_cls.slots.flags.has_feature(PyTypeFlags::MANAGED_DICT)
+                    && obj_cls.slots.itemsize == 0)
+            {
+                // An empty dict that is not a managed one stands for a dict
+                // not created yet: skip the lookup.
+                None
+            } else {
+                // Only the object key runs a subclass's `__hash__`.
+                dict.get_item_opt(name_str.as_object(), vm)?
+            }
         } else {
             None
         };

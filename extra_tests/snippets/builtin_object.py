@@ -251,3 +251,17 @@ class _GAProxy(_GABase):
 _GABase.__getattr__ = lambda self, name: "fallback"
 del _GABase.__getattr__
 assert _GAProxy().x == "hooked"
+
+
+class RaisingHashName(str):
+    def __hash__(self):
+        raise ZeroDivisionError
+
+
+with assert_raises(ZeroDivisionError):
+    getattr(MyObject(), RaisingHashName("x"), None)
+with assert_raises(ZeroDivisionError):
+    hasattr(MyObject(), RaisingHashName("x"))
+with assert_raises(ZeroDivisionError):
+    setattr(MyObject(), RaisingHashName("x"), 1)
+assert getattr(object(), RaisingHashName("x"), None) is None
