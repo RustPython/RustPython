@@ -178,7 +178,7 @@ mod _pyexpat {
     use alloc::collections::VecDeque;
     use alloc::rc::Rc;
     use core::cell::RefCell;
-    use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+    use core::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
     use rustpython_common::lock::PyRwLock;
     use std::io::Read;
     use xml::common::Position;
@@ -382,6 +382,10 @@ mod _pyexpat {
         terminal_error_code: AtomicI32,
         #[pytraverse(skip)]
         namespace_stack: PyRwLock<Vec<(xml::namespace::Namespace, Vec<String>)>>,
+        #[pytraverse(skip)]
+        element_depth: AtomicUsize,
+        #[pytraverse(skip)]
+        document_element_closed: AtomicBool,
         #[pytraverse(skip)]
         reparse_deferral_enabled: AtomicBool,
         #[pytraverse(skip)]
@@ -1048,6 +1052,8 @@ mod _pyexpat {
                 finished: AtomicBool::new(false),
                 terminal_error_code: AtomicI32::new(0),
                 namespace_stack: PyRwLock::new(Vec::new()),
+                element_depth: AtomicUsize::new(0),
+                document_element_closed: AtomicBool::new(false),
                 reparse_deferral_enabled: AtomicBool::new(true),
                 parameter_entity_parsing: AtomicI32::new(XML_PARAM_ENTITY_PARSING_NEVER),
                 use_foreign_dtd: AtomicBool::new(false),
@@ -1253,6 +1259,7 @@ mod _pyexpat {
                 .ignore_invalid_encoding_declarations(
                     unicode_input || self.encoding.as_deref().and_then(native_encoding).is_some(),
                 )
+                .allow_multiple_root_elements(false)
                 .cdata_to_characters(false)
                 .coalesce_characters(false)
                 .ignore_comments(false)
@@ -1730,6 +1737,7 @@ mod _pyexpat {
                     attributes,
                     namespace,
                 } => {
+                    self.element_depth.fetch_add(1, Ordering::Relaxed);
                     if !self.external_subset_handled.swap(true, Ordering::Relaxed)
                         && self.parent.is_none()
                         && self.use_foreign_dtd.load(Ordering::Relaxed)
@@ -1805,6 +1813,9 @@ mod _pyexpat {
                     self.invoke_buffered_handler(vm, &self.start_element, (name_str, attrs))
                 }
                 XmlEvent::EndElement { name, .. } => {
+                    if self.element_depth.fetch_sub(1, Ordering::Relaxed) == 1 {
+                        self.document_element_closed.store(true, Ordering::Relaxed);
+                    }
                     let name_str = self.intern_name(vm, self.make_name(&name, vm));
                     self.invoke_buffered_handler(vm, &self.end_element, (name_str,))?;
                     let declarations = self.namespace_stack.write().pop();
@@ -1936,6 +1947,11 @@ mod _pyexpat {
                         }
                         // xml-rs still cannot consume custom single-byte maps.
                         (18, "unknown encoding")
+                    } else if self.document_element_closed.load(Ordering::Relaxed)
+                        && (message.starts_with("Unexpected characters outside the root element:")
+                            || message.as_ref() == "Unexpected token: <")
+                    {
+                        (9, "junk after document element")
                     } else if message.starts_with("Unexpected end of stream:") {
                         (3, "no element found")
                     } else if message.starts_with("Unexpected end of stream") {
