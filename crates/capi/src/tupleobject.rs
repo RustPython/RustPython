@@ -163,6 +163,30 @@ mod tests {
 
     #[test]
     fn tuple_mutation_tracks_atomic_constructors() {
+        // CAPI tests share an interpreter. A collection in another test can
+        // make gc.collect() a no-op, so test reclamation in an isolated process.
+        const CHILD: &str = "RUSTPYTHON_TEST_TUPLE_MUTATION_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "tupleobject::tests::tuple_mutation_tracks_atomic_constructors",
+                    "--nocapture", // cspell:ignore nocapture
+                ])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stdout).contains("tuple mutation checks passed")
+            );
+            return;
+        }
         Python::attach(|py| {
             let globals = pyo3::types::PyDict::new(py);
             py.run(
@@ -188,6 +212,13 @@ mod tests {
                     .unwrap()
                     .call_method0("collect")
                     .unwrap();
+                let gc = globals.get_item("gc").unwrap().unwrap();
+                assert!(
+                    !gc.call_method1("is_tracked", (&tuple,))
+                        .unwrap()
+                        .is_truthy()
+                        .unwrap()
+                );
                 let node = globals.get_item("Node").unwrap().unwrap().call0().unwrap();
                 let reference = globals
                     .get_item("weakref")
@@ -201,6 +232,12 @@ mod tests {
                         0
                     );
                 }
+                assert!(
+                    gc.call_method1("is_tracked", (&tuple,))
+                        .unwrap()
+                        .is_truthy()
+                        .unwrap()
+                );
                 node.setattr("tuple", &tuple).unwrap();
                 drop(tuple);
                 drop(node);
@@ -216,6 +253,7 @@ mod tests {
                 );
             }
         });
+        println!("tuple mutation checks passed");
     }
 
     #[test]
