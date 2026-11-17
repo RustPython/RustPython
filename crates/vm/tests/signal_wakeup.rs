@@ -1,4 +1,7 @@
+#![cfg(test)]
 #![cfg(feature = "threading")]
+
+extern crate alloc;
 
 // Keep this process-global signal-breaker regression in its own test binary:
 // VM unit tests can clear or consume the breaker concurrently.
@@ -6,8 +9,8 @@ use rustpython_vm::Interpreter;
 
 #[test]
 fn unrelated_thread_states_preserve_user_signal_wakeup() {
+    use alloc::sync::Arc;
     use core::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
 
     let (sender, receiver) = rustpython_vm::signal::user_signal_channel();
     let interp = Interpreter::with_init(Default::default(), |vm| {
