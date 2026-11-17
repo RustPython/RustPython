@@ -1,6 +1,14 @@
 import os
 import sys
-from io import BufferedReader, BytesIO, FileIO, RawIOBase, StringIO, TextIOWrapper
+from io import (
+    BufferedReader,
+    BytesIO,
+    FileIO,
+    IncrementalNewlineDecoder,
+    RawIOBase,
+    StringIO,
+    TextIOWrapper,
+)
 
 from testutils import assert_raises
 
@@ -509,3 +517,17 @@ def test_fileio_warning_preserves_source():
 
 
 test_fileio_warning_preserves_source()
+
+fd = os.open("README.md", os.O_RDONLY)
+falsy_closefd = FileIO(fd, "r", None)
+assert not falsy_closefd.closefd
+falsy_closefd.close()
+os.close(fd)
+
+decoder = IncrementalNewlineDecoder(None, "yes")
+assert decoder.decode("a\r\nb") == "a\nb"
+decoder = IncrementalNewlineDecoder(None, None)
+assert decoder.decode("a\r\nb") == "a\r\nb"
+decoder = IncrementalNewlineDecoder(None, True)
+assert decoder.decode("a\r", None) == "a"
+assert decoder.decode("\nb", "yes") == "\nb"

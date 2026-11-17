@@ -631,6 +631,20 @@ if not sys.platform.startswith("win"):
                 continue
         assert os.pathconf("/", index) == os.pathconf("/", option)
 
+if os.name == "posix":
+    rfd, wfd = os.pipe()
+    os.set_blocking(rfd, None)
+    assert not os.get_blocking(rfd)
+    os.set_blocking(rfd, "yes")
+    assert os.get_blocking(rfd)
+
+    dup_fd = os.dup(rfd)
+    assert os.dup2(wfd, dup_fd, None) == dup_fd
+    assert not os.get_inheritable(dup_fd)
+    os.close(dup_fd)
+    os.close(rfd)
+    os.close(wfd)
+
 # os.access - test with empty path and nonexistent files
 assert os.access("", os.F_OK) is False
 assert os.access("", os.R_OK) is False
