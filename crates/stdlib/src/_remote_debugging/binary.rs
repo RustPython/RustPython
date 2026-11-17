@@ -7,7 +7,7 @@ use alloc::sync::Arc;
 use std::{
     collections::HashMap,
     fs::File,
-    io::{self, Read, Seek, SeekFrom, Write},
+    io::{self, BufWriter, Read, Seek, SeekFrom, Write},
     path::Path,
 };
 
@@ -29,6 +29,7 @@ pub(crate) enum Error {
     Io(io::Error),
     Value(String),
     Overflow(&'static str),
+    Limit(&'static str),
     Memory,
     Runtime(&'static str),
 }
@@ -38,6 +39,13 @@ pub(crate) type Result<T> = core::result::Result<T, Error>;
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
+    }
+}
+
+fn format_table_limit(error: Error) -> Error {
+    match error {
+        Error::Overflow(message) => Error::Limit(message),
+        error => error,
     }
 }
 
@@ -202,7 +210,7 @@ struct WriterThread {
 
 #[derive(Debug)]
 pub(crate) struct Writer {
-    file: Option<File>,
+    file: Option<BufWriter<File>>,
     buffer: Vec<u8>,
     strings: Vec<String>,
     string_indices: HashMap<String, u32>,
@@ -239,7 +247,7 @@ impl Writer {
         }
         let mut buffer = Vec::new();
         reserve(&mut buffer, WRITE_BUFFER_SIZE)?;
-        let mut file = rustpython_host_env::fs::create(path)?;
+        let mut file = BufWriter::new(rustpython_host_env::fs::create(path)?);
         file.write_all(&[0; HEADER_SIZE])?;
         Ok(Self {
             file: Some(file),
@@ -261,7 +269,7 @@ impl Writer {
         })
     }
 
-    fn file(&mut self) -> Result<&mut File> {
+    fn file(&mut self) -> Result<&mut BufWriter<File>> {
         self.file
             .as_mut()
             .ok_or_else(|| invalid("Writer is closed"))
@@ -296,14 +304,12 @@ impl Writer {
             return Ok(*index);
         }
         if self.strings.len() >= u32::MAX as usize {
-            return Err(Error::Overflow("too many strings for binary format"));
+            return Err(Error::Limit("too many strings for binary format"));
         }
         if value.len() > u32::MAX as usize {
-            return Err(Error::Overflow(
-                "string length exceeds binary format maximum",
-            ));
+            return Err(Error::Limit("string length exceeds binary format maximum"));
         }
-        reserve(&mut self.strings, 1)?;
+        reserve(&mut self.strings, 1).map_err(format_table_limit)?;
         self.string_indices
             .try_reserve(1)
             .map_err(|_| Error::Memory)?;
@@ -326,12 +332,12 @@ impl Writer {
             return Ok(*index);
         }
         if self.frames.len() >= u32::MAX as usize {
-            return Err(Error::Overflow("too many frames for binary format"));
+            return Err(Error::Limit("too many frames for binary format"));
         }
         // Reject unrepresentable deltas before adding a frame to the table.
         location_delta(entry.location[0], entry.location[1])?;
         location_delta(entry.location[2], entry.location[3])?;
-        reserve(&mut self.frames, 1)?;
+        reserve(&mut self.frames, 1).map_err(format_table_limit)?;
         self.frame_indices
             .try_reserve(1)
             .map_err(|_| Error::Memory)?;
@@ -347,9 +353,9 @@ impl Writer {
             return Ok(*index);
         }
         if self.threads.len() >= u32::MAX as usize {
-            return Err(Error::Overflow("too many threads for binary format"));
+            return Err(Error::Limit("too many threads for binary format"));
         }
-        reserve(&mut self.threads, 1)?;
+        reserve(&mut self.threads, 1).map_err(format_table_limit)?;
         self.thread_indices
             .try_reserve(1)
             .map_err(|_| Error::Memory)?;
@@ -392,6 +398,9 @@ impl Writer {
 
     pub(crate) fn write_sample(&mut self, sample: &Sample) -> Result<()> {
         self.file()?;
+        if self.stats.total_samples == u64::MAX {
+            return Err(Error::Limit("too many samples for binary format"));
+        }
         let mut stack = [0; STACK_LIMIT];
         let depth = sample.frames.len().min(STACK_LIMIT);
         for (slot, frame) in stack.iter_mut().zip(sample.frames.iter()).take(depth) {
@@ -1209,7 +1218,7 @@ impl Replay {
         let thread = &mut self.threads[repeat.thread];
         let mut timestamps = Vec::new();
         let mut batch_status = None;
-        while repeat.remaining > 0 {
+        while repeat.remaining > 0 && timestamps.len() < 8192 {
             let previous = cursor.offset;
             let delta = cursor
                 .varint()
