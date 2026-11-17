@@ -819,9 +819,11 @@ impl VirtualMachine {
         let vm = self;
         // Wait for thread shutdown - call threading._shutdown() if available.
         // This waits for all non-daemon threads to complete.
-        // threading module may not be imported, so ignore import errors.
+        // A program that never imported threading has no such threads, and
+        // importing it here would run Python code the program did not ask for.
         #[cfg(feature = "threading")]
-        if let Ok(threading) = vm.import("threading", 0)
+        if let Ok(modules) = vm.sys_module.get_attr("modules", vm)
+            && let Ok(threading) = modules.get_item("threading", vm)
             && let Ok(shutdown) = threading.get_attr("_shutdown", vm)
             && let Err(e) = shutdown.call((), vm)
         {
