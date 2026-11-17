@@ -487,14 +487,34 @@ pub fn device_encoding(_fd: i32) -> Option<String> {
 
     #[cfg(windows)]
     {
-        use windows_sys::Win32::System::Console;
-        let cp = match _fd {
-            0 => unsafe { Console::GetConsoleCP() },
-            1 | 2 => unsafe { Console::GetConsoleOutputCP() },
-            _ => 0,
+        use windows_sys::Win32::{
+            Foundation::{ERROR_ACCESS_DENIED, GetLastError, INVALID_HANDLE_VALUE},
+            Storage::FileSystem::{FILE_TYPE_CHAR, GetFileType},
+            System::Console,
         };
-
-        Some(format!("cp{cp}"))
+        let handle = crate::nt::handle_from_fd(_fd);
+        if handle == INVALID_HANDLE_VALUE || unsafe { GetFileType(handle) } != FILE_TYPE_CHAR {
+            return None;
+        }
+        let mut mode = 0;
+        let cp = unsafe {
+            if Console::GetConsoleMode(handle, &mut mode) == 0 {
+                // Like CPython, an access-denied console handle is assumed to be output.
+                if GetLastError() != ERROR_ACCESS_DENIED {
+                    return None;
+                }
+                Console::GetConsoleOutputCP()
+            } else if Console::GetNumberOfConsoleInputEvents(handle, &mut mode) != 0 {
+                Console::GetConsoleCP()
+            } else {
+                Console::GetConsoleOutputCP()
+            }
+        };
+        match cp {
+            0 => None,
+            65001 => Some("utf-8".to_owned()),
+            _ => Some(format!("cp{cp}")),
+        }
     }
 
     #[cfg(not(any(

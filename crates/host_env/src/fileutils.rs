@@ -50,7 +50,6 @@ pub mod windows {
     use libc::{S_IFCHR, S_IFDIR, S_IFMT};
     use std::ffi::OsStr;
     use std::os::windows::io::AsRawHandle;
-    use std::path::Path;
     use std::sync::OnceLock;
     use windows_sys::Win32::Foundation::{
         ERROR_INVALID_HANDLE, ERROR_NOT_SUPPORTED, FILETIME, FreeLibrary, SetLastError,
@@ -97,13 +96,21 @@ pub mod windows {
     impl StatStruct {
         // update_st_mode_from_path in cpython
         pub fn update_st_mode_from_path(&mut self, path: &OsStr, attr: u32) {
-            if attr & FILE_ATTRIBUTE_DIRECTORY == 0
-                && let Some(file_extension) =
-                    Path::new(path).extension().and_then(|ext| ext.to_str())
-                && (file_extension.eq_ignore_ascii_case("exe")
-                    || file_extension.eq_ignore_ascii_case("bat")
-                    || file_extension.eq_ignore_ascii_case("cmd")
-                    || file_extension.eq_ignore_ascii_case("com"))
+            if attr & FILE_ATTRIBUTE_DIRECTORY != 0 {
+                return;
+            }
+            // The prefix and suffix are ASCII, so inspecting the encoded bytes also
+            // supports paths containing unpaired surrogates without allocation.
+            let mut path = path.as_encoded_bytes();
+            if !path.starts_with(br"\\?\") {
+                while matches!(path.last(), Some(b'.' | b' ')) {
+                    path = &path[..path.len() - 1];
+                }
+            }
+            if let Some(extension) = path.get(path.len().saturating_sub(4)..)
+                && [b".exe", b".bat", b".cmd", b".com"]
+                    .iter()
+                    .any(|suffix| extension.eq_ignore_ascii_case(*suffix))
             {
                 self.st_mode |= 0o111;
             }

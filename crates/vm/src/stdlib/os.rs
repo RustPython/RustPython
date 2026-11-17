@@ -2348,7 +2348,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn device_encoding(fd: DeviceEncodingArgs, vm: &VirtualMachine) -> Option<String> {
         let fd = fd.fd;
-        if !isatty(fd) {
+        if cfg!(not(windows)) && !isatty(fd) {
             return None;
         }
 
