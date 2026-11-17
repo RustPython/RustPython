@@ -55,9 +55,11 @@ use crate::{
 use alloc::collections::BTreeMap;
 #[cfg(all(not(unix), feature = "threading"))]
 use core::ptr::NonNull;
+#[cfg(feature = "threading")]
+use core::sync::atomic::AtomicU64;
 use core::{
     cell::{Cell, OnceCell, RefCell},
-    sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(feature = "threading")]
