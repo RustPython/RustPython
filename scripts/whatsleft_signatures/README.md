@@ -24,15 +24,25 @@ also require review. This protects the checked surface, not all possible APIs.
 Truncated, ambiguous or empty reference inventories are rejected.
 
 The baseline context pins OS, architecture, CPython version and build features.
-The source artifacts use CPython **3.15.0**, not the local 3.15.1 test oracle.
+The source artifacts use CPython **3.15.0**, not the 3.15.2 Lib upgrade target.
 Their recorded provenance is CI run
-[42491705325](https://github.com/RustPython/RustPython/actions/runs/42491705325),
-head `4a6ddde862e8c0e4082f1434da0c9b3e2fb609b7`.
-They were reclassified with this narrower checker; no runtime improvements are
-implied by removing unrelated diagnostic exceptions. Four buffer-constructor
-exceptions per platform were also removed after #9744 merged into current main.
-That removal is based on the shared implementation and a verified Linux binary;
-the next hosted run must confirm all three current platform baselines.
+[43879937093](https://github.com/RustPython/RustPython/actions/runs/43879937093),
+PR head `50a2dcbf8cdecd144d995da06c9723a2fe75b45c`, tested merge
+`508c9f0a9452bc5383f0a2ac7ed84d06ee11db56`.
+
+Compared with the previous run (42491705325), no checked paths or reference
+signatures were lost or changed. The inspected scope gained
+`sqlite3.Connection.__del__` and `_io.BytesIO.readlines`; the raw scope gained
+`sqlite3.Connection.__del__`. Resolved exceptions were removed: 163 on Linux,
+159 on macOS, and 164 on Windows. All removed raw exceptions now have identical
+observed reference and actual values, rather than disappearing observations.
+
+The remaining exact mismatches number 37/36/75 on Linux/macOS/Windows. Reviewed
+changes include the newer `zipimport._get_module_code` keyword parameter,
+starts/ends-with raw spelling, socket default spelling, faulthandler defaults,
+and Windows API defaults. These remain recorded disagreements, not claimed
+runtime compatibility or fixes. No scanner or gate rule was relaxed; future
+changes still require review against the platform artifacts.
 
 ## Updating a baseline
 
