@@ -115,9 +115,30 @@ class _SubprocessTest:
     must wait() for it.
     """
 
-    def __init__(self, proc, result_path):
+    def __init__(self, proc, result_path, stdout, stderr):
         self._proc = proc
         self._result_path = result_path
+        self._stdout = stdout
+        self._stderr = stderr
+
+    def _read_output(self):
+        def snapshot(stream):
+            # A descendant may still write. Snapshot only the current extent,
+            # without moving the shared writer offset or waiting for pipe EOF.
+            stream.flush()
+            size = os.fstat(stream.fileno()).st_size
+            if os.name == 'nt':
+                # TemporaryFile is a named, delete-on-close file on Windows.
+                # Reopening with O_TEMPORARY shares deletion permission and
+                # gives the reader an independent file position.
+                def opener(path, flags):
+                    return os.open(path, flags | os.O_TEMPORARY | os.O_BINARY)
+                with open(stream.name, 'rb', opener=opener) as reader:
+                    data = reader.read(size)
+            else:
+                data = os.pread(stream.fileno(), size, 0)
+            return _decode(data)
+        return snapshot(self._stdout) + snapshot(self._stderr)
 
     @property
     def pid(self):
@@ -142,10 +163,10 @@ class _SubprocessTest:
                 # Wake up for the next tick, unless the timeout comes first.
                 ticking = tick is not None and (step is None or step > interval)
                 try:
-                    # communicate(), not wait(): a test writing more than a
-                    # pipe buffer would block.  Retrying keeps what it read.
-                    stdout, stderr = self._proc.communicate(
-                        timeout=interval if ticking else step)
+                    # Output goes to temporary files, so a full pipe cannot
+                    # block the worker, and inherited handles cannot hold up
+                    # the parent after the worker exits.
+                    self._proc.wait(timeout=interval if ticking else step)
                     break
                 except subprocess.TimeoutExpired:
                     if ticking:
@@ -153,19 +174,28 @@ class _SubprocessTest:
                         continue
                     # Report the hang rather than leaving the runner stuck.
                     self._proc.kill()
-                    stdout, stderr = self._proc.communicate()
+                    self._proc.wait()
                     raise _SubprocessTestError(
                         f'test did not complete in a subprocess '
                         f'within {timeout} seconds'
-                    ) from _remote(_decode(stdout) + _decode(stderr))
+                    ) from _remote(self._read_output())
             try:
                 with open(self._result_path, 'rb') as f:
                     payload = marshal.load(f)
             except (OSError, EOFError, ValueError):
                 payload = None
-            output = _decode(stdout) + _decode(stderr)
-            return payload, output, self._proc.returncode
+            return payload, self._read_output(), self._proc.returncode
+        except BaseException:
+            # Also cover KeyboardInterrupt and exceptions raised by tick().
+            # Reap only our direct worker; do not change its session or kill
+            # unrelated descendants belonging to the test.
+            if self._proc.poll() is None:
+                self._proc.kill()
+                self._proc.wait()
+            raise
         finally:
+            self._stdout.close()
+            self._stderr.close()
             try:
                 os.unlink(self._result_path)
             except OSError:
@@ -183,7 +213,10 @@ def _start_test(module, qualname, options=(), env=None):
     import tempfile
     fd, result_path = tempfile.mkstemp(suffix='.json')
     os.close(fd)
+    stdout = stderr = None
     try:
+        stdout = tempfile.TemporaryFile()
+        stderr = tempfile.TemporaryFile()
         # Pass the config on the command line, not in the environment, so that
         # the test cannot pass it on to the processes it spawns itself, and so
         # that it survives the -E and -I options.  Use marshal, not json: it is
@@ -192,15 +225,19 @@ def _start_test(module, qualname, options=(), env=None):
         cmd = [sys.executable, *options, '-m', 'test.support.subprocess_runner',
                module, qualname, result_path,
                marshal.dumps(_child_config()).hex()]
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, env=_child_environ(env))
+        proc = subprocess.Popen(cmd, stdout=stdout,
+                                stderr=stderr, env=_child_environ(env))
     except BaseException:
+        if stdout is not None:
+            stdout.close()
+        if stderr is not None:
+            stderr.close()
         try:
             os.unlink(result_path)
         except OSError:
             pass
         raise
-    return _SubprocessTest(proc, result_path)
+    return _SubprocessTest(proc, result_path, stdout, stderr)
 
 
 
