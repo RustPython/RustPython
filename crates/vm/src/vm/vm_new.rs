@@ -104,11 +104,8 @@ impl VirtualMachine {
         let scope = Scope::with_builtins(None, globals.clone(), self);
         let main_module = self.new_module("__main__", globals.clone(), None);
 
-        self.sys_module.get_attr("modules", self)?.set_item(
-            "__main__",
-            main_module.into(),
-            self,
-        )?;
+        self.sys_modules()
+            .set_item("__main__", main_module.into(), self)?;
         self.set_main_builtin_importer(&globals)?;
 
         Ok(scope)
@@ -116,7 +113,7 @@ impl VirtualMachine {
 
     /// Create `__main__` if it is missing and return it.
     pub fn ensure_main_module(&self) -> PyResult<PyRef<PyModule>> {
-        let sys_modules = self.sys_module.get_attr("modules", self)?;
+        let sys_modules = self.sys_modules();
         let module = if let Ok(existing) = sys_modules.get_item("__main__", self)
             && let Ok(module) = existing.downcast::<PyModule>()
         {
@@ -133,7 +130,7 @@ impl VirtualMachine {
 
     /// PyImport_AddModuleRef("__main__")
     pub fn add_main_module(&self) -> PyResult<PyRef<PyModule>> {
-        let modules = self.sys_module.get_attr(identifier!(self, modules), self)?;
+        let modules = self.sys_modules();
         if let Ok(module) = modules.get_item(identifier!(self, __main__), self)
             && let Ok(module) = module.downcast::<PyModule>()
         {
@@ -154,7 +151,7 @@ impl VirtualMachine {
         {
             return Ok(());
         }
-        let sys_modules = self.sys_module.get_attr("modules", self)?;
+        let sys_modules = self.sys_modules();
         let Ok(importlib) = sys_modules.get_item("_frozen_importlib", self) else {
             return Ok(());
         };

@@ -1380,7 +1380,6 @@ class TestPyReplModuleCompleter(TestCase):
                 output = reader.readline()
                 self.assertEqual(output, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_hardcoded_stdlib_submodules_not_proposed_if_local_import(self):
         with (tempfile.TemporaryDirectory() as _dir,
               patch.object(sys, "modules", {})):  # hide imported module
