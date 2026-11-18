@@ -165,15 +165,10 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
             // Release it before calling Python to avoid deadlock.
             let handler = signal_handlers.lock()[signum].clone();
 
+            let handler = handler.filter(|handler| !vm.is_none(handler));
+            #[cfg(feature = "host_env")]
             let handler = handler.filter(|handler| {
-                if vm.is_none(handler) {
-                    return false;
-                }
-                #[cfg(feature = "host_env")]
-                if crate::stdlib::_signal::_signal::handler_disposition(handler, vm).is_some() {
-                    return false;
-                }
-                true
+                crate::stdlib::_signal::_signal::handler_disposition(handler, vm).is_none()
             });
             let Some(handler) = handler else {
                 vm.run_unraisable(
