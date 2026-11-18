@@ -768,11 +768,18 @@ impl AsNumber for PyComplex {
                 )
             }),
             power: Some(|a, b, c, vm| {
-                if vm.is_none(c) {
-                    PyComplex::number_op(a, b, complex_pow, vm)
-                } else {
-                    Err(vm.new_value_error(String::from("complex modulo")))
-                }
+                PyComplex::number_op(
+                    a,
+                    b,
+                    |a, b, vm| {
+                        if vm.is_none(c) {
+                            complex_pow(a, b, vm)
+                        } else {
+                            Err(vm.new_value_error("complex modulo"))
+                        }
+                    },
+                    vm,
+                )
             }),
             negative: Some(|number, vm| {
                 let value = PyComplex::number_downcast(number).as_complex();
