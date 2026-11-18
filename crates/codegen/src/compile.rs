@@ -4130,8 +4130,8 @@ impl<'warnings> Compiler<'warnings> {
                 };
                 let name_string = name.id();
 
+                self.set_source_node(statement.range(), statement.node_index());
                 if let Some(type_params) = type_params {
-                    self.set_source_node(statement.range(), statement.node_index());
                     self.push_symbol_table()?;
                     let key = self.symbol_table_stack.len() - 1;
                     let lineno = self.get_source_line_number().get().to_u32();
@@ -4174,7 +4174,6 @@ impl<'warnings> Compiler<'warnings> {
                     emit!(self, Instruction::PushNull);
                     emit!(self, Instruction::Call { argc: 0 });
                 } else {
-                    self.set_source_node(statement.range(), statement.node_index());
                     self.emit_load_const(ConstantData::Str {
                         value: name_string.as_str().into(),
                     });
@@ -4781,7 +4780,6 @@ impl<'warnings> Compiler<'warnings> {
                 self.use_cpython_label_block(cleanup_end);
                 self.emit_no_location_exception_name_cleanup(alias.id())?;
                 emit!(self, Instruction::Reraise { depth: 1 });
-                self.set_no_location();
             } else {
                 let cleanup_body = self.new_block();
 
@@ -4806,8 +4804,8 @@ impl<'warnings> Compiler<'warnings> {
                     self,
                     PseudoInstruction::JumpNoInterrupt { delta: end_block }
                 );
-                self.set_no_location();
             }
+            self.set_no_location();
 
             self.use_cpython_label_block(next_handler);
         }
@@ -5908,8 +5906,8 @@ impl<'warnings> Compiler<'warnings> {
             self.restore_source_span(def_source_span);
             self.make_closure(type_params_code, bytecode::MakeFunctionFlags::new())?;
 
+            self.restore_source_span(def_source_span);
             if num_typeparam_args > 0 {
-                self.restore_source_span(def_source_span);
                 emit!(
                     self,
                     Instruction::Swap {
@@ -5925,7 +5923,6 @@ impl<'warnings> Compiler<'warnings> {
                 );
             } else {
                 // Stack: [closure]
-                self.restore_source_span(def_source_span);
                 emit!(self, Instruction::PushNull);
                 // Stack: [closure, NULL]
                 self.restore_source_span(def_source_span);
@@ -6283,11 +6280,11 @@ impl<'warnings> Compiler<'warnings> {
             emit!(self, Instruction::Copy { i: 1 });
             self.set_no_location();
             self.store_name(&"__classcell__".into())?;
-            self.set_no_location();
         } else {
             self.emit_load_const(ConstantData::None);
-            self.set_no_location();
         }
+
+        self.set_no_location();
 
         // Return the class namespace
         self.emit_return_value();
@@ -6398,18 +6395,18 @@ impl<'warnings> Compiler<'warnings> {
         self.restore_source_span(class_source_span);
 
         // Step 3: Generate the rest of the code for the call
+        // Generate class creation code
+        emit!(self, Instruction::LoadBuildClass);
+        emit!(self, Instruction::PushNull);
+
+        // Create the class body function with closure. For generic classes the
+        // .type_params closure is captured through the class code object's freevars.
+        self.make_closure(class_code, bytecode::MakeFunctionFlags::new())?;
+        self.emit_load_const(ConstantData::Str {
+            value: name.as_str().into(),
+        });
+
         if is_generic {
-            // Generate class creation code
-            emit!(self, Instruction::LoadBuildClass);
-            emit!(self, Instruction::PushNull);
-
-            // Create the class body function with the .type_params closure
-            // captured through the class code object's freevars.
-            self.make_closure(class_code, bytecode::MakeFunctionFlags::new())?;
-            self.emit_load_const(ConstantData::Str {
-                value: name.as_str().into(),
-            });
-
             // Create .generic_base after the class function and name are on the
             // stack so the remaining call shape matches CPython's ordering.
             self.restore_source_span(class_source_span);
@@ -6452,15 +6449,6 @@ impl<'warnings> Compiler<'warnings> {
             emit!(self, Instruction::Call { argc: 0 });
         } else {
             // Non-generic class: standard path
-            emit!(self, Instruction::LoadBuildClass);
-            emit!(self, Instruction::PushNull);
-
-            // Create class function with closure
-            self.make_closure(class_code, bytecode::MakeFunctionFlags::new())?;
-            self.emit_load_const(ConstantData::Str {
-                value: name.as_str().into(),
-            });
-
             if let Some(arguments) = arguments {
                 self.codegen_call_helper(2, arguments, class_source_span, None)?;
             } else {
@@ -7028,7 +7016,6 @@ impl<'warnings> Compiler<'warnings> {
             None => {
                 self.restore_source_span(loc);
                 emit!(self, Instruction::PopTop);
-                Ok(())
             }
             Some(name) => {
                 // Ensure we don't store the same name twice.
@@ -7046,9 +7033,9 @@ impl<'warnings> Compiler<'warnings> {
 
                 // Append the name to the captured stores.
                 pc.stores.push(name.id().clone());
-                Ok(())
             }
         }
+        Ok(())
     }
 
     fn pattern_wildcard_check(pattern: &ast::Pattern) -> bool {
@@ -7148,14 +7135,13 @@ impl<'warnings> Compiler<'warnings> {
             // Duplicate the subject.
             self.restore_source_span(loc);
             emit!(self, Instruction::Copy { i: 1 });
+            self.restore_source_span(loc);
             if i < star {
                 // For indices before the star, use a nonnegative index equal to i.
-                self.restore_source_span(loc);
                 self.emit_load_const(ConstantData::Integer { value: i.into() });
             } else {
                 // For indices after the star, compute a nonnegative index:
                 // index = len(subject) - (size - i)
-                self.restore_source_span(loc);
                 emit!(self, Instruction::GetLen);
                 self.restore_source_span(loc);
                 self.emit_load_const(ConstantData::Integer {
@@ -7538,12 +7524,12 @@ impl<'warnings> Compiler<'warnings> {
         pc.on_top -= 2;
 
         // Step 4: Handle rest pattern or cleanup
+        self.set_source_node(p.range, &p.node_index);
         if let Some(rest_name) = star_target {
             // Build rest dict for **rest pattern
             // Stack: [subject, keys_tuple]
 
             // Build rest dict exactly
-            self.set_source_node(p.range, &p.node_index);
             emit!(self, Instruction::BuildMap { count: 0 });
             // Stack: [subject, keys_tuple, {}]
             self.set_source_node(p.range, &p.node_index);
@@ -7584,7 +7570,6 @@ impl<'warnings> Compiler<'warnings> {
             // Non-rest pattern: just clean up the stack
 
             // Pop them as we're not using them
-            self.set_source_node(p.range, &p.node_index);
             emit!(self, Instruction::PopTop); // Pop keys_tuple
             self.set_source_node(p.range, &p.node_index);
             emit!(self, Instruction::PopTop); // Pop subject
@@ -9923,20 +9908,6 @@ impl<'warnings> Compiler<'warnings> {
                 // NOP for line tracking at .method( line
                 self.restore_source_span(attr_access_range);
                 emit!(self, Instruction::Nop);
-                // CALL at .method( line (not the full expression line)
-                self.compile_method_call_arguments(
-                    args,
-                    self.update_start_span_to_match_attr(
-                        call_range,
-                        self.node_span(func),
-                        attr.as_str(),
-                    )?,
-                    self.update_start_span_to_match_attr(
-                        self.node_span(func),
-                        self.node_span(func),
-                        attr.as_str(),
-                    )?,
-                )?;
             } else {
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
@@ -9947,20 +9918,21 @@ impl<'warnings> Compiler<'warnings> {
                 )?;
                 self.restore_source_span(attr_access_range);
                 self.emit_load_attr_method(idx);
-                self.compile_method_call_arguments(
-                    args,
-                    self.update_start_span_to_match_attr(
-                        call_range,
-                        self.node_span(func),
-                        attr.as_str(),
-                    )?,
-                    self.update_start_span_to_match_attr(
-                        self.node_span(func),
-                        self.node_span(func),
-                        attr.as_str(),
-                    )?,
-                )?;
             }
+            // CALL at .method( line (not the full expression line)
+            self.compile_method_call_arguments(
+                args,
+                self.update_start_span_to_match_attr(
+                    call_range,
+                    self.node_span(func),
+                    attr.as_str(),
+                )?,
+                self.update_start_span_to_match_attr(
+                    self.node_span(func),
+                    self.node_span(func),
+                    attr.as_str(),
+                )?,
+            )?;
         } else if let Some(kind) =
             genexpr_call_name.and_then(|name| self.detect_builtin_generator_call(name))
         {
@@ -10575,12 +10547,10 @@ impl<'warnings> Compiler<'warnings> {
                     }) => {
                         self.visit_parameter_defaults(parameters);
                         self.visit_decorators(decorator_list);
-                        if type_params.is_some() {
-                            self.consume_scope();
-                        } else {
+                        if type_params.is_none() {
                             self.consume_function_annotation_scope_if_used();
-                            self.consume_scope();
                         }
+                        self.consume_scope();
                     }
                     ast::Stmt::ClassDef(ast::StmtClassDef {
                         arguments,
@@ -11153,14 +11123,13 @@ impl<'warnings> Compiler<'warnings> {
                 // POP_BLOCK before store: only __anext__/yield_from are
                 // protected by SetupFinally targeting END_ASYNC_FOR.
                 emit!(self, PseudoInstruction::PopBlock);
-                self.compile_store(&generator.target)?;
             } else {
                 let saved_range = self.current_source_span;
                 self.set_source_node(generator.iter.range(), generator.iter.node_index());
                 emit!(self, Instruction::ForIter { delta: after_block });
                 self.restore_source_span(saved_range);
-                self.compile_store(&generator.target)?;
             }
+            self.compile_store(&generator.target)?;
             real_loop_depth += if generator.is_async { 1 } else { 2 };
             let backedge_range = if gen_index + 1 == generators.len() {
                 element_range
@@ -11532,14 +11501,13 @@ impl<'warnings> Compiler<'warnings> {
                     let _ = self.compile_yield_from_sequence(true);
                     end_async_for_target = send_block;
                     emit!(self, PseudoInstruction::PopBlock);
-                    self.compile_store(&generator.target)?;
                 } else {
                     let saved_range = self.current_source_span;
                     self.set_source_node(generator.iter.range(), generator.iter.node_index());
                     emit!(self, Instruction::ForIter { delta: after_block });
                     self.restore_source_span(saved_range);
-                    self.compile_store(&generator.target)?;
                 }
+                self.compile_store(&generator.target)?;
 
                 real_loop_depth += if generator.is_async { 1 } else { 2 };
                 let backedge_range = if i + 1 == generators.len() {
@@ -13815,16 +13783,11 @@ impl<'warnings> Compiler<'warnings> {
                             )?;
                         }
                         current_string.push_str(&text);
-                        strings.push((
-                            core::mem::take(current_string),
-                            current_string_range.take().unwrap_or(template_range),
-                        ));
-                    } else {
-                        strings.push((
-                            core::mem::take(current_string),
-                            current_string_range.take().unwrap_or(template_range),
-                        ));
                     }
+                    strings.push((
+                        core::mem::take(current_string),
+                        current_string_range.take().unwrap_or(template_range),
+                    ));
                     *interp_count += 1;
                 }
             }

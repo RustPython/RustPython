@@ -4442,15 +4442,14 @@ impl ExecutingFrame<'_> {
             .get(localsplus_idx)
             .copied()
             .unwrap_or(0);
+        let name = self.localsplus_name(localsplus_idx);
         if kind & CO_FAST_FREE != 0 {
-            let name = self.localsplus_name(localsplus_idx);
             vm.new_name_error(
                 format!("cannot access free variable '{name}' where it is not associated with a value in enclosing scope"),
                 name.to_owned(),
             )
         } else {
             // Both merged cells (LOCAL|CELL) and non-merged cells get unbound local error
-            let name = self.localsplus_name(localsplus_idx);
             vm.new_unbound_local_error(format!(
                 "local variable '{name}' referenced before assignment"
             ))
@@ -6373,11 +6372,9 @@ impl ExecutingFrame<'_> {
                             }
                         }
                         self.pop_stackref();
+                        self.push_value(value);
                         if oparg.is_method() {
-                            self.push_value(value);
                             self.push_value_opt(None);
-                        } else {
-                            self.push_value(value);
                         }
                         return Ok(None);
                     }
@@ -6407,11 +6404,9 @@ impl ExecutingFrame<'_> {
                         .is_none()
                 {
                     self.pop_stackref();
+                    self.push_value(value);
                     if oparg.is_method() {
-                        self.push_value(value);
                         self.push_value_opt(None);
-                    } else {
-                        self.push_value(value);
                     }
                     return Ok(None);
                 }
@@ -6429,11 +6424,9 @@ impl ExecutingFrame<'_> {
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
                     self.pop_stackref();
+                    self.push_value(attr);
                     if oparg.is_method() {
-                        self.push_value(attr);
                         self.push_value_opt(None);
-                    } else {
-                        self.push_value(attr);
                     }
                     return Ok(None);
                 }
@@ -6452,11 +6445,9 @@ impl ExecutingFrame<'_> {
                     // Instance dict has priority — check if attr is shadowed
                     if let Some(value) = self.shadowing_instance_attr(cache_base, attr_name, vm)? {
                         self.pop_stackref();
+                        self.push_value(value);
                         if oparg.is_method() {
-                            self.push_value(value);
                             self.push_value_opt(None);
-                        } else {
-                            self.push_value(value);
                         }
                         return Ok(None);
                     }
@@ -6466,11 +6457,9 @@ impl ExecutingFrame<'_> {
                         return self.load_attr_slow(vm, oparg);
                     };
                     self.pop_stackref();
+                    self.push_value(attr);
                     if oparg.is_method() {
-                        self.push_value(attr);
                         self.push_value_opt(None);
-                    } else {
-                        self.push_value(attr);
                     }
                     return Ok(None);
                 }
@@ -6489,11 +6478,9 @@ impl ExecutingFrame<'_> {
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
                     self.pop_stackref();
+                    self.push_value(attr);
                     if oparg.is_method() {
-                        self.push_value(attr);
                         self.push_value_opt(None);
-                    } else {
-                        self.push_value(attr);
                     }
                     return Ok(None);
                 }
@@ -6515,11 +6502,9 @@ impl ExecutingFrame<'_> {
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
                     self.pop_stackref();
+                    self.push_value(attr);
                     if oparg.is_method() {
-                        self.push_value(attr);
                         self.push_value_opt(None);
-                    } else {
-                        self.push_value(attr);
                     }
                     return Ok(None);
                 }
@@ -6566,11 +6551,9 @@ impl ExecutingFrame<'_> {
                         self.code.instructions.read_cache_u32(cache_base + 3) as i32 as isize;
                     if let Some(value) = owner.get_slot(slot_offset) {
                         self.pop_stackref();
+                        self.push_value(value);
                         if oparg.is_method() {
-                            self.push_value(value);
                             self.push_value_opt(None);
-                        } else {
-                            self.push_value(value);
                         }
                         return Ok(None);
                     }
@@ -6690,11 +6673,10 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 if let Some(dict) = obj.downcast_ref_if_exact::<PyDict>(vm) {
                     dict.set_item(idx.as_object(), value, vm)?;
-                    Ok(None)
                 } else {
                     obj.set_item(idx.as_object(), value, vm)?;
-                    Ok(None)
                 }
+                Ok(None)
             }
             // Specialized BINARY_OP opcodes
             Instruction::BinaryOpAddInt => {
@@ -7756,13 +7738,12 @@ impl ExecutingFrame<'_> {
                         self.pop_stackref();
                         self.take_fused_bool_jump(jump, result);
                     }
-                    Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ToBoolInt => {
                 let obj = self.top_value();
@@ -7770,26 +7751,24 @@ impl ExecutingFrame<'_> {
                     let result = !int_val.as_bigint().is_zero();
                     self.pop_stackref();
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ToBoolNone => {
                 let obj = self.top_value();
                 if obj.class().is(vm.ctx.types.none_type) {
                     self.pop_stackref();
                     self.push_bool_or_fused_jump(instruction.cache_entries(), false, vm);
-                    Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ToBoolList => {
                 let obj = self.top_value();
@@ -7797,13 +7776,12 @@ impl ExecutingFrame<'_> {
                     let result = !list.borrow_vec().is_empty();
                     self.pop_stackref();
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ToBoolStr => {
                 let obj = self.top_value();
@@ -7811,13 +7789,12 @@ impl ExecutingFrame<'_> {
                     let result = !s.is_empty();
                     self.pop_stackref();
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ToBoolAlwaysTrue => {
                 // Objects without __bool__ or __len__ are always True.
@@ -7831,13 +7808,12 @@ impl ExecutingFrame<'_> {
                 {
                     self.pop_stackref();
                     self.push_bool_or_fused_jump(instruction.cache_entries(), true, vm);
-                    Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ContainsOpDict => {
                 let b = self.top_value(); // haystack
@@ -7853,7 +7829,6 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::Yes => !found,
                     };
                     self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
-                    Ok(None)
                 } else {
                     let b = self.pop_value();
                     let a = self.pop_value();
@@ -7864,8 +7839,8 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
                     };
                     self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ContainsOpSet => {
                 let b = self.top_value(); // haystack
@@ -7883,7 +7858,6 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::Yes => !found,
                     };
                     self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
-                    Ok(None)
                 } else {
                     let b = self.pop_value();
                     let a = self.pop_value();
@@ -7894,8 +7868,8 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
                     };
                     self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::UnpackSequenceTwoTuple => {
                 let obj = self.top_value();
@@ -7955,11 +7929,10 @@ impl ExecutingFrame<'_> {
                     } else {
                         self.for_iter_jump_on_exhausted(target);
                     }
-                    Ok(None)
                 } else {
                     self.execute_for_iter(vm, target)?;
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ForIterList => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
@@ -7970,11 +7943,10 @@ impl ExecutingFrame<'_> {
                     } else {
                         self.for_iter_jump_on_exhausted(target);
                     }
-                    Ok(None)
                 } else {
                     self.execute_for_iter(vm, target)?;
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ForIterTuple => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
@@ -7985,11 +7957,10 @@ impl ExecutingFrame<'_> {
                     } else {
                         self.for_iter_jump_on_exhausted(target);
                     }
-                    Ok(None)
                 } else {
                     self.execute_for_iter(vm, target)?;
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ForIterGen => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
@@ -8026,11 +7997,10 @@ impl ExecutingFrame<'_> {
                         }
                         Err(e) => return Err(e),
                     }
-                    Ok(None)
                 } else {
                     self.execute_for_iter(vm, target)?;
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::LoadGlobalModule => {
                 let oparg = u32::from(arg);

@@ -814,13 +814,11 @@ fn generate_numeric_value(
     if let Some(mut start) = iter.next() {
         let mut end = start;
         for ch in iter {
-            if ch == end + 1 {
-                end = ch;
-            } else {
+            if ch != end + 1 {
                 none_diffs.push((start, end));
                 start = ch;
-                end = ch;
             }
+            end = ch;
         }
         none_diffs.push((start, end));
     }

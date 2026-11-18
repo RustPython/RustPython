@@ -413,12 +413,11 @@ mod decl {
             host_faulthandler::disable_fatal_signal(signum);
             puts(fd, "Fatal Python error: ");
             puts(fd, name);
-            puts(fd, "\n\n");
         } else {
             puts(fd, "Fatal Python error from unexpected signum: ");
             dump_decimal(fd, signum as usize);
-            puts(fd, "\n\n");
         }
+        puts(fd, "\n\n");
 
         let all_threads = FATAL_ERROR.all_threads.load(Ordering::Relaxed);
         faulthandler_dump_traceback(fd, all_threads);
@@ -450,12 +449,11 @@ mod decl {
             host_faulthandler::disable_fatal_signal(signum);
             puts(fd, "Fatal Python error: ");
             puts(fd, name);
-            puts(fd, "\n\n");
         } else {
             puts(fd, "Fatal Python error from unexpected signum: ");
             dump_decimal(fd, signum as usize);
-            puts(fd, "\n\n");
         }
+        puts(fd, "\n\n");
 
         let all_threads = FATAL_ERROR.all_threads.load(Ordering::Relaxed);
         faulthandler_dump_traceback(fd, all_threads);
