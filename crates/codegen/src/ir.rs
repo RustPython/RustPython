@@ -271,6 +271,9 @@ pub struct CodeUnitMetadata {
 pub struct BlockIdx(u32);
 
 impl BlockIdx {
+    /// The first block, which is also the CFG entry block.
+    pub const MIN: Self = Self::new(0);
+
     /// Creates a new instance of [`BlockIdx`] from a [`u32`].
     #[must_use]
     pub const fn new(value: u32) -> Self {
@@ -1883,7 +1886,7 @@ impl Blocks {
     /// # See also
     /// [CPython's remove_unreachable](https://github.com/python/cpython/blob/v3.14.6/Python/flowgraph.c#L995-L1041)
     pub fn remove_unreachable(&mut self) -> crate::InternalResult<()> {
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             self[block_idx].predecessors = 0;
             cursor = self[block_idx].next;
@@ -1891,7 +1894,7 @@ impl Blocks {
 
         let mut stack = self.make_cfg_traversal_stack()?;
         self[0].predecessors = 1;
-        stack.push(BlockIdx(0));
+        stack.push(BlockIdx::MIN);
         self[0].visited = true;
         while let Some(current) = stack.pop() {
             let idx = current.idx();
@@ -1921,7 +1924,7 @@ impl Blocks {
             }
         }
 
-        cursor = Some(BlockIdx(0));
+        cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             let next = self[block_idx].next;
             if self[block_idx].predecessors == 0 {
@@ -1964,7 +1967,7 @@ impl Blocks {
     fn duplicate_exits_without_lineno(&mut self) -> crate::InternalResult<()> {
         let mut next_lbl = get_max_label(self) + 1;
 
-        let entryblock = BlockIdx(0);
+        let entryblock = BlockIdx::MIN;
         let mut cursor = Some(entryblock);
         while let Some(b) = cursor {
             let Some(last) = self[b].basicblock_last_instr().copied() else {
@@ -2290,14 +2293,14 @@ impl Blocks {
         instr_sequence: &mut InstructionSequence,
     ) -> crate::InternalResult<()> {
         let mut label_id = 0;
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             self[block_idx].cpython_label = InstructionSequenceLabel::from_index(label_id);
             label_id += 1;
             cursor = self[block_idx].next;
         }
 
-        cursor = Some(BlockIdx(0));
+        cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             let block_label = self[block_idx].cpython_label;
             debug_assert!(is_label(block_label));
@@ -2340,7 +2343,7 @@ impl Blocks {
 
     fn optimize_load_fast(&mut self) -> crate::InternalResult<()> {
         let mut max_instrs = 0;
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(current) = cursor {
             max_instrs = max_instrs.max(self[current].instruction_used);
             cursor = self[current].next;
@@ -2357,7 +2360,7 @@ impl Blocks {
             capacity: 0,
         };
         let mut worklist = self.make_cfg_traversal_stack()?;
-        worklist.push(BlockIdx(0));
+        worklist.push(BlockIdx::MIN);
         self[0].start_depth = 0;
         self[0].visited = true;
         while let Some(block_idx) = worklist.pop() {
@@ -2590,7 +2593,7 @@ impl Blocks {
     }
 
     fn propagate_line_numbers(&mut self) {
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(current) = cursor {
             let Some(last) = self[current].basicblock_last_instr().copied() else {
                 cursor = self[current].next;
@@ -2698,14 +2701,14 @@ impl Blocks {
 
     /// flowgraph.c calculate_stackdepth
     fn calculate_stackdepth(&mut self) -> crate::InternalResult<u32> {
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(current) = cursor {
             self[current.idx()].start_depth = START_DEPTH_UNSET;
             cursor = self[current.idx()].next;
         }
         let mut stack = self.make_cfg_traversal_stack()?;
         let mut maxdepth = 0i32;
-        stackdepth_push(&mut stack, self, BlockIdx(0), 0)?;
+        stackdepth_push(&mut stack, self, BlockIdx::MIN, 0)?;
         while let Some(block_idx) = stack.pop() {
             let mut depth = self[block_idx].start_depth;
             debug_assert!(depth >= 0);
@@ -2751,7 +2754,7 @@ impl Blocks {
         debug_assert!(!self.is_empty());
 
         let mut nblocks = 0;
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(current) = cursor {
             self[current].visited = false;
             nblocks += 1;
@@ -2772,13 +2775,13 @@ impl Blocks {
 
     /// flowgraph.c normalize_jumps
     fn normalize_jumps(&mut self) -> crate::InternalResult<()> {
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(current) = cursor {
             self[current].visited = false;
             cursor = self[current].next;
         }
 
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(current) = cursor {
             self[current].visited = true;
             self.normalize_jumps_in_block(current)?;
@@ -2807,7 +2810,7 @@ impl Blocks {
         index_map[0] = 0;
 
         // Mark used consts.
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             let block = &self[block_idx];
             for instr in block.instructions.iter().take(block.instruction_used) {
@@ -2864,7 +2867,7 @@ impl Blocks {
             reverse_index_map[old_index] = i as isize;
         }
 
-        cursor = Some(BlockIdx(0));
+        cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             let next_block = self[block_idx].next;
             let block = &mut self[block_idx];
@@ -2884,7 +2887,7 @@ impl Blocks {
 
     /// flowgraph.c insert_superinstructions
     fn insert_superinstructions(&mut self) -> usize {
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             let next_block = self[block_idx].next;
             let block = &mut self[block_idx];
@@ -2936,14 +2939,14 @@ impl Blocks {
     pub(crate) fn mark_except_handlers(&mut self) {
         #[cfg(debug_assertions)]
         {
-            let mut cursor = Some(BlockIdx(0));
+            let mut cursor = Some(BlockIdx::MIN);
             while let Some(block_idx) = cursor {
                 assert!(!self[block_idx].except_handler);
                 cursor = self[block_idx].next;
             }
         }
 
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             let next = self[block_idx].next;
             let instr_count = self[block_idx].instruction_used;
@@ -2977,7 +2980,7 @@ impl Blocks {
     /// flowgraph.c mark_warm
     fn mark_warm(&mut self) -> crate::InternalResult<()> {
         let mut stack = self.make_cfg_traversal_stack()?;
-        stack.push(BlockIdx(0));
+        stack.push(BlockIdx::MIN);
         self[0].visited = true;
         while let Some(block_idx) = stack.pop() {
             debug_assert!(!self[block_idx].except_handler);
@@ -3007,7 +3010,7 @@ impl Blocks {
     }
 
     fn mark_cold(&mut self) -> crate::InternalResult<()> {
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             let block = &mut self[block_idx];
             debug_assert!(!block.cold);
@@ -3018,7 +3021,7 @@ impl Blocks {
         self.mark_warm()?;
 
         let mut cold_stack = self.make_cfg_traversal_stack()?;
-        cursor = Some(BlockIdx(0));
+        cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             let next = self[block_idx].next;
             let block = &self[block_idx];
@@ -3067,7 +3070,7 @@ impl Blocks {
         let mut next_label = get_max_label(self) + 1;
 
         // If a cold block falls through to a warm block, add an explicit jump
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             if self[block_idx].cold
                 && self[block_idx].bb_has_fallthrough()
@@ -3107,7 +3110,7 @@ impl Blocks {
         assert!(!self[0].cold);
         let mut cold_blocks: Option<BlockIdx> = None;
         let mut cold_blocks_tail: Option<BlockIdx> = None;
-        let mut block_idx = BlockIdx(0);
+        let mut block_idx = BlockIdx::MIN;
 
         while self[block_idx].next.is_some() {
             debug_assert!(!self[block_idx].cold);
@@ -3156,7 +3159,7 @@ impl Blocks {
 
     /// flowgraph.c check_cfg
     fn check_cfg(&self) -> crate::InternalResult<()> {
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             let block = &self[block_idx];
             for i in 0..block.instruction_used {
@@ -3233,7 +3236,7 @@ impl Blocks {
 
     /// flowgraph.c convert_pseudo_conditional_jumps
     fn convert_pseudo_conditional_jumps(&mut self) -> crate::InternalResult<()> {
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             let next = self[block_idx].next;
             let block = &mut self[block_idx];
@@ -3415,7 +3418,7 @@ impl Blocks {
     fn inline_small_or_no_lineno_blocks(&mut self) -> crate::InternalResult<bool> {
         loop {
             let mut changes = false;
-            let mut cursor = Some(BlockIdx(0));
+            let mut cursor = Some(BlockIdx::MIN);
             while let Some(current) = cursor {
                 let next = self[current].next;
                 let res = self.basicblock_inline_small_or_no_lineno_blocks(current)?;
@@ -3496,7 +3499,7 @@ impl Blocks {
     /// flowgraph.c remove_redundant_nops
     fn remove_redundant_nops(&mut self) -> usize {
         let mut changes = 0;
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(current) = cursor {
             let next = self[current].next;
             let change = self.basicblock_remove_redundant_nops(current);
@@ -3515,7 +3518,7 @@ impl Blocks {
     /// flowgraph.c remove_redundant_jumps
     fn remove_redundant_jumps(&mut self) -> crate::InternalResult<usize> {
         let mut changes = 0;
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(current) = cursor {
             let Some(last) = self[current].basicblock_last_instr().copied() else {
                 cursor = self[current].next;
@@ -3543,7 +3546,7 @@ impl Blocks {
     /// flowgraph.c no_redundant_jumps
     #[cfg(debug_assertions)]
     fn no_redundant_jumps(&self) -> bool {
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(current) = cursor {
             let block = &self[current];
             if let Some(last) = block.basicblock_last_instr()
@@ -4136,7 +4139,7 @@ fn optimize_cfg(
     // optimize_cfg() runs optimize_load_const() and then
     // optimize_basic_block() after line numbers are resolved.
     optimize_load_const(metadata, blocks)?;
-    let mut cursor = Some(BlockIdx(0));
+    let mut cursor = Some(BlockIdx::MIN);
     while let Some(block_idx) = cursor {
         let next_block = blocks[block_idx].next;
         blocks.optimize_basic_block(metadata, block_idx)?;
@@ -5761,7 +5764,7 @@ fn optimize_load_const(
     metadata: &mut CodeUnitMetadata,
     blocks: &mut Blocks,
 ) -> crate::InternalResult<()> {
-    let mut cursor = Some(BlockIdx(0));
+    let mut cursor = Some(BlockIdx::MIN);
     while let Some(block_idx) = cursor {
         let next_block = blocks[block_idx].next;
         let block = &mut blocks[block_idx];
@@ -5775,7 +5778,7 @@ fn optimize_load_const(
 impl CodeInfo {
     fn debug_block_dump(&self) -> String {
         let mut out = String::new();
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             use core::fmt::Write;
             let block = &self.blocks[block_idx];
@@ -5854,7 +5857,7 @@ impl CodeInfo {
             "after_optimize_load_const".to_owned(),
             self.debug_block_dump(),
         ));
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             let next_block = self.blocks[block_idx].next;
             self.blocks
@@ -6578,7 +6581,7 @@ fn translate_jump_labels_to_targets(blocks: &mut Blocks) -> crate::InternalResul
     vec_try_reserve_exact(&mut label_to_block, label_count)?;
     label_to_block.resize(label_count, None);
 
-    let mut cursor = Some(BlockIdx(0));
+    let mut cursor = Some(BlockIdx::MIN);
     while let Some(block_idx) = cursor {
         let block = &blocks[block_idx];
         if is_label(block.cpython_label) {
@@ -6589,7 +6592,7 @@ fn translate_jump_labels_to_targets(blocks: &mut Blocks) -> crate::InternalResul
         cursor = block.next;
     }
 
-    cursor = Some(BlockIdx(0));
+    cursor = Some(BlockIdx::MIN);
     while let Some(block_idx) = cursor {
         let next = blocks[block_idx].next;
         for i in 0..blocks[block_idx].instruction_used {
@@ -6787,7 +6790,7 @@ fn fast_scan_many_locals(blocks: &mut Blocks, nlocals: usize) -> crate::Internal
         .map_err(|_| InternalError::MalformedControlFlowGraph)?;
     states.resize(nlocals - LOCAL_UNSAFE_MASK_BITS, 0usize);
     let mut blocknum = 0usize;
-    let mut cursor = Some(BlockIdx(0));
+    let mut cursor = Some(BlockIdx::MIN);
     while let Some(current) = cursor {
         blocknum += 1;
         for i in 0..blocks[current].instruction_used {
@@ -6845,9 +6848,9 @@ fn add_checks_for_loads_of_uninitialized_variables(
     for i in nparams..nlocals {
         start_mask |= 1u64 << i;
     }
-    maybe_push(blocks, &mut worklist, BlockIdx(0), start_mask);
+    maybe_push(blocks, &mut worklist, BlockIdx::MIN, start_mask);
 
-    let mut cursor = Some(BlockIdx(0));
+    let mut cursor = Some(BlockIdx::MIN);
     while let Some(current) = cursor {
         scan_block_for_locals(blocks, current, &mut worklist);
         cursor = blocks[current].next;
@@ -6879,7 +6882,7 @@ const MAX_COPY_SIZE: usize = 4;
 /// flowgraph.c get_max_label
 fn get_max_label(blocks: &Blocks) -> i32 {
     let mut lbl = -1;
-    let mut cursor = Some(BlockIdx(0));
+    let mut cursor = Some(BlockIdx::MIN);
     while let Some(current) = cursor {
         let cpython_label = blocks[current].cpython_label;
         lbl = lbl.max(cpython_label.0);
@@ -6947,7 +6950,7 @@ fn pop_except_block(stack: &mut CfgExceptStack, blocks: &Blocks) -> Option<Excep
 pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut todo = blocks.make_cfg_traversal_stack()?;
 
-    todo.push(BlockIdx(0));
+    todo.push(BlockIdx::MIN);
     blocks[0].visited = true;
     blocks[0].except_stack = Some(make_except_stack());
 
@@ -7047,7 +7050,7 @@ pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalRes
     }
     #[cfg(debug_assertions)]
     {
-        let mut cursor = Some(BlockIdx(0));
+        let mut cursor = Some(BlockIdx::MIN);
         while let Some(block_idx) = cursor {
             let block = &blocks[block_idx];
             debug_assert!(block.except_stack.is_none());
@@ -7060,7 +7063,7 @@ pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalRes
 /// Convert remaining pseudo ops to real instructions or NOP.
 /// flowgraph.c convert_pseudo_ops
 pub(crate) fn convert_pseudo_ops(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut cursor = Some(BlockIdx(0));
+    let mut cursor = Some(BlockIdx::MIN);
     while let Some(block_idx) = cursor {
         let next = blocks[block_idx].next;
         let block = &mut blocks[block_idx];
@@ -7145,7 +7148,7 @@ pub(crate) fn fix_cell_offsets(
         }
     }
 
-    let mut cursor = Some(BlockIdx(0));
+    let mut cursor = Some(BlockIdx::MIN);
     while let Some(block_idx) = cursor {
         let next = blocks[block_idx].next;
         let block = &mut blocks[block_idx];
