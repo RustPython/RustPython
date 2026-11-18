@@ -1537,9 +1537,7 @@ impl Block {
             "CPython basicblock_addop requires 0 <= oparg < (1 << 30)"
         );
         let off = self.basicblock_next_instr()?;
-        let except_handler = self.instructions[off].except_handler;
         info.target = BlockIdx::NULL;
-        info.except_handler = except_handler;
         self.instructions[off] = info;
         Ok(())
     }
@@ -3227,7 +3225,7 @@ impl Blocks {
             target: BlockIdx::NULL,
             location: loc_source.location,
             end_location: loc_source.end_location,
-            except_handler: None,
+            except_handler: loc_source.except_handler,
             semantic_location: loc_source.semantic_location,
             lineno_override: loc_source.lineno_override,
         })?;
@@ -3325,7 +3323,7 @@ impl Blocks {
                 target: BlockIdx::NULL,
                 location: last_ins.location,
                 end_location: last_ins.end_location,
-                except_handler: None,
+                except_handler: last_ins.except_handler,
                 semantic_location: last_ins.semantic_location,
                 lineno_override: last_ins.lineno_override,
             };
@@ -3356,7 +3354,7 @@ impl Blocks {
             target: BlockIdx::NULL,
             location: loc,
             end_location: end_loc,
-            except_handler: None,
+            except_handler: last_ins.except_handler,
             semantic_location: last_ins.semantic_location,
             lineno_override: last_ins.lineno_override,
         })?;
@@ -7788,30 +7786,36 @@ mod tests {
         blocks.normalize_jumps_in_block(BlockIdx::new(0)).unwrap();
         let not_taken = &blocks[0].instructions[1];
         assert_eq!(not_taken.instr.real_opcode(), Some(Opcode::NotTaken));
-        assert_eq!(not_taken.except_handler, None);
+        assert_eq!(not_taken.except_handler, Some(handler));
     }
 
     #[test]
-    fn basicblock_addop_reuses_cpython_spare_except_handler_slot() {
-        let handler = ExceptHandlerInfo {
+    fn basicblock_addop_overwrites_spare_exception_handler() {
+        let stale = ExceptHandlerInfo {
             handler_block: BlockIdx::new(7),
             preserve_lasti: true,
         };
-        let mut block = Block::default();
-        let mut stale = test_instr(Instruction::Nop, 11);
-        stale.except_handler = Some(handler);
-        test_block_push(&mut block, stale);
-        block.basicblock_clear();
+        let replacement = ExceptHandlerInfo {
+            handler_block: BlockIdx::new(8),
+            preserve_lasti: false,
+        };
+        for new_handler in [None, Some(replacement)] {
+            let mut block = Block::default();
+            let mut old = test_instr(Instruction::Nop, 11);
+            old.except_handler = Some(stale);
+            test_block_push(&mut block, old);
+            block.basicblock_clear();
 
-        block
-            .basicblock_addop(test_instr(Instruction::PopTop, 12))
-            .expect("basicblock_addop succeeds");
+            let mut new = test_instr(Instruction::PopTop, 12);
+            new.except_handler = new_handler;
+            block
+                .basicblock_addop(new)
+                .expect("basicblock_addop succeeds");
 
-        // CPython `basicblock_addop()` writes opcode/oparg/target/location into
-        // the reused `b_instr[b_iused]` slot, but does not clear `i_except`.
-        assert_eq!(block.instruction_used, 1);
-        assert_eq!(block.instructions[0].except_handler, Some(handler));
-        assert_eq!(block.instructions[0].target, BlockIdx::NULL);
+            assert_eq!(block.instruction_used, 1);
+            assert_eq!(block.instructions[0].except_handler, new_handler);
+            assert_eq!(block.instructions[0].target, BlockIdx::NULL);
+        }
     }
 
     #[test]
@@ -7854,64 +7858,6 @@ mod tests {
         // the provided instruction copy, including its `i_except` value.
         assert_eq!(block.instruction_used, 2);
         assert_eq!(block.instructions[0].except_handler, None);
-    }
-
-    #[test]
-    fn basicblock_clear_preserves_cpython_spare_slots() {
-        let handler = ExceptHandlerInfo {
-            handler_block: BlockIdx::new(3),
-            preserve_lasti: true,
-        };
-        let mut block = Block::default();
-        let mut stale = test_instr(Instruction::PopTop, 31);
-        stale.except_handler = Some(handler);
-        test_block_push(&mut block, stale);
-
-        block.basicblock_clear();
-        block
-            .basicblock_addop(test_instr(Instruction::Nop, 32))
-            .expect("basicblock_addop succeeds");
-
-        // CPython `remove_unreachable()` sets `b_iused = 0` without clearing the
-        // backing `b_instr` slot. A later `basicblock_addop()` reuses that slot
-        // and does not overwrite `i_except`.
-        assert_eq!(block.instruction_used, 1);
-        assert_eq!(block.instructions[0].except_handler, Some(handler));
-    }
-
-    #[test]
-    fn basicblock_clear_reuses_cpython_spare_slots_in_offset_order() {
-        let mut block = Block::default();
-        for i in 0..3 {
-            let mut stale = test_instr(Instruction::Nop, 35 + i);
-            stale.except_handler = Some(ExceptHandlerInfo {
-                handler_block: BlockIdx::new(i + 1),
-                preserve_lasti: false,
-            });
-            test_block_push(&mut block, stale);
-        }
-
-        block.basicblock_clear();
-        for i in 0..3 {
-            block
-                .basicblock_addop(test_instr(Instruction::PopTop, 38 + i))
-                .expect("basicblock_addop succeeds");
-        }
-
-        let handlers = block
-            .used_instructions()
-            .iter()
-            .map(|instr| {
-                instr
-                    .except_handler
-                    .expect("reused CPython slot")
-                    .handler_block
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            handlers,
-            [BlockIdx::new(1), BlockIdx::new(2), BlockIdx::new(3)]
-        );
     }
 
     #[test]

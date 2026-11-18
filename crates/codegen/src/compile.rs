@@ -18017,64 +18017,17 @@ class C:
     }
 
     #[test]
-    fn or_return_not_taken_before_jump_target_splits_exception_table_like_cpython() {
-        let code = compile_exec_with_options(
+    fn generator_conditional_jumps_keep_stopiteration_handler() {
+        // CPython 3.15.2 keeps the generator's StopIteration handler around
+        // both branches of the normalized conditional, including NOT_TAKEN
+        // and any inserted JUMP_BACKWARD.
+        for source in [
             r#"
 def f(self, maintype):
     if maintype != "multipart" or not self.is_multipart():
         return
     yield 1
 "#,
-            CompileOpts::default(),
-        );
-        let f = find_code(&code, "f").expect("missing f");
-        let not_taken_before_return = u32::try_from(
-            f.instructions
-                .windows(3)
-                .position(|window| {
-                    matches!(
-                        window,
-                        [
-                            CodeUnit {
-                                op: Instruction::NotTaken,
-                                ..
-                            },
-                            CodeUnit {
-                                op: Instruction::LoadCommonConstant { .. },
-                                ..
-                            },
-                            CodeUnit {
-                                op: Instruction::ReturnValue,
-                                ..
-                            },
-                        ]
-                    )
-                })
-                .expect("missing NOT_TAKEN before return"),
-        )
-        .unwrap();
-        let return_load = not_taken_before_return + 1;
-        let entries = bytecode::decode_exception_table(&f.exceptiontable);
-
-        assert!(
-            entries.iter().all(|entry| {
-                not_taken_before_return < entry.start || not_taken_before_return >= entry.end
-            }),
-            "CPython normalize_jumps() can leave a NOT_TAKEN before a separately labelled jump target outside the generator StopIteration range; entries={entries:?}, instructions={:?}",
-            f.instructions
-        );
-        assert!(
-            entries
-                .iter()
-                .any(|entry| entry.start <= return_load && return_load < entry.end),
-            "the return block after that NOT_TAKEN is still protected by the StopIteration handler; entries={entries:?}, instructions={:?}",
-            f.instructions
-        );
-    }
-
-    #[test]
-    fn loop_break_condition_splits_exception_table_like_cpython() {
-        let code = compile_exec_with_options(
             r#"
 def f(start, items):
     if start:
@@ -18083,120 +18036,12 @@ def f(start, items):
                 break
     yield 1
 "#,
-            CompileOpts::default(),
-        );
-        let f = find_code(&code, "f").expect("missing f");
-        let break_jump = u32::try_from(
-            f.instructions
-                .windows(3)
-                .position(|window| {
-                    matches!(
-                        window,
-                        [
-                            CodeUnit {
-                                op: Instruction::PopJumpIfTrue { .. },
-                                ..
-                            },
-                            CodeUnit {
-                                op: Instruction::Cache,
-                                ..
-                            },
-                            CodeUnit {
-                                op: Instruction::NotTaken,
-                                ..
-                            },
-                        ]
-                    ) || matches!(
-                        window,
-                        [
-                            CodeUnit {
-                                op: Instruction::PopJumpIfTrue { .. },
-                                ..
-                            },
-                            CodeUnit {
-                                op: Instruction::NotTaken,
-                                ..
-                            },
-                            CodeUnit {
-                                op: Instruction::JumpBackward { .. },
-                                ..
-                            },
-                        ]
-                    )
-                })
-                .expect("missing loop break conditional jump"),
-        )
-        .unwrap();
-        let entries = bytecode::decode_exception_table(&f.exceptiontable);
-
-        assert!(
-            entries
-                .iter()
-                .all(|entry| break_jump < entry.start || break_jump >= entry.end),
-            "CPython normalize_jumps() leaves the loop-break conditional before the synthetic NOT_TAKEN/JUMP_BACKWARD block outside the StopIteration table; break_jump={break_jump}, entries={entries:?}, instructions={:?}",
-            f.instructions
-        );
-    }
-
-    #[test]
-    fn nested_ifexp_not_taken_splits_exception_table_like_cpython() {
-        let code = compile_exec_with_options(
             r#"
 def f(flag, subparts):
     if flag:
         candidate = subparts[0] if subparts else None
     yield 1
 "#,
-            CompileOpts::default(),
-        );
-        let f = find_code(&code, "f").expect("missing f");
-        let conditional_expr_not_taken = u32::try_from(
-            f.instructions
-                .iter()
-                .enumerate()
-                .find_map(|(idx, unit)| {
-                    if !matches!(unit.op, Instruction::NotTaken) {
-                        return None;
-                    }
-                    let prev = f.instructions[..idx]
-                        .iter()
-                        .rev()
-                        .find(|unit| !matches!(unit.op, Instruction::Cache))?;
-                    let mut following = f.instructions[idx + 1..]
-                        .iter()
-                        .filter(|unit| !matches!(unit.op, Instruction::Cache));
-                    let next = following.next()?;
-                    let after_next = following.next()?;
-                    (matches!(prev.op, Instruction::PopJumpIfFalse { .. })
-                        && matches!(next.op, Instruction::LoadFastBorrow { .. })
-                        && matches!(after_next.op, Instruction::LoadSmallInt { .. }))
-                    .then_some(idx)
-                })
-                .expect("missing conditional expression NOT_TAKEN"),
-        )
-        .unwrap();
-        let body_start = conditional_expr_not_taken + 1;
-        let entries = bytecode::decode_exception_table(&f.exceptiontable);
-
-        assert!(
-            entries.iter().all(|entry| {
-                conditional_expr_not_taken < entry.start || conditional_expr_not_taken >= entry.end
-            }),
-            "CPython codegen_ifexp() uses a separate orelse label inside conditional statements, leaving the normalize_jumps NOT_TAKEN outside the StopIteration table; not_taken={conditional_expr_not_taken}, entries={entries:?}, instructions={:?}",
-            f.instructions
-        );
-        assert!(
-            entries
-                .iter()
-                .any(|entry| entry.start <= body_start && body_start < entry.end),
-            "the conditional-expression body after that NOT_TAKEN remains protected; body_start={body_start}, entries={entries:?}, instructions={:?}",
-            f.instructions
-        );
-    }
-
-    #[test]
-    fn bool_not_taken_after_conditional_yield_splits_like_cpython() {
-        let code = compile_exec_with_options(
             r#"
 def f(a, b, c):
     if a:
@@ -18207,38 +18052,41 @@ def f(a, b, c):
         x = 3
     yield 4
 "#,
-            CompileOpts::default(),
-        );
-        let f = find_code(&code, "f").expect("missing f");
-        let split_not_taken = f
-            .instructions
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, unit)| {
-                if !matches!(unit.op, Instruction::NotTaken) {
-                    return None;
+        ] {
+            let code = compile_exec_with_options(source, CompileOpts::default());
+            let f = find_code(&code, "f").expect("missing f");
+            let entries = bytecode::decode_exception_table(&f.exceptiontable);
+            let [entry] = entries.as_slice() else {
+                panic!("expected a single StopIteration range, got {entries:?} for {source}");
+            };
+            assert!(entry.push_lasti);
+            assert_eq!(entry.depth, 0);
+            let target = &f.instructions[entry.target as usize];
+            assert!(matches!(
+                target.op,
+                Instruction::CallIntrinsic1 { func }
+                    if func.get(OpArg::new(u32::from(u8::from(target.arg))))
+                        == oparg::IntrinsicFunction1::StopIterationError
+            ));
+            let mut branches = 0;
+            for (offset, unit) in f.instructions.iter().enumerate() {
+                if matches!(
+                    unit.op,
+                    Instruction::PopJumpIfFalse { .. }
+                        | Instruction::PopJumpIfTrue { .. }
+                        | Instruction::NotTaken
+                        | Instruction::JumpBackward { .. }
+                ) {
+                    branches += 1;
+                    let offset = u32::try_from(offset).unwrap();
+                    assert!(
+                        entry.start <= offset && offset < entry.end,
+                        "unprotected branch at {offset} in {source}; exception entry: {entry:?}"
+                    );
                 }
-                let prev = f.instructions[..idx]
-                    .iter()
-                    .rev()
-                    .find(|unit| !matches!(unit.op, Instruction::Cache))?;
-                matches!(
-                    prev.op,
-                    Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. }
-                )
-                .then(|| u32::try_from(idx).unwrap())
-            })
-            .nth(1)
-            .expect("missing second bool conditional NOT_TAKEN");
-        let entries = bytecode::decode_exception_table(&f.exceptiontable);
-
-        assert!(
-            entries
-                .iter()
-                .all(|entry| split_not_taken < entry.start || split_not_taken >= entry.end),
-            "CPython labels exception targets before normalize_jumps(), so the general bool-jump NOT_TAKEN after a conditional yield is outside the StopIteration table; not_taken={split_not_taken}, entries={entries:?}, instructions={:?}",
-            f.instructions
-        );
+            }
+            assert!(branches > 0);
+        }
     }
 
     fn non_cache_instructions(code: &CodeObject) -> impl Iterator<Item = &CodeUnit> {
@@ -27692,19 +27540,14 @@ def bug():
         .unwrap();
 
         assert!(
-            entries
-                .iter()
-                .all(|entry| { not_taken_idx < entry.start || not_taken_idx >= entry.end })
-        );
-        assert!(
             entries.iter().any(|entry| {
-                entry.start <= alias_store_idx
+                entry.start <= not_taken_idx
                     && alias_store_idx < entry.end
                     && entry.target == copy_idx
                     && entry.depth == 1
                     && entry.push_lasti
             }),
-            "CPython codegen_try_except() stores the exception alias before the inner SETUP_CLEANUP, so the alias store stays covered by the outer cleanup entry; entries={entries:?}, instructions={:?}",
+            "CPython 3.15.2 keeps the normalized branch and alias store covered by the outer cleanup entry; entries={entries:?}, instructions={:?}",
             bug.instructions
         );
     }
