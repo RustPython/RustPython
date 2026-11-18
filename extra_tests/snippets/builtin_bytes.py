@@ -13,6 +13,12 @@ with assert_raises(TypeError):
     bytes("bla")
 with assert_raises(TypeError):
     bytes("bla", encoding=b"jilj")
+with assert_raises(ValueError):
+    bytes("bla", "utf-8\x00")
+with assert_raises(ValueError):
+    bytes("bla", "utf-8", "strict\x00")
+with assert_raises(ValueError):
+    bytes(b"bla", "\x00", [])
 
 
 class IterList(list):

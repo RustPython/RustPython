@@ -11,7 +11,8 @@ use crate::{
     common::wtf8::is_py_ascii_whitespace,
     common::{borrow::BorrowedValue, hash},
     function::{
-        ArgBytesLike, ArgBytesOrStr, ArgIndex, ArgIterable, Either, OptionalArg, PyComparisonValue,
+        ArgBytesLike, ArgBytesOrStr, ArgIndex, ArgIterable, ArgNulFreeStr, Either, OptionalArg,
+        PyComparisonValue,
     },
     literal::escape::Escape,
     protocol::{BufferFlags, PyBuffer},
@@ -171,19 +172,20 @@ pub struct ByteInnerNewOptions {
     #[pyarg(any, optional)]
     pub source: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]
-    pub encoding: OptionalArg<PyUtf8StrRef>,
+    pub encoding: OptionalArg<ArgNulFreeStr>,
     #[pyarg(any, optional)]
-    pub errors: OptionalArg<PyUtf8StrRef>,
+    pub errors: OptionalArg<ArgNulFreeStr>,
 }
 
 impl ByteInnerNewOptions {
     fn get_value_from_string(
         s: PyStrRef,
-        encoding: PyUtf8StrRef,
-        errors: OptionalArg<PyUtf8StrRef>,
+        encoding: ArgNulFreeStr,
+        errors: OptionalArg<ArgNulFreeStr>,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesInner> {
-        let bytes = pystr::encode_string(s, Some(&encoding), errors.into_option(), vm)?;
+        let errors = errors.into_option().map(ArgNulFreeStr::into_utf8_ref);
+        let bytes = pystr::encode_string(s, Some(&encoding), errors, vm)?;
         Ok(bytes.as_bytes().to_vec().into())
     }
 

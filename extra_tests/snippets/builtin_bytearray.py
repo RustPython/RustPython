@@ -33,6 +33,12 @@ with assert_raises(TypeError):
     bytearray("bla")
 with assert_raises(TypeError):
     bytearray("bla", encoding=b"jilj")
+with assert_raises(ValueError):
+    bytearray("bla", "utf-8\x00")
+with assert_raises(ValueError):
+    bytearray("bla", "utf-8", "strict\x00")
+with assert_raises(ValueError):
+    bytearray(b"bla", "\x00", [])
 
 
 class IterList(list):
