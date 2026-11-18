@@ -3732,6 +3732,12 @@ impl VirtualMachine {
     where
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {
+        // A subclass may override __iter__, so only the exact types are read
+        // directly.
+        let cls = obj.class();
+        if !cls.is(self.ctx.types.list_type) && !cls.is(self.ctx.types.tuple_type) {
+            return Ok(self.map_py_iter(obj, hint, f));
+        }
         match_class!(match obj {
             ref l @ PyList => {
                 let mut i: usize = 0;
