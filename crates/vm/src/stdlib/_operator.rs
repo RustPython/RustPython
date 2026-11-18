@@ -3,7 +3,7 @@ pub(crate) use _operator::module_def;
 #[pymodule]
 mod _operator {
     use crate::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
         common::wtf8::{Wtf8, Wtf8Buf},
         function::{
@@ -159,17 +159,21 @@ mod _operator {
 
     // Sequence based operators
 
+    // A dict subclass has `__getitem__` but is a mapping, not a sequence.
+    fn check_concat_receiver(a: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        if a.fast_isinstance(vm.ctx.types.dict_type) {
+            return Err(vm.new_type_error(format!(
+                "'{}' object can't be concatenated",
+                a.class().slot_name()
+            )));
+        }
+        Ok(())
+    }
+
     #[pyfunction]
     fn concat(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // Best attempt at checking that a is sequence-like.
-        if !a.class().has_attr(identifier!(vm, __getitem__))
-            || a.fast_isinstance(vm.ctx.types.dict_type)
-        {
-            return Err(
-                vm.new_type_error(format!("{} object can't be concatenated", a.class().name()))
-            );
-        }
-        vm._add(&a, &b)
+        check_concat_receiver(&a, vm)?;
+        a.sequence_unchecked().concat(&b, vm)
     }
 
     #[pyfunction]
@@ -250,16 +254,8 @@ mod _operator {
 
     #[pyfunction]
     fn iconcat(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // Best attempt at checking that a is sequence-like.
-        if !a.class().has_attr(identifier!(vm, __getitem__))
-            || a.fast_isinstance(vm.ctx.types.dict_type)
-        {
-            return Err(vm.new_type_error(format!(
-                "'{}' object can't be concatenated",
-                a.class().name()
-            )));
-        }
-        vm._iadd(&a, &b)
+        check_concat_receiver(&a, vm)?;
+        a.sequence_unchecked().inplace_concat(&b, vm)
     }
 
     #[pyfunction]
