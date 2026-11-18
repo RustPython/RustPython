@@ -742,10 +742,26 @@ mod _tokenize {
         let closing = match error {
             LexicalErrorType::UnmatchedBracket { closing }
             | LexicalErrorType::MismatchedBracket { closing, .. } => *closing,
+            LexicalErrorType::FStringError(InterpolatedStringErrorType::SingleRbrace)
+            | LexicalErrorType::TStringError(InterpolatedStringErrorType::SingleRbrace) => '}',
             _ => return true,
         };
         let mut stack = Vec::new();
+        // Braces in an outer replacement field cannot match a literal brace
+        // inside a nested f-string or t-string.
+        let mut string_scopes = Vec::new();
         for token in preceding {
+            match token.kind() {
+                TokenKind::FStringStart | TokenKind::TStringStart => {
+                    string_scopes.push(stack.len());
+                }
+                TokenKind::FStringEnd | TokenKind::TStringEnd => {
+                    if let Some(start) = string_scopes.pop() {
+                        stack.truncate(start);
+                    }
+                }
+                _ => {}
+            }
             if matches!(
                 token.kind(),
                 TokenKind::Lpar
@@ -760,14 +776,19 @@ mod _tokenize {
                     "(" => stack.push(')'),
                     "[" => stack.push(']'),
                     "{" => stack.push('}'),
-                    ")" | "]" | "}" => {
+                    ")" | "]" | "}" if stack.len() > string_scopes.last().copied().unwrap_or(0) => {
                         stack.pop();
                     }
                     _ => {}
                 }
             }
         }
-        stack.last().copied() != Some(closing)
+        let scope_start = string_scopes.last().copied().unwrap_or(0);
+        stack
+            .get(scope_start..)
+            .and_then(|scope| scope.last())
+            .copied()
+            != Some(closing)
     }
 
     fn has_unclosed_interpolation(tokens: &[Token]) -> bool {
