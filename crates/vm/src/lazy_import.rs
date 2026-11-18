@@ -424,7 +424,7 @@ pub(crate) fn is_resolving(deferred: &Py<PyLazyImport>, vm: &VirtualMachine) -> 
 }
 
 fn raw_imported_module(name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
-    let modules = vm.sys_module.dict().get_item("modules", vm)?;
+    let modules = vm.sys_modules();
     optional_item(&modules, name, vm)
 }
 
@@ -466,7 +466,7 @@ fn loaded_attr(
     vm: &VirtualMachine,
 ) -> PyResult<Option<PyObjectRef>> {
     let lookup = || -> PyResult<Option<PyObjectRef>> {
-        let modules = vm.sys_module.dict().get_item("modules", vm)?;
+        let modules = vm.sys_modules();
         let Some(module) = optional_item(&modules, name, vm)? else {
             return Ok(None);
         };
@@ -476,9 +476,7 @@ fn loaded_attr(
         if crate::import::is_module_initializing(module.as_object(), vm)? {
             return Ok(None);
         }
-        if !vm.sys_module.dict().get_item("modules", vm)?.is(&modules)
-            || !optional_item(&modules, name, vm)?.is_some_and(|m| m.is(module))
-        {
+        if !optional_item(&modules, name, vm)?.is_some_and(|m| m.is(module)) {
             return Ok(None);
         }
         Ok(module
