@@ -877,6 +877,11 @@ pub struct PyGlobalState {
     pub(crate) inspect: AtomicBool,
     /// `_interactive_src_count`: numbers the code filenames of interactive inputs.
     pub(crate) interactive_src_count: AtomicUsize,
+    // Core extension reload state belongs to the interpreter, not a thread or
+    // the process-wide native module definitions.
+    pub(crate) modules: crate::common::lock::OnceCell<PyRef<PyDict>>,
+    pub(crate) builtins_copy: crate::common::lock::OnceCell<PyRef<PyDict>>,
+    pub(crate) sysdict_copy: crate::common::lock::OnceCell<PyRef<PyDict>>,
     pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
     pub frozen: FrozenModuleRegistry,
     pub stacksize: AtomicCell<usize>,
@@ -1350,6 +1355,17 @@ impl VirtualMachine {
         }
     }
 
+    // Native imports keep the interpreter's original registry. Rebinding the
+    // Python-visible sys.modules does not replace this dictionary.
+    pub(crate) fn sys_modules(&self) -> PyObjectRef {
+        self.state
+            .modules
+            .get()
+            .expect("initialized module registry")
+            .clone()
+            .into()
+    }
+
     /// Create a new `VirtualMachine` structure.
     pub(crate) fn new(ctx: PyRc<Context>, state: PyRc<PyGlobalState>) -> Self {
         flame_guard!("new VirtualMachine");
@@ -1495,7 +1511,7 @@ impl VirtualMachine {
         // __import__("encodings.ascii") returns top-level "encodings", so
         // look up the actual submodule in sys.modules.
         self.import(ascii_module_name, 0)?;
-        let sys_modules = self.sys_module.get_attr(identifier!(self, modules), self)?;
+        let sys_modules = self.sys_modules();
         let ascii_module = sys_modules.get_item(ascii_module_name, self)?;
         let getregentry = ascii_module.get_attr("getregentry", self)?;
         let codec_info = getregentry.call((), self)?;
@@ -1556,7 +1572,9 @@ impl VirtualMachine {
         #[cfg(all(feature = "host_env", feature = "stdio"))]
         let make_stdio = |name: &str, fd: i32, write: bool| -> PyResult<PyObjectRef> {
             #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-            if !rustpython_host_env::fileutils::is_valid_fd(fd) {
+            if self.state.config.settings.closed_stdio[fd as usize]
+                || !rustpython_host_env::fileutils::is_valid_fd(fd)
+            {
                 return Ok(self.ctx.none());
             }
 
@@ -1685,6 +1703,10 @@ impl VirtualMachine {
         drop(prewarmed_memory_errors);
 
         stdlib::builtins::init_module(self, &self.builtins);
+        let _ = self
+            .state
+            .builtins_copy
+            .set(self.builtins.dict().copy().into_ref(&self.ctx));
         // Explicit lazy imports can occur in frozen startup code.
         let lazy_callback = self.builtins.get_attr("__lazy_import__", self);
         let lazy_callback =
@@ -2562,6 +2584,16 @@ impl VirtualMachine {
 
         // Phase 7: Clear sys and builtins dicts last
         self.finalize_clear_sys_builtins_dict();
+        // Do not keep initialization snapshots alive after interpreter teardown.
+        for dict in [
+            &self.state.builtins_copy,
+            &self.state.sysdict_copy,
+            &self.state.modules,
+        ] {
+            if let Some(dict) = dict.get() {
+                dict.clear();
+            }
+        }
     }
 
     /// Phase 1: Set special sys attributes to None and restore stdio.
@@ -2610,10 +2642,7 @@ impl VirtualMachine {
     fn finalize_remove_modules(&self) -> Vec<(String, PyRef<PyWeak>)> {
         let mut module_weakrefs = Vec::new();
 
-        let Ok(modules) = self.sys_module.get_attr(identifier!(self, modules), self) else {
-            return module_weakrefs;
-        };
-        let Some(modules_dict) = modules.downcast_ref::<PyDict>() else {
+        let Some(modules_dict) = self.state.modules.get() else {
             return module_weakrefs;
         };
 
@@ -2641,10 +2670,8 @@ impl VirtualMachine {
 
     /// Phase 3: Clear sys.modules dict.
     fn finalize_clear_modules_dict(&self) {
-        if let Ok(modules) = self.sys_module.get_attr(identifier!(self, modules), self)
-            && let Some(modules_dict) = modules.downcast_ref::<PyDict>()
-        {
-            modules_dict.clear();
+        if let Some(modules) = self.state.modules.get() {
+            modules.clear();
         }
     }
 
@@ -3569,7 +3596,7 @@ impl VirtualMachine {
         let Some(name_str) = module.to_str() else {
             return Ok(None);
         };
-        let sys_modules = self.sys_module.get_attr("modules", self)?;
+        let sys_modules = self.sys_modules();
         let Ok(found) = sys_modules.get_item(name_str, self) else {
             return Ok(None);
         };

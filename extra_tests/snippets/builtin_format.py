@@ -24,6 +24,12 @@ def test_zero_padding():
 
 test_zero_padding()
 
+assert format("x", "٥") == "x    "
+assert format(3, "٥d") == "    3"
+assert format(3, "१२") == "           3"
+assert format(1.5, "٨.٣f") == "   1.500"
+assert_raises(ValueError, format, "x", "²")
+
 try:
     format("result", "=8s")
 except ValueError as error:

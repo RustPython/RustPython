@@ -53,7 +53,7 @@ flamescope = { version = "0.1.2", optional = true }
 
 rustls = { workspace = true, optional = true }
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
 libc = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -295,7 +295,7 @@ rustls = { version = "0.23.39", default-features = false }
 rustls-graviola = "0.4"
 rustls-native-certs = "0.8"
 rustls-pemfile = "2.2"
-rustls-webpki = { version = "0.103", default-features = false, features = ["std"] }
+rustls-webpki = { version = "0.103.16", default-features = false, features = ["std"] }
 rustyline = { version = "19", features = ["buffer-redux"] }
 serde = { package = "serde_core", version = "1.0.225", default-features = false, features = ["alloc"] }
 schannel = "0.1.29"

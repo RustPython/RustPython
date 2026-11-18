@@ -181,7 +181,7 @@ mod file_run {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         vm.import("importlib.machinery", 0)?;
-        let sys_modules = vm.sys_module.get_attr(identifier!(vm, modules), vm)?;
+        let sys_modules = vm.sys_modules();
         let machinery = sys_modules.get_item("importlib.machinery", vm)?;
         let loader_name = vm.ctx.new_str(loader_name);
         let loader_class = machinery.get_attr(&loader_name, vm)?;
