@@ -3921,7 +3921,13 @@ impl ExecutingFrame<'_> {
                 vm.raise_async_exception()
             }
             if vm.eval_breaker_tripped()
-                && let Err(exception) = eval_breaker_work(vm)
+                && let Err(exception) = {
+                    let result = eval_breaker_work(vm);
+                    // Signal handlers and scheduled GC callbacks may change
+                    // profiling before this instruction is dispatched.
+                    tracing = !PREPARE_GENERATOR && vm.use_tracing.get();
+                    result
+                }
             {
                 #[cold]
                 fn handle_signal_exception(
