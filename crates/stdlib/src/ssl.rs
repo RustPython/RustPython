@@ -110,8 +110,8 @@ mod _ssl {
         TlsConnection,
     };
 
-    /// Caps unsent TLS so BIO writes stay inside asyncio's 64 KiB
-    /// socket-transport high-water mark when SO_SNDBUF is small.
+    // Bound rustls' internal staging and nonblocking socket writes. MemoryBIO
+    // writes drain these chunks into the caller-owned outgoing BIO.
     const TLS_IO_BUFFER_LIMIT: Option<usize> = Some(4 * 1024);
 
     // Import certificate operations module
@@ -2360,6 +2360,24 @@ mod _ssl {
             &self.connection
         }
 
+        pub(crate) fn check_write_state(&self, vm: &VirtualMachine) -> PyResult<()> {
+            // Application data cannot follow our close_notify.
+            if matches!(
+                *self.state.lock(),
+                TlsState::ShuttingDown | TlsState::ShutDown
+            ) {
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "cannot write after shutdown",
+                    )
+                    .upcast());
+            }
+
+            Ok(())
+        }
+
         pub(crate) fn write_buffered_len(&self) -> usize {
             self.connection
                 .lock()
@@ -3573,19 +3591,7 @@ mod _ssl {
                 Self::do_handshake(zelf, vm)?;
             }
 
-            // Application data cannot follow our close_notify.
-            if matches!(
-                *zelf.state.lock(),
-                TlsState::ShuttingDown | TlsState::ShutDown
-            ) {
-                return Err(vm
-                    .new_os_subtype_error(
-                        PySSLError::class(&vm.ctx).to_owned(),
-                        None,
-                        "cannot write after shutdown",
-                    )
-                    .upcast());
-            }
+            zelf.check_write_state(vm)?;
 
             // Call ssl_write (matches CPython's SSL_write_ex loop)
             let result = crate::ssl::compat::ssl_write(zelf, data_bytes.as_ref(), vm);
