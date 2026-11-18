@@ -267,7 +267,7 @@ pub struct CodeUnitMetadata {
 }
 // use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BlockIdx(u32);
 
 impl BlockIdx {
