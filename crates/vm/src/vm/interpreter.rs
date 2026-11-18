@@ -92,6 +92,8 @@ where
         // Subinterpreter: clone config and module tables from parent, fresh runtime state.
         let int_max_str_digits = AtomicCell::new(parent.int_max_str_digits.load());
         let mut config = parent.config.clone();
+        // The executable startup snapshot applies only to its initial interpreter.
+        config.settings.closed_stdio = [false; 3];
         config.settings.inspect = parent.inspect.load(Ordering::Relaxed);
         (
             config,

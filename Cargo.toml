@@ -53,7 +53,7 @@ flamescope = { version = "0.1.2", optional = true }
 
 rustls = { workspace = true, optional = true }
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
 libc = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

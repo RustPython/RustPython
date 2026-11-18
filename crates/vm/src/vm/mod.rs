@@ -1572,7 +1572,9 @@ impl VirtualMachine {
         #[cfg(all(feature = "host_env", feature = "stdio"))]
         let make_stdio = |name: &str, fd: i32, write: bool| -> PyResult<PyObjectRef> {
             #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-            if !rustpython_host_env::fileutils::is_valid_fd(fd) {
+            if self.state.config.settings.closed_stdio[fd as usize]
+                || !rustpython_host_env::fileutils::is_valid_fd(fd)
+            {
                 return Ok(self.ctx.none());
             }
 
