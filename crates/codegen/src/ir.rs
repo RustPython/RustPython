@@ -4947,28 +4947,16 @@ fn eval_const_complex_binop(
 
     let value = match op {
         BinOp::Add => left + right,
-        BinOp::Subtract => {
-            let re = left.re - right.re;
-            // Preserve signed-zero behavior for real-zero
-            // minus zero-complex expressions such as `0 - 0j`.
-            let im = if left.re == 0.0
-                && left.im == 0.0
-                && right.re == 0.0
-                && right.im == 0.0
-                && !right.im.is_sign_negative()
-            {
-                -0.0
-            } else {
-                left.im - right.im
-            };
+        BinOp::Subtract => left - right,
+        BinOp::Multiply => {
+            let (re, im) =
+                rustpython_literal::complex::multiply((left.re, left.im), (right.re, right.im));
             Complex::new(re, im)
         }
-        BinOp::Multiply => left * right,
         BinOp::TrueDivide => {
-            if right == Complex::new(0.0, 0.0) {
-                return None;
-            }
-            left / right
+            let (re, im) =
+                rustpython_literal::complex::divide((left.re, left.im), (right.re, right.im))?;
+            Complex::new(re, im)
         }
         BinOp::Power => {
             if left == Complex::new(0.0, 0.0) {
@@ -4995,7 +4983,48 @@ fn eval_const_complex_binop(
         }
         _ => return None,
     };
-    eval_const_complex_const(value)
+    if matches!(op, BinOp::Power) {
+        eval_const_complex_const(value)
+    } else {
+        Some(ConstantData::Complex { value })
+    }
+}
+
+// Python keeps real/complex operands distinct; coercing the real operand to
+// a zero-imaginary complex changes signed zeros and nonfinite multiplication.
+fn eval_const_mixed_complex_binop(
+    real: f64,
+    value: Complex<f64>,
+    real_left: bool,
+    op: oparg::BinaryOperator,
+) -> Option<ConstantData> {
+    use oparg::BinaryOperator as BinOp;
+    let result = match op {
+        BinOp::Add if real_left => Complex::new(real + value.re, value.im),
+        BinOp::Add => Complex::new(value.re + real, value.im),
+        BinOp::Subtract if real_left => Complex::new(real - value.re, -value.im),
+        BinOp::Subtract => Complex::new(value.re - real, value.im),
+        BinOp::Multiply if real_left => Complex::new(real * value.re, real * value.im),
+        BinOp::Multiply => Complex::new(value.re * real, value.im * real),
+        BinOp::TrueDivide if real_left => {
+            let (re, im) = rustpython_literal::complex::real_divide(real, (value.re, value.im))?;
+            Complex::new(re, im)
+        }
+        BinOp::TrueDivide => {
+            if real == 0.0 {
+                return None;
+            }
+            Complex::new(value.re / real, value.im / real)
+        }
+        _ => {
+            return if real_left {
+                eval_const_complex_binop(Complex::new(real, 0.0), value, op)
+            } else {
+                eval_const_complex_binop(value, Complex::new(real, 0.0), op)
+            };
+        }
+    };
+    Some(ConstantData::Complex { value: result })
 }
 
 /// flowgraph.c eval_const_binop subscript index conversion
@@ -5313,16 +5342,26 @@ fn eval_const_binop(
             )
         }
         (ConstantData::Integer { value: l }, ConstantData::Complex { value: r }) => {
-            eval_const_complex_binop(Complex::new(l.to_f64()?, 0.0), *r, op)
+            eval_const_mixed_complex_binop(
+                l.to_f64().filter(|value| value.is_finite())?,
+                *r,
+                true,
+                op,
+            )
         }
         (ConstantData::Complex { value: l }, ConstantData::Integer { value: r }) => {
-            eval_const_complex_binop(*l, Complex::new(r.to_f64()?, 0.0), op)
+            eval_const_mixed_complex_binop(
+                r.to_f64().filter(|value| value.is_finite())?,
+                *l,
+                false,
+                op,
+            )
         }
         (ConstantData::Float { value: l }, ConstantData::Complex { value: r }) => {
-            eval_const_complex_binop(Complex::new(*l, 0.0), *r, op)
+            eval_const_mixed_complex_binop(*l, *r, true, op)
         }
         (ConstantData::Complex { value: l }, ConstantData::Float { value: r }) => {
-            eval_const_complex_binop(*l, Complex::new(*r, 0.0), op)
+            eval_const_mixed_complex_binop(*r, *l, false, op)
         }
         (ConstantData::Complex { value: l }, ConstantData::Complex { value: r }) => {
             eval_const_complex_binop(*l, *r, op)

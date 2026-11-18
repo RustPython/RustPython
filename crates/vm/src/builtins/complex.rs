@@ -166,148 +166,18 @@ fn to_op_complex(value: &PyObject, vm: &VirtualMachine) -> PyResult<Option<Compl
 
 const ONE: Complex64 = Complex64::new(1.0, 0.0);
 
-/// Only the magnitude of an infinite part matters once a product has gone to
-/// nan, so it stands in as a signed one; a nan beside it stands in as a
-/// signed zero.
-fn signed_unit(part: f64) -> f64 {
-    if part.is_infinite() { 1.0 } else { 0.0f64 }.copysign(part)
-}
-
-fn tamed(value: Complex64) -> Complex64 {
-    Complex64::new(signed_unit(value.re), signed_unit(value.im))
-}
-
-fn nans_to_zero(value: Complex64) -> Complex64 {
-    let zeroed = |part: f64| {
-        if part.is_nan() {
-            0.0f64.copysign(part)
-        } else {
-            part
-        }
-    };
-    Complex64::new(zeroed(value.re), zeroed(value.im))
-}
-
-/// Multiply, recovering the infinities that the plain formula turns into nan,
-/// the way C11 Annex G.5.1 does.
 fn prod(a: Complex64, b: Complex64) -> Complex64 {
-    let r = a * b;
-    if !(r.re.is_nan() && r.im.is_nan()) {
-        return r;
-    }
-
-    // "Box" an infinite operand into a signed one and turn the other's nans
-    // into signed zeros, so that the infinity survives a second pass.
-    let (mut a, mut b) = (a, b);
-    let a_infinite = a.re.is_infinite() || a.im.is_infinite();
-    if a_infinite {
-        a = tamed(a);
-        b = nans_to_zero(b);
-    }
-    let b_infinite = b.re.is_infinite() || b.im.is_infinite();
-    if b_infinite {
-        b = tamed(b);
-        a = nans_to_zero(a);
-    }
-    // An infinity that overflow lost, rather than one an operand carried.
-    let overflowed = !a_infinite
-        && !b_infinite
-        && ((a.re * b.re).is_infinite()
-            || (a.im * b.im).is_infinite()
-            || (a.re * b.im).is_infinite()
-            || (a.im * b.re).is_infinite());
-    if overflowed {
-        a = nans_to_zero(a);
-        b = nans_to_zero(b);
-    }
-
-    if !(a_infinite || b_infinite || overflowed) {
-        return r;
-    }
-    Complex64::new(
-        f64::INFINITY * (a.re * b.re - a.im * b.im),
-        f64::INFINITY * (a.re * b.im + a.im * b.re),
-    )
+    let (re, im) = rustpython_literal::complex::multiply((a.re, a.im), (b.re, b.im));
+    Complex64::new(re, im)
 }
 
-/// Divide a real by a complex. Written out rather than routed through `quot`
-/// with a zero imaginary part, which would lose the sign of a zero.
-fn rc_quot(a: f64, b: Complex64) -> Option<Complex64> {
-    let abs_re = b.re.abs();
-    let abs_im = b.im.abs();
-
-    let r = if abs_re >= abs_im {
-        if abs_re == 0.0 {
-            return None;
-        }
-        let ratio = b.im / b.re;
-        let denom = b.re + b.im * ratio;
-        Complex64::new(a / denom, -a * ratio / denom)
-    } else if abs_im >= abs_re {
-        let ratio = b.re / b.im;
-        let denom = b.re * ratio + b.im;
-        Complex64::new(a * ratio / denom, -a / denom)
-    } else {
-        // One part of the divisor is a nan, so neither comparison held.
-        Complex64::new(f64::NAN, f64::NAN)
-    };
-
-    // A quotient that came out as nan recovers the way `recovered_quot` does,
-    // except that a real numerator has no imaginary term to carry a sign.
-    if r.re.is_nan() && r.im.is_nan() && (b.re.is_infinite() || b.im.is_infinite()) && a.is_finite()
-    {
-        let Complex64 { re: x, im: y } = tamed(b);
-        return Some(Complex64::new(0.0 * (a * x), 0.0 * -(a * y)));
-    }
-
-    Some(r)
-}
-
-/// Divide by whichever part of the divisor is larger, so that the ratio the
-/// other part is scaled by cannot overflow. `None` stands for a divisor of
-/// zero.
 fn quot(a: Complex64, b: Complex64) -> Option<Complex64> {
-    let abs_re = b.re.abs();
-    let abs_im = b.im.abs();
-
-    let r = if abs_re >= abs_im {
-        if abs_re == 0.0 {
-            return None;
-        }
-        let ratio = b.im / b.re;
-        let denom = b.re + b.im * ratio;
-        Complex64::new((a.re + a.im * ratio) / denom, (a.im - a.re * ratio) / denom)
-    } else if abs_im >= abs_re {
-        let ratio = b.re / b.im;
-        let denom = b.re * ratio + b.im;
-        Complex64::new((a.re * ratio + a.im) / denom, (a.im * ratio - a.re) / denom)
-    } else {
-        // One part of the divisor is a nan, so neither comparison held.
-        Complex64::new(f64::NAN, f64::NAN)
-    };
-
-    Some(recovered_quot(r, a, b))
+    rustpython_literal::complex::divide((a.re, a.im), (b.re, b.im))
+        .map(|(re, im)| Complex64::new(re, im))
 }
 
-/// Recover the infinities and zeros a quotient came out of as nan, the way
-/// C11 Annex G.5.2 does.
-fn recovered_quot(r: Complex64, a: Complex64, b: Complex64) -> Complex64 {
-    if !(r.re.is_nan() && r.im.is_nan()) {
-        return r;
-    }
-
-    if (a.re.is_infinite() || a.im.is_infinite()) && b.re.is_finite() && b.im.is_finite() {
-        let Complex64 { re: x, im: y } = tamed(a);
-        Complex64::new(
-            f64::INFINITY * (x * b.re + y * b.im),
-            f64::INFINITY * (y * b.re - x * b.im),
-        )
-    } else if (b.re.is_infinite() || b.im.is_infinite()) && a.re.is_finite() && a.im.is_finite() {
-        let Complex64 { re: x, im: y } = tamed(b);
-        Complex64::new(0.0 * (a.re * x + a.im * y), 0.0 * (a.im * x - a.re * y))
-    } else {
-        r
-    }
+fn rc_quot(a: f64, b: Complex64) -> Option<Complex64> {
+    rustpython_literal::complex::real_divide(a, (b.re, b.im)).map(|(re, im)| Complex64::new(re, im))
 }
 
 fn inner_div(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Complex64> {
