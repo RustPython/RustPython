@@ -376,7 +376,7 @@ enum ComprehensionLoopControl {
         after_block: BlockIdx,
         backedge_range: CompilerSourceSpan,
         is_async: bool,
-        end_async_for_target: BlockIdx,
+        end_async_for_target: Option<BlockIdx>,
     },
     IfCleanupOnly {
         if_cleanup_block: BlockIdx,
@@ -2286,7 +2286,7 @@ impl<'warnings> Compiler<'warnings> {
                 self.cpython_cfg_builder_addop(ir::InstructionInfo {
                     instr: instr.into(),
                     arg: OpArg::NULL,
-                    target: BlockIdx::NULL,
+                    target: None,
                     location,
                     end_location: location,
                     except_handler: None,
@@ -2318,7 +2318,7 @@ impl<'warnings> Compiler<'warnings> {
             }
             .into(),
             arg: OpArg::new(oparg::ResumeLocation::AtFuncStart.into()),
-            target: BlockIdx::NULL,
+            target: None,
             location,
             end_location,
             except_handler,
@@ -6782,16 +6782,16 @@ impl<'warnings> Compiler<'warnings> {
         // Start loop
         let for_block = self.new_block();
         let (body_label, send_block) = if is_async {
-            (None, self.new_block())
+            (None, Some(self.new_block()))
         } else {
             let body_label = self.current_code_info().new_instr_sequence_label();
-            (Some(body_label), BlockIdx::NULL)
+            (Some(body_label), None)
         };
         let else_block = self.new_block();
         let after_block = self.new_block();
         let for_label = self.instr_sequence_label_for_block(for_block);
         let after_label = self.instr_sequence_label_for_block(after_block);
-        let mut end_async_for_target = BlockIdx::NULL;
+        let mut end_async_for_target = None;
 
         if !is_async {
             // CPython codegen_for() pushes the loop fblock before compiling
@@ -6832,7 +6832,7 @@ impl<'warnings> Compiler<'warnings> {
             emit!(self, Instruction::GetAnext);
             emit!(self, Instruction::PushNull);
             self.emit_load_const(ConstantData::None);
-            self.use_cpython_label_block(send_block);
+            self.use_cpython_label_block(send_block.expect("async for must have send block"));
             let _ = self.compile_yield_from_sequence(true);
             end_async_for_target = send_block;
             // POP_BLOCK for SETUP_FINALLY - only GetANext/yield_from are protected
@@ -6880,7 +6880,9 @@ impl<'warnings> Compiler<'warnings> {
             // after the for-loop fblock has already been popped.
             let saved_range = self.current_source_span;
             self.set_source_node(iter.range(), iter.node_index());
-            self.emit_end_async_for(end_async_for_target);
+            self.emit_end_async_for(
+                end_async_for_target.expect("async for must have END_ASYNC_FOR target"),
+            );
             self.restore_source_span(saved_range);
         } else {
             // codegen_for emits END_FOR/POP_ITER with NO_LOCATION. Line numbers
@@ -11050,7 +11052,7 @@ impl<'warnings> Compiler<'warnings> {
                     bytecode::Opcode::GetIter.into()
                 },
                 arg: OpArg::NULL,
-                target: BlockIdx::NULL,
+                target: None,
                 location: source.source_location(outermost.iter.start(), PositionEncoding::Utf8),
                 end_location: source.source_location(outermost.iter.end(), PositionEncoding::Utf8),
                 except_handler: None,
@@ -11073,7 +11075,7 @@ impl<'warnings> Compiler<'warnings> {
         if let Some(init_collection) = init_collection
             && !use_build_list_from_arg
         {
-            self._emit(init_collection, OpArg::new(0), BlockIdx::NULL)
+            self._emit(init_collection, OpArg::new(0), None)
         }
 
         let mut loop_labels = vec![];
@@ -11106,11 +11108,11 @@ impl<'warnings> Compiler<'warnings> {
                 let send_block = self.new_block();
                 let after_block = self.new_block();
                 let if_cleanup_block = self.new_block();
-                (send_block, after_block, if_cleanup_block)
+                (Some(send_block), after_block, if_cleanup_block)
             } else {
                 let if_cleanup_block = self.new_block();
                 let after_block = self.new_block();
-                (BlockIdx::NULL, after_block, if_cleanup_block)
+                (None, after_block, if_cleanup_block)
             };
 
             if gen_index == 0 {
@@ -11134,7 +11136,7 @@ impl<'warnings> Compiler<'warnings> {
             }
 
             self.use_cpython_label_block(loop_block);
-            let mut end_async_for_target = BlockIdx::NULL;
+            let mut end_async_for_target = None;
             if generator.is_async {
                 let loop_label = self.instr_sequence_label_for_block(loop_block);
                 self.push_fblock_labels(
@@ -11147,7 +11149,9 @@ impl<'warnings> Compiler<'warnings> {
                 emit!(self, Instruction::GetAnext);
                 emit!(self, Instruction::PushNull);
                 self.emit_load_const(ConstantData::None);
-                self.use_cpython_label_block(send_block);
+                self.use_cpython_label_block(
+                    send_block.expect("async comprehension must have send block"),
+                );
                 let _ = self.compile_yield_from_sequence(true);
                 end_async_for_target = send_block;
                 // POP_BLOCK before store: only __anext__/yield_from are
@@ -11209,7 +11213,10 @@ impl<'warnings> Compiler<'warnings> {
                         self.restore_source_span(comprehension_range);
                         // EndAsyncFor pops both the exception and the aiter
                         // (handler depth is before GetANext, so aiter is at handler depth)
-                        self.emit_end_async_for(end_async_for_target);
+                        self.emit_end_async_for(
+                            end_async_for_target
+                                .expect("async comprehension must have END_ASYNC_FOR target"),
+                        );
                     } else {
                         self.emit_sync_comprehension_end_for();
                     }
@@ -11457,7 +11464,7 @@ impl<'warnings> Compiler<'warnings> {
             if use_build_list_from_arg {
                 emit!(self, Instruction::BuildListFromArg);
             } else if let Some(init_collection) = init_collection {
-                self._emit(init_collection, OpArg::new(0), BlockIdx::NULL);
+                self._emit(init_collection, OpArg::new(0), None);
                 // SWAP to get iterator on top
                 emit!(self, Instruction::Swap { i: 2 });
             }
@@ -11493,11 +11500,11 @@ impl<'warnings> Compiler<'warnings> {
                     let send_block = self.new_block();
                     let after_block = self.new_block();
                     let if_cleanup_block = self.new_block();
-                    (send_block, after_block, if_cleanup_block)
+                    (Some(send_block), after_block, if_cleanup_block)
                 } else {
                     let if_cleanup_block = self.new_block();
                     let after_block = self.new_block();
-                    (BlockIdx::NULL, after_block, if_cleanup_block)
+                    (None, after_block, if_cleanup_block)
                 };
 
                 if i > 0 {
@@ -11515,7 +11522,7 @@ impl<'warnings> Compiler<'warnings> {
 
                 self.use_cpython_label_block(loop_block);
 
-                let mut end_async_for_target = BlockIdx::NULL;
+                let mut end_async_for_target = None;
                 if generator.is_async {
                     let loop_label = self.instr_sequence_label_for_block(loop_block);
                     self.push_fblock_labels(
@@ -11528,7 +11535,9 @@ impl<'warnings> Compiler<'warnings> {
                     emit!(self, Instruction::GetAnext);
                     emit!(self, Instruction::PushNull);
                     self.emit_load_const(ConstantData::None);
-                    self.use_cpython_label_block(send_block);
+                    self.use_cpython_label_block(
+                        send_block.expect("async comprehension must have send block"),
+                    );
                     let _ = self.compile_yield_from_sequence(true);
                     end_async_for_target = send_block;
                     emit!(self, PseudoInstruction::PopBlock);
@@ -11592,7 +11601,10 @@ impl<'warnings> Compiler<'warnings> {
                         self.use_cpython_label_block(after_block);
                         if is_async {
                             self.restore_source_span(comprehension_range);
-                            self.emit_end_async_for(end_async_for_target);
+                            self.emit_end_async_for(
+                                end_async_for_target
+                                    .expect("async comprehension must have END_ASYNC_FOR target"),
+                            );
                         } else {
                             self.emit_sync_comprehension_end_for();
                         }
@@ -11768,7 +11780,7 @@ impl<'warnings> Compiler<'warnings> {
         }
     }
 
-    fn _emit<I: Into<AnyInstruction>>(&mut self, instr: I, arg: OpArg, target: BlockIdx) {
+    fn _emit<I: Into<AnyInstruction>>(&mut self, instr: I, arg: OpArg, target: Option<BlockIdx>) {
         if self.do_not_emit_bytecode > 0 {
             return;
         }
@@ -11783,7 +11795,7 @@ impl<'warnings> Compiler<'warnings> {
             "CPython _PyInstructionSequence_Addop requires either OPCODE_HAS_ARG, HAS_TARGET, or oparg == 0"
         );
         debug_assert!(
-            target == BlockIdx::NULL || instr.has_target(),
+            target.is_none() || instr.has_target(),
             "CPython codegen_addop_j only accepts HAS_TARGET opcodes"
         );
         let range = self.current_source_span.range;
@@ -11870,7 +11882,7 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn emit_no_arg<I: Into<AnyInstruction>>(&mut self, ins: I) {
-        self._emit(ins, OpArg::NULL, BlockIdx::NULL)
+        self._emit(ins, OpArg::NULL, None)
     }
 
     fn emit_arg<A: OpArgType, T: EmitArg<A>, I: Into<AnyInstruction>>(
@@ -12488,7 +12500,7 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn emit_end_async_for(&mut self, send_target: BlockIdx) {
-        self._emit(Instruction::EndAsyncFor, OpArg::NULL, send_target);
+        self._emit(Instruction::EndAsyncFor, OpArg::NULL, Some(send_target));
     }
 
     /// Emit LOAD_ATTR for attribute access (method=false).
@@ -12667,7 +12679,7 @@ impl<'warnings> Compiler<'warnings> {
             return;
         }
 
-        debug_assert_eq!(code.blocks[cur.idx()].next, BlockIdx::NULL);
+        debug_assert_eq!(code.blocks[cur.idx()].next, None);
         let block = self.cpython_cfg_builder_new_block();
         self.cpython_cfg_builder_use_next_block(block);
     }
@@ -12708,9 +12720,9 @@ impl<'warnings> Compiler<'warnings> {
         let cur = code.current_block;
         let can_reuse_current = cur != block
             && code.blocks[cur.idx()].is_empty()
-            && code.blocks[cur.idx()].next == BlockIdx::NULL
+            && code.blocks[cur.idx()].next.is_none()
             && code.blocks[block.idx()].is_empty()
-            && code.blocks[block.idx()].next == BlockIdx::NULL;
+            && code.blocks[block.idx()].next.is_none();
 
         if !can_reuse_current {
             let result = code.mark_cpython_cfg_label(block);
@@ -12774,7 +12786,7 @@ impl<'warnings> Compiler<'warnings> {
     fn cpython_cfg_builder_use_next_block(&mut self, block: BlockIdx) {
         let code = self.current_code_info();
         let cur = code.current_block;
-        code.blocks[cur.idx()].next = block;
+        code.blocks[cur.idx()].next = Some(block);
         code.current_block = block;
     }
 
@@ -12786,17 +12798,15 @@ impl<'warnings> Compiler<'warnings> {
         let prev = code.current_block;
         assert_ne!(prev, block, "recursive switching {prev:?} -> {block:?}");
         assert_eq!(
-            code.blocks[block].next,
-            BlockIdx::NULL,
+            code.blocks[block].next, None,
             "switching {prev:?} -> {block:?} to completed block"
         );
         let prev_block = &mut code.blocks[prev.idx()];
         assert_eq!(
-            u32::from(prev_block.next),
-            u32::MAX,
+            prev_block.next, None,
             "switching {prev:?} -> {block:?} from block that's already got a next"
         );
-        prev_block.next = block;
+        prev_block.next = Some(block);
         code.current_block = block;
     }
 
@@ -13897,16 +13907,16 @@ trait EmitArg<Arg: OpArgType> {
     fn emit<I: Into<AnyInstruction>>(
         self,
         f: impl FnOnce(OpArgMarker<Arg>) -> I,
-    ) -> (AnyInstruction, OpArg, BlockIdx);
+    ) -> (AnyInstruction, OpArg, Option<BlockIdx>);
 }
 
 impl<T: OpArgType> EmitArg<T> for T {
     fn emit<I: Into<AnyInstruction>>(
         self,
         f: impl FnOnce(OpArgMarker<T>) -> I,
-    ) -> (AnyInstruction, OpArg, BlockIdx) {
+    ) -> (AnyInstruction, OpArg, Option<BlockIdx>) {
         let (marker, arg) = OpArgMarker::new(self);
-        (f(marker).into(), arg, BlockIdx::NULL)
+        (f(marker).into(), arg, None)
     }
 }
 
@@ -13914,8 +13924,8 @@ impl EmitArg<bytecode::Label> for BlockIdx {
     fn emit<I: Into<AnyInstruction>>(
         self,
         f: impl FnOnce(OpArgMarker<bytecode::Label>) -> I,
-    ) -> (AnyInstruction, OpArg, BlockIdx) {
-        (f(OpArgMarker::marker()).into(), OpArg::NULL, self)
+    ) -> (AnyInstruction, OpArg, Option<BlockIdx>) {
+        (f(OpArgMarker::marker()).into(), OpArg::NULL, Some(self))
     }
 }
 
