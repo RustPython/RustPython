@@ -6280,10 +6280,10 @@ impl<'warnings> Compiler<'warnings> {
             emit!(self, Instruction::Copy { i: 1 });
             self.set_no_location();
             self.store_name(&"__classcell__".into())?;
-            self.set_no_location();
         } else {
             self.emit_load_const(ConstantData::None);
         }
+
         self.set_no_location();
 
         // Return the class namespace
