@@ -21,7 +21,7 @@ pub mod module {
         builtins::{PyBytesRef, PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
         convert::{IntoPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
-        function::{ArgBytesLike, ArgMapping, Either, OptionalArg, PySsize},
+        function::{ArgBytesLike, ArgIntoBool, ArgMapping, Either, OptionalArg, PySsize},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{
             _os, AccessArgs, DirFd, FollowSymlinks, SupportFunc, SymlinkArgs, fs_metadata,
@@ -1248,8 +1248,12 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn set_blocking(fd: BorrowedFd<'_>, blocking: bool, vm: &VirtualMachine) -> PyResult<()> {
-        rustpython_host_env::fcntl::set_blocking(fd, blocking)
+    fn set_blocking(
+        fd: BorrowedFd<'_>,
+        blocking: ArgIntoBool,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        rustpython_host_env::fcntl::set_blocking(fd, blocking.into_bool())
             .map_err(|err| err.into_pyexception(vm))
     }
 
@@ -2394,13 +2398,13 @@ pub mod module {
         fd: BorrowedFd<'fd>,
         #[pyarg(any)]
         fd2: OwnedFd,
-        #[pyarg(any, default = true)]
-        inheritable: bool,
+        #[pyarg(any, default = ArgIntoBool::TRUE)]
+        inheritable: ArgIntoBool,
     }
 
     #[pyfunction]
     fn dup2(args: Dup2Args<'_>, vm: &VirtualMachine) -> PyResult<OwnedFd> {
-        rustpython_host_env::posix::dup2(args.fd, args.fd2, args.inheritable)
+        rustpython_host_env::posix::dup2(args.fd, args.fd2, args.inheritable.into_bool())
             .map_err(|e| e.into_pyexception(vm))
     }
 
