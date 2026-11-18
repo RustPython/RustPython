@@ -671,15 +671,14 @@ pub fn b2a_qp(buf: &[u8], quotetabs: bool, istext: bool, header: bool) -> Vec<u8
                 line_len = 0;
             }
             line_len += 1;
-            if header && buf[in_idx] == b' ' {
-                out_data.push(b'_');
-                out_idx += 1;
-                in_idx += 1;
+            let ch = if header && buf[in_idx] == b' ' {
+                b'_'
             } else {
-                out_data.push(buf[in_idx]);
-                out_idx += 1;
-                in_idx += 1;
-            }
+                buf[in_idx]
+            };
+            out_data.push(ch);
+            out_idx += 1;
+            in_idx += 1;
         }
     }
     out_data
