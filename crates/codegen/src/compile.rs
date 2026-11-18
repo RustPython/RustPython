@@ -12679,7 +12679,7 @@ impl<'warnings> Compiler<'warnings> {
             return;
         }
 
-        debug_assert!(code.blocks[cur.idx()].next.is_none());
+        debug_assert_eq!(code.blocks[cur.idx()].next, None);
         let block = self.cpython_cfg_builder_new_block();
         self.cpython_cfg_builder_use_next_block(block);
     }
@@ -12797,13 +12797,13 @@ impl<'warnings> Compiler<'warnings> {
         let block = code.resolve_instr_sequence_label(block);
         let prev = code.current_block;
         assert_ne!(prev, block, "recursive switching {prev:?} -> {block:?}");
-        assert!(
-            code.blocks[block].next.is_none(),
+        assert_eq!(
+            code.blocks[block].next, None,
             "switching {prev:?} -> {block:?} to completed block"
         );
         let prev_block = &mut code.blocks[prev.idx()];
-        assert!(
-            prev_block.next.is_none(),
+        assert_eq!(
+            prev_block.next, None,
             "switching {prev:?} -> {block:?} from block that's already got a next"
         );
         prev_block.next = Some(block);

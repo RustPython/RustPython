@@ -6594,7 +6594,7 @@ fn translate_jump_labels_to_targets(blocks: &mut Blocks) -> crate::InternalResul
         let next = blocks[block_idx].next;
         for i in 0..blocks[block_idx].instruction_used {
             let info = &mut blocks[block_idx].instructions[i];
-            debug_assert!(info.target.is_none());
+            debug_assert_eq!(info.target, None);
             if info.instr.has_target() {
                 let lbl = u32::from(info.arg) as i32;
                 debug_assert!(lbl >= 0 && lbl <= max_label);
@@ -6891,7 +6891,7 @@ fn get_max_label(blocks: &Blocks) -> i32 {
 /// flowgraph.c make_except_stack
 fn make_except_stack() -> CfgExceptStack {
     let handlers = [None; CO_MAXBLOCKS + 2];
-    debug_assert!(handlers[0].is_none());
+    debug_assert_eq!(handlers[0], None);
     CfgExceptStack { handlers, depth: 0 }
 }
 
@@ -7541,7 +7541,7 @@ mod tests {
         let mut stack = make_except_stack();
         assert_eq!(stack.depth, 0);
         assert_eq!(stack.handlers.len(), CO_MAXBLOCKS + 2);
-        assert!(stack.handlers[0].is_none());
+        assert_eq!(stack.handlers[0], None);
 
         let mut blocks = Blocks::from([Block::default(), Block::default()]);
         assert!(except_stack_top(&stack, &blocks).is_none());
@@ -7720,7 +7720,7 @@ mod tests {
         assert_eq!(blocks[0].instructions[0].target, jump.target);
         assert_eq!(blocks[0].instructions[0].except_handler, Some(handler));
         for slot in &blocks[0].instructions[1..3] {
-            assert!(slot.target.is_none());
+            assert_eq!(slot.target, None);
             assert_eq!(slot.except_handler, None);
         }
 
@@ -7750,7 +7750,7 @@ mod tests {
         // the reused `b_instr[b_iused]` slot, but does not clear `i_except`.
         assert_eq!(block.instruction_used, 1);
         assert_eq!(block.instructions[0].except_handler, Some(handler));
-        assert!(block.instructions[0].target.is_none());
+        assert_eq!(block.instructions[0].target, None);
     }
 
     #[test]
