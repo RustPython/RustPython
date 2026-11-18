@@ -384,6 +384,27 @@ impl PyTuple<PyObjectRef> {
         }
     }
 
+    /// Track a tuple before replacing any of its initialized elements.
+    ///
+    /// # Safety
+    /// The caller must have exclusive mutation access: the tuple is still
+    /// private initialization storage, or ownership guarantees no concurrent
+    /// mutation, and must have entered the current interpreter. This must
+    /// precede publishing any new element reference. Never call this on the
+    /// shared empty tuple, or concurrently with another tracking operation.
+    pub unsafe fn ensure_tracked_for_mutation(zelf: &Py<Self>) {
+        if !zelf.as_object().is_gc_tracked() {
+            // SAFETY: the caller owns mutation access and holds the live,
+            // currently untracked tuple throughout registration.
+            unsafe {
+                crate::gc_state::gc_state().track_object(
+                    NonNull::from(zelf.as_object()),
+                    crate::gc_state::current_owner(),
+                );
+            }
+        }
+    }
+
     /// # Safety
     /// This tuple must be a marshal placeholder which has not escaped the
     /// decoder, and `index` must not have been replaced previously.

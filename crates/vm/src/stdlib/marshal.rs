@@ -665,7 +665,12 @@ mod decl {
                 .ok_or(marshal::MarshalError::BadType)?;
             // SAFETY: compiler-core calls this only on a fresh placeholder,
             // once per index, before returning it to Python code.
-            unsafe { tuple.payload.set_marshal_item(index, value) };
+            unsafe {
+                // An allocation while decoding earlier elements can collect
+                // and untrack an atomic, partially initialized tuple.
+                PyTuple::ensure_tracked_for_mutation(tuple);
+                tuple.payload.set_marshal_item(index, value);
+            }
             Ok(())
         }
         fn make_code(

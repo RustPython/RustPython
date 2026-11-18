@@ -563,4 +563,34 @@ def check_gc_callback_semantics():
 
 check_gc_callback_semantics()
 
+
+# Function traversal must expose every strong edge even when its globals do
+# not retain the builtins dictionary used when the function was constructed.
+def check_function_gc_edges():
+    import types
+    import weakref
+
+    def make_function():
+        builtins = {"answer": 42}
+        code = (lambda: answer).__code__
+        function = types.FunctionType(code, {"__builtins__": builtins})
+        del function.__globals__["__builtins__"]
+        referents = gc.get_referents(function)
+        assert any(value is code for value in referents)
+        assert any(value is builtins for value in referents)
+        builtins["function"] = function
+        return function
+
+    function = make_function()
+    reference = weakref.ref(function)
+    gc.collect()
+    assert reference() is function
+    assert function() == 42
+    del function
+    gc.collect()
+    assert reference() is None
+
+
+check_function_gc_edges()
+
 print("ok")
