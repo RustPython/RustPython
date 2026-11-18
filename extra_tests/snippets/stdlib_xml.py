@@ -171,6 +171,7 @@ def test_custom_encoding_lookup_and_streaming():
         if name == "rustpython_xml_single_byte":
             events.append("lookup")
             return codecs.CodecInfo(name=name, encode=None, decode=decode)
+        return None
 
     codecs.register(search)
     try:
