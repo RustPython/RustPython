@@ -3162,10 +3162,8 @@ mod posix_sched {
     use crate::{
         AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::PyTupleRef,
-        class::PyClassDef,
         convert::{IntoPyException, ToPyObject},
-        function::FuncArgs,
-        types::PyStructSequence,
+        types::{Constructor, PyStructSequence},
     };
 
     #[derive(FromArgs)]
@@ -3183,22 +3181,22 @@ mod posix_sched {
     #[pystruct_sequence(name = "sched_param", module = "posix", data = "SchedParamData")]
     struct PySchedParam;
 
-    #[pyclass(with(PyStructSequence))]
-    impl PySchedParam {
-        #[pyslot]
-        fn slot_new(
-            cls: crate::builtins::PyTypeRef,
-            args: FuncArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            use crate::PyPayload;
-            let SchedParamArgs { sched_priority } = args.bind_for(vm, Self::NAME)?;
-            let items = vec![sched_priority];
-            crate::builtins::PyTuple::new_unchecked(items.into_boxed_slice())
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
-        }
+    impl Constructor for PySchedParam {
+        type Args = SchedParamArgs;
 
+        fn py_new(
+            _cls: &crate::Py<crate::builtins::PyType>,
+            SchedParamArgs { sched_priority }: Self::Args,
+            _vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            Ok(Self(crate::builtins::PyTuple::new_unchecked(
+                vec![sched_priority].into_boxed_slice(),
+            )))
+        }
+    }
+
+    #[pyclass(with(PyStructSequence, Constructor))]
+    impl PySchedParam {
         #[pymethod]
         fn __reduce__(
             zelf: crate::PyRef<crate::builtins::PyTuple>,
