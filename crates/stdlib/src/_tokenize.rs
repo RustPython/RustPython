@@ -19,10 +19,11 @@ mod _tokenize {
     use ruff_python_ast::PySourceType;
     use ruff_python_ast::token::{Token, TokenKind};
     use ruff_python_parser::{
-        LexicalErrorType, ParseError, ParseErrorType, parse_unchecked_source,
+        InterpolatedStringErrorType, LexicalErrorType, ParseError, ParseErrorType,
+        parse_unchecked_source,
     };
     use ruff_source_file::{LineIndex, LineRanges};
-    use ruff_text_size::{Ranged, TextSize};
+    use ruff_text_size::{Ranged, TextRange, TextSize};
 
     const TOKEN_ENDMARKER: u8 = 0;
     const TOKEN_DEDENT: u8 = 6;
@@ -98,6 +99,7 @@ mod _tokenize {
                 encoding: encoding.map(|s| s.to_string()),
                 operation: PyOperation::new(vm),
                 state: PyRwLock::new(TokenizerState {
+                    emitted_error_middle: false,
                     phase: TokenizerPhase::Reading {
                         source: String::new(),
                     },
@@ -133,6 +135,10 @@ mod _tokenize {
                                 let implicit_nl = !accumulated.ends_with('\n');
                                 state.phase = TokenizerPhase::Yielding {
                                     data: Arc::new(TokenizedSource {
+                                        nul_positions: accumulated
+                                            .match_indices('\0')
+                                            .map(|(offset, _)| TextSize::from(offset as u32))
+                                            .collect(),
                                         source: accumulated,
                                         tokens,
                                         errors,
@@ -190,6 +196,7 @@ mod _tokenize {
         };
         let TokenizedSource {
             source,
+            nul_positions,
             tokens,
             errors,
             line_index,
@@ -285,6 +292,141 @@ mod _tokenize {
             let kind = token.kind();
             let range = token.range();
 
+            if let Some(&nul) = nul_positions.iter().find(|&&nul| {
+                nul >= source.line_start(range.start())
+                    && nul < source.full_line_end(range.start()).max(range.end())
+            }) {
+                return Err(TokenError::Lexical {
+                    error: ParseError {
+                        error: ParseErrorType::Lexical(LexicalErrorType::UnrecognizedToken {
+                            tok: '\0',
+                        }),
+                        location: TextRange::empty(nul),
+                    },
+                    data: Arc::clone(data),
+                });
+            }
+
+            // Tokenization rejects lexical failures, not parser grammar errors or
+            // errors decoding a string's contents. Extra-token mode deliberately
+            // accepts some invalid source so tools can still inspect its tokens.
+            if let Some(error) = errors.iter().find(|error| {
+                let ParseErrorType::Lexical(lexical) = &error.error else {
+                    return false;
+                };
+                lexical.is_tokenizer_error()
+                    && !matches!(
+                        lexical,
+                        LexicalErrorType::IndentationError
+                            | LexicalErrorType::TabError
+                            | LexicalErrorType::TooDeepIndentation
+                            | LexicalErrorType::UnclosedBracket { .. }
+                    )
+                    && (!extra_tokens
+                        || !matches!(
+                            lexical,
+                            LexicalErrorType::UnrecognizedToken { .. }
+                                | LexicalErrorType::UnmatchedBracket { .. }
+                                | LexicalErrorType::MismatchedBracket { .. }
+                                | LexicalErrorType::LeadingZerosInDecimalInteger
+                        ) && (!matches!(lexical, LexicalErrorType::InvalidNumberLiteral { .. })
+                            || kind == TokenKind::Unknown))
+                    && if matches!(
+                        lexical,
+                        LexicalErrorType::FStringError(
+                            InterpolatedStringErrorType::UnterminatedString { .. }
+                                | InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. }
+                        ) | LexicalErrorType::TStringError(
+                            InterpolatedStringErrorType::UnterminatedString { .. }
+                                | InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. }
+                        )
+                    ) {
+                        error.location.start() < range.start()
+                            && matches!(
+                                kind,
+                                TokenKind::FStringMiddle
+                                    | TokenKind::TStringMiddle
+                                    | TokenKind::Unknown
+                                    | TokenKind::Newline
+                                    | TokenKind::NonLogicalNewline
+                                    | TokenKind::EndOfFile
+                            )
+                            && (range.end() == source_len
+                                || source[range.end().to_usize()..].starts_with(['\r', '\n']))
+                    } else {
+                        error.location.start() >= range.start()
+                            && (error.location.start() < range.end()
+                                || range.is_empty() && error.location.start() == range.start())
+                            && bracket_error_is_real(lexical, &tokens[..*index - 1], source)
+                    }
+            }) {
+                if matches!(
+                    error.error,
+                    ParseErrorType::Lexical(
+                        LexicalErrorType::FStringError(InterpolatedStringErrorType::SingleRbrace)
+                            | LexicalErrorType::TStringError(
+                                InterpolatedStringErrorType::SingleRbrace
+                            )
+                    )
+                ) && !state.emitted_error_middle
+                    && tokens.get(index.saturating_sub(2)).is_some_and(|previous| {
+                        matches!(
+                            previous.kind(),
+                            TokenKind::FStringStart | TokenKind::TStringStart
+                        ) || matches!(
+                            previous.kind(),
+                            TokenKind::FStringMiddle | TokenKind::TStringMiddle
+                        ) && (source[previous.range()].ends_with("{{")
+                            || source[previous.range()].ends_with("}}"))
+                    })
+                {
+                    state.emitted_error_middle = true;
+                    *index -= 1;
+                    let pos = line_index.line_column(range.start(), source);
+                    let col = pos.column.to_zero_indexed() as isize;
+                    return Ok(TokenData::new(
+                        find_fstring_middle_type(tokens, *index),
+                        "",
+                        pos.line.get(),
+                        col,
+                        pos.line.get(),
+                        col,
+                        source.full_line_str(range.start()),
+                    ));
+                }
+                let mut error = error.clone();
+                // CPython supplies an implicit newline at EOF, including in a
+                // single-quoted interpolation's format specifier.
+                if range.end() == source_len
+                    && matches!(kind, TokenKind::FStringMiddle | TokenKind::TStringMiddle)
+                    && tokens
+                        .get(index.saturating_sub(2))
+                        .is_some_and(|previous| previous.kind() == TokenKind::Colon)
+                {
+                    let format_error = match error.error {
+                        ParseErrorType::Lexical(LexicalErrorType::FStringError(
+                            InterpolatedStringErrorType::UnterminatedString { .. },
+                        )) => Some(LexicalErrorType::FStringError(
+                            InterpolatedStringErrorType::NewlineInFormatSpec,
+                        )),
+                        ParseErrorType::Lexical(LexicalErrorType::TStringError(
+                            InterpolatedStringErrorType::UnterminatedString { .. },
+                        )) => Some(LexicalErrorType::TStringError(
+                            InterpolatedStringErrorType::NewlineInFormatSpec,
+                        )),
+                        _ => None,
+                    };
+                    if let Some(format_error) = format_error {
+                        error.error = ParseErrorType::Lexical(format_error);
+                        error.location = TextRange::empty(source_len);
+                    }
+                }
+                return Err(TokenError::Lexical {
+                    error,
+                    data: Arc::clone(data),
+                });
+            }
+
             // An indentation error replaces the token the lexer raised it for.
             if kind == TokenKind::Unknown
                 && let Some(err) = errors.iter().find(|err| {
@@ -350,7 +492,12 @@ mod _tokenize {
                 break;
             }
 
-            if kind == TokenKind::EndOfFile {
+            if kind == TokenKind::EndOfFile
+                || !extra_tokens
+                    && kind == TokenKind::Newline
+                    && range.start() >= source_len
+                    && has_unclosed_interpolation(tokens)
+            {
                 continue;
             }
 
@@ -358,7 +505,15 @@ mod _tokenize {
                 continue;
             }
 
-            let raw_type = token_kind_value(kind);
+            let raw_type = if extra_tokens
+                && kind == TokenKind::Newline
+                && range.start() >= source_len
+                && has_unclosed_interpolation(tokens)
+            {
+                TOKEN_NL
+            } else {
+                token_kind_value(kind)
+            };
             let leading_zero_number = extra_tokens
                 && kind == TokenKind::Unknown
                 && errors.iter().any(|err| {
@@ -373,6 +528,8 @@ mod _tokenize {
             // CPython accepts that token as NUMBER only in extra-token mode.
             let token_type = if leading_zero_number {
                 token_kind_value(TokenKind::Int)
+            } else if extra_tokens && is_extra_identifier(token, errors) {
+                token_kind_value(TokenKind::Identifier)
             } else if extra_tokens
                 && (kind == TokenKind::Unknown || (raw_type > TOKEN_DEDENT && raw_type < TOKEN_OP))
             {
@@ -510,6 +667,19 @@ mod _tokenize {
             if let Some(last) = last_tok.filter(|t| t.kind() == TokenKind::Comment) {
                 return Ok(implicit_comment_newline(last, source, line_index));
             }
+            if last_tok.is_some_and(|last| is_extra_identifier(*last, errors)) {
+                let pos = line_index.line_column(source_len, source);
+                let col = pos.column.to_zero_indexed() as isize;
+                return Ok(TokenData::new(
+                    4,
+                    "",
+                    pos.line.get(),
+                    col,
+                    pos.line.get(),
+                    col + 1,
+                    last_physical_line(source),
+                ));
+            }
         }
 
         // Check for unclosed brackets before ENDMARKER — CPython's tokenizer
@@ -517,7 +687,19 @@ mod _tokenize {
         {
             if has_unclosed_brackets(tokens, source) {
                 let last_line = source.lines().count();
-                return Err(TokenError::UnclosedBrackets { line: last_line });
+                let offset = if has_unclosed_interpolation(tokens) {
+                    last_physical_line(source)
+                        .trim_end_matches('\n')
+                        .chars()
+                        .count()
+                        + 1
+                } else {
+                    0
+                };
+                return Err(TokenError::UnclosedBrackets {
+                    line: last_line,
+                    offset,
+                });
             }
         }
 
@@ -544,6 +726,59 @@ mod _tokenize {
         );
         state.phase = TokenizerPhase::Done;
         Ok(result)
+    }
+
+    // Extra-token mode skips identifier validation, including non-ASCII
+    // characters that the compiler normally rejects.
+    fn is_extra_identifier(token: Token, errors: &[ParseError]) -> bool {
+        token.kind() == TokenKind::Unknown && errors.iter().any(|error|
+            matches!(error.error, ParseErrorType::Lexical(LexicalErrorType::UnrecognizedToken { tok }) if !tok.is_ascii())
+                && error.location.start() == token.range().start())
+    }
+
+    // Parser recovery can reset the lexer's bracket stack after a grammar
+    // error. Such a synthetic unmatched closer must not stop tokenization.
+    fn bracket_error_is_real(error: &LexicalErrorType, preceding: &[Token], source: &str) -> bool {
+        let closing = match error {
+            LexicalErrorType::UnmatchedBracket { closing }
+            | LexicalErrorType::MismatchedBracket { closing, .. } => *closing,
+            _ => return true,
+        };
+        let mut stack = Vec::new();
+        for token in preceding {
+            if matches!(
+                token.kind(),
+                TokenKind::Lpar
+                    | TokenKind::Lsqb
+                    | TokenKind::Lbrace
+                    | TokenKind::Rpar
+                    | TokenKind::Rsqb
+                    | TokenKind::Rbrace
+                    | TokenKind::Unknown
+            ) {
+                match &source[token.range()] {
+                    "(" => stack.push(')'),
+                    "[" => stack.push(']'),
+                    "{" => stack.push('}'),
+                    ")" | "]" | "}" => {
+                        stack.pop();
+                    }
+                    _ => {}
+                }
+            }
+        }
+        stack.last().copied() != Some(closing)
+    }
+
+    fn has_unclosed_interpolation(tokens: &[Token]) -> bool {
+        tokens.iter().fold(0i32, |depth, token| {
+            depth
+                + match token.kind() {
+                    TokenKind::FStringStart | TokenKind::TStringStart => 1,
+                    TokenKind::FStringEnd | TokenKind::TStringEnd => -1,
+                    _ => 0,
+                }
+        }) > 0
     }
 
     fn has_unclosed_brackets(tokens: &[Token], source: &str) -> bool {
@@ -686,6 +921,130 @@ mod _tokenize {
         exc
     }
 
+    fn raise_lexical_error(
+        vm: &VirtualMachine,
+        error: &ParseError,
+        source: &str,
+        line_index: &LineIndex,
+    ) -> rustpython_vm::builtins::PyBaseExceptionRef {
+        if matches!(error.error, ParseErrorType::Lexical(LexicalErrorType::Eof))
+            || matches!(
+                error.error,
+                ParseErrorType::Lexical(LexicalErrorType::LineContinuationError)
+            ) && source.ends_with('\\')
+                && error.location.end().to_usize() == source.len()
+        {
+            let text = source.trim_end_matches('\n');
+            let end = line_index.line_column(TextSize::from(text.len() as u32), source);
+            let exc = raise_syntax_error(
+                vm,
+                "unexpected EOF in multi-line statement",
+                end.line.get(),
+                end.column.get(),
+            );
+            if let Err(error) =
+                exc.as_object()
+                    .set_attr("end_lineno", end.line.get().to_pyobject(vm), vm)
+            {
+                return error;
+            }
+            return exc;
+        }
+        let newline_in_format = matches!(
+            error.error,
+            ParseErrorType::Lexical(
+                LexicalErrorType::FStringError(InterpolatedStringErrorType::NewlineInFormatSpec)
+                    | LexicalErrorType::TStringError(
+                        InterpolatedStringErrorType::NewlineInFormatSpec
+                    )
+            )
+        );
+        let start_pos = if newline_in_format {
+            error.location.end()
+        } else {
+            error.location.start()
+        };
+        let start = line_index.line_column(start_pos, source);
+        let end_pos = if matches!(
+            error.error,
+            ParseErrorType::Lexical(
+                LexicalErrorType::UnrecognizedToken { .. }
+                    | LexicalErrorType::FStringError(InterpolatedStringErrorType::SingleRbrace)
+                    | LexicalErrorType::TStringError(InterpolatedStringErrorType::SingleRbrace)
+            )
+        ) {
+            error.location.start()
+        } else {
+            error.location.end()
+        };
+        let end = line_index.line_column(end_pos, source);
+        let line = source
+            .full_line_str(error.location.start())
+            .trim_end_matches('\n');
+        let continuation = matches!(
+            error.error,
+            ParseErrorType::Lexical(LexicalErrorType::LineContinuationError)
+        );
+        let nul = matches!(
+            error.error,
+            ParseErrorType::Lexical(LexicalErrorType::UnrecognizedToken { tok: '\0' })
+        );
+        let line = if nul {
+            line.split('\0').next().unwrap_or("")
+        } else {
+            line
+        };
+        let offset = if nul {
+            0
+        } else if continuation {
+            line.chars().count() + 1
+        } else {
+            start.column.get()
+        };
+        let msg = if nul {
+            "source code cannot contain null bytes".to_owned()
+        } else {
+            error.error.to_string()
+        };
+        let end_line = if continuation {
+            vm.ctx.none()
+        } else {
+            end.line.get().to_pyobject(vm)
+        };
+        let end_offset = if continuation {
+            vm.ctx.none()
+        } else {
+            (if nul { 0 } else { end.column.get() }).to_pyobject(vm)
+        };
+        let details = vm.ctx.new_tuple(vec![
+            vm.ctx.new_str("<string>").into(),
+            start.line.get().to_pyobject(vm),
+            offset.to_pyobject(vm),
+            vm.ctx.new_str(line).into(),
+            end_line.clone(),
+            end_offset.clone(),
+        ]);
+        let exc = vm.new_exception(
+            vm.ctx.exceptions.syntax_error.to_owned(),
+            vec![vm.ctx.new_str(msg.as_str()).into(), details.into()],
+        );
+        let obj = exc.as_object();
+        for (name, value) in [
+            ("msg", vm.ctx.new_str(msg).into()),
+            ("filename", vm.ctx.new_str("<string>").into()),
+            ("lineno", start.line.get().to_pyobject(vm)),
+            ("offset", offset.to_pyobject(vm)),
+            ("text", vm.ctx.new_str(line).into()),
+            ("end_lineno", end_line),
+            ("end_offset", end_offset),
+        ] {
+            if let Err(error) = obj.set_attr(name, value, vm) {
+                return error;
+            }
+        }
+        exc
+    }
+
     /// Raise an IndentationError or TabError from a parse error.
     fn raise_indentation_error(
         vm: &VirtualMachine,
@@ -823,12 +1182,17 @@ mod _tokenize {
     }
 
     enum TokenError {
+        Lexical {
+            error: ParseError,
+            data: Arc<TokenizedSource>,
+        },
         Indentation {
             error: ParseError,
             data: Arc<TokenizedSource>,
         },
         UnclosedBrackets {
             line: usize,
+            offset: usize,
         },
     }
 
@@ -838,12 +1202,19 @@ mod _tokenize {
             vm: &VirtualMachine,
         ) -> rustpython_vm::builtins::PyBaseExceptionRef {
             match self {
+                Self::Lexical { error, data } => {
+                    raise_lexical_error(vm, &error, &data.source, &data.line_index)
+                }
                 Self::Indentation { error, data } => {
                     raise_indentation_error(vm, &error, &data.source, &data.line_index)
                 }
-                Self::UnclosedBrackets { line } => {
-                    let exc =
-                        raise_syntax_error(vm, "unexpected EOF in multi-line statement", line, 0);
+                Self::UnclosedBrackets { line, offset } => {
+                    let exc = raise_syntax_error(
+                        vm,
+                        "unexpected EOF in multi-line statement",
+                        line,
+                        offset,
+                    );
                     // PyErr_SyntaxLocationObject sets the end line to the current line.
                     if let Err(error) =
                         exc.as_object()
@@ -869,6 +1240,7 @@ mod _tokenize {
 
     #[derive(Clone, Debug)]
     struct TokenizerState {
+        emitted_error_middle: bool,
         phase: TokenizerPhase,
     }
 
@@ -883,6 +1255,7 @@ mod _tokenize {
     #[derive(Debug)]
     struct TokenizedSource {
         source: String,
+        nul_positions: Vec<TextSize>,
         tokens: Vec<Token>,
         errors: Vec<ParseError>,
         line_index: LineIndex,

@@ -3157,7 +3157,6 @@ async def f():
     STRING     "U'green'"    (2, 7) (2, 15)
     """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalid_syntax(self):
         def get_tokens(string):
             the_string = StringIO(string)
