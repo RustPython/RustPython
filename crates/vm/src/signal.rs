@@ -56,6 +56,11 @@ const ATOMIC_FALSE: AtomicBool = AtomicBool::new(false);
 
 pub(crate) static TRIGGERS: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
 
+// Process-global disposition metadata lets interrupt_main run from any
+// interpreter without borrowing Python objects owned by the main interpreter.
+#[cfg(feature = "host_env")]
+pub(crate) static INTERRUPT_IGNORED: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
+
 #[cfg(windows)]
 static SIGINT_EVENT: AtomicIsize = AtomicIsize::new(0);
 
@@ -160,13 +165,27 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
             // Release it before calling Python to avoid deadlock.
             let handler = signal_handlers.lock()[signum].clone();
 
-            let Some(handler) = handler.filter(|handler| !vm.is_none(handler)) else {
+            let handler = handler.filter(|handler| {
+                if vm.is_none(handler) {
+                    return false;
+                }
+                #[cfg(feature = "host_env")]
+                if crate::stdlib::_signal::_signal::handler_disposition(handler, vm).is_some() {
+                    return false;
+                }
+                true
+            });
+            let Some(handler) = handler else {
+                vm.run_unraisable(
+                    vm.new_os_error(format!(
+                        "Signal {} ignored due to race condition",
+                        signum.as_i32()
+                    )),
+                    Some("Exception ignored while calling signal handler".to_owned()),
+                    vm.ctx.none(),
+                );
                 continue;
             };
-            #[cfg(feature = "host_env")]
-            if crate::stdlib::_signal::_signal::handler_disposition(&handler, vm).is_some() {
-                continue;
-            }
 
             // A handler can cease to be callable after registration. Invoke it
             // normally so that this raises TypeError instead of losing a signal.
@@ -380,16 +399,10 @@ impl TryFromObject for SignalNum {
 /// Missing signal handler for the given signal number is silently ignored.
 #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
 pub fn set_interrupt_ex(signum: SignalNum) -> PyResult<()> {
-    use crate::stdlib::_signal::_signal::{SIG_DFL, SIG_IGN, run_signal};
-
-    match signum.as_usize() {
-        SIG_DFL | SIG_IGN => Ok(()),
-        _ => {
-            // interrupt the main thread with given signal number
-            run_signal(signum.into());
-            Ok(())
-        }
+    if !INTERRUPT_IGNORED[signum.as_usize()].load(Ordering::Relaxed) {
+        crate::stdlib::_signal::_signal::run_signal(signum.into());
     }
+    Ok(())
 }
 
 pub type UserSignal = Box<dyn FnOnce(&VirtualMachine) -> PyResult<()> + Send>;

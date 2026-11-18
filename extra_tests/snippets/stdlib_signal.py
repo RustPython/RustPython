@@ -50,6 +50,37 @@ if sys.platform == "wasi":
         assert signal.getsignal(uncatchable) is previous
 
 
+# interrupt_main simulates a signal, consulting its disposition rather than
+# confusing a signal number (SIGHUP is 1) with SIG_IGN.
+if hasattr(signal, "SIGHUP") and sys.platform != "wasi":
+    import _thread
+    import os
+
+    received = []
+    old = signal.signal(signal.SIGHUP, lambda signum, frame: received.append(signum))
+    try:
+        _thread.interrupt_main(signal.SIGHUP)
+        assert received == [signal.SIGHUP]
+    finally:
+        signal.signal(signal.SIGHUP, old)
+
+    read_fd, write_fd = os.pipe()
+    os.set_blocking(read_fd, False)
+    os.set_blocking(write_fd, False)
+    old_fd = signal.set_wakeup_fd(write_fd)
+    old = signal.getsignal(signal.SIGUSR1)
+    try:
+        for disposition in (signal.SIG_IGN, signal.SIG_DFL):
+            signal.signal(signal.SIGUSR1, disposition)
+            _thread.interrupt_main(signal.SIGUSR1)
+            assert_raises(BlockingIOError, os.read, read_fd, 1)
+    finally:
+        signal.signal(signal.SIGUSR1, old)
+        signal.set_wakeup_fd(old_fd)
+        os.close(read_fd)
+        os.close(write_fd)
+
+
 # unix, and not WASI
 if "win" not in sys.platform and sys.platform != "wasi":
     signal.signal(signal.SIGALRM, handler)
