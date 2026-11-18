@@ -64,8 +64,9 @@ mod _ssl {
             },
             convert::IntoPyException,
             function::{
-                ArgBytesLike, ArgIntoBool, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike,
-                Either, FsPath, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue,
+                ArgBytesLike, ArgIndex, ArgIntoBool, ArgIntoFloat, ArgMemoryBuffer,
+                ArgStrOrBytesLike, Either, FsPath, FuncArgs, OptionalArg, PyComparisonValue,
+                PySetterValue,
             },
             stdlib::_warnings,
             types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -576,7 +577,14 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_check_hostname(zelf: &Py<Self>, value: ArgIntoBool) {
+        fn set_check_hostname(
+            zelf: &Py<Self>,
+            value: PySetterValue<ArgIntoBool>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let value = value.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'check_hostname' cannot be deleted")
+            })?;
             let value = value.into_bool();
             *zelf.check_hostname.write() = value;
             // When check_hostname is enabled, ensure verify_mode is at least CERT_REQUIRED
@@ -587,17 +595,27 @@ mod _ssl {
                 }
             }
             zelf.invalidate_policy();
+            Ok(())
         }
 
         #[pygetset]
-        fn _host_flags(zelf: &Py<Self>) -> i32 {
-            *zelf.host_flags.read()
+        fn _host_flags(zelf: &Py<Self>) -> u32 {
+            *zelf.host_flags.read() as u32
         }
 
         #[pygetset(setter)]
-        fn set__host_flags(zelf: &Py<Self>, value: i32) {
+        fn set__host_flags(
+            zelf: &Py<Self>,
+            value: PySetterValue<ArgIndex>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let value = value.ok_or_else(|| {
+                vm.new_attribute_error("attribute '_host_flags' cannot be deleted")
+            })?;
+            let value = value.as_unsigned_bitfield::<32>(vm)? as i32;
             *zelf.host_flags.write() = value;
             zelf.invalidate_policy();
+            Ok(())
         }
 
         #[pygetset]
@@ -606,7 +624,14 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_verify_mode(zelf: &Py<Self>, mode: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_verify_mode(
+            zelf: &Py<Self>,
+            mode: PySetterValue<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let mode = mode.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'verify_mode' cannot be deleted")
+            })?;
             if !(CERT_NONE..=CERT_REQUIRED).contains(&mode) {
                 return Err(vm.new_value_error("invalid verify mode"));
             }
@@ -632,9 +657,17 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_verify_flags(zelf: &Py<Self>, value: i32) {
+        fn set_verify_flags(
+            zelf: &Py<Self>,
+            value: PySetterValue<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let value = value.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'verify_flags' cannot be deleted")
+            })?;
             *zelf.verify_flags.write() = value;
             zelf.invalidate_policy();
+            Ok(())
         }
 
         #[pygetset]
@@ -643,10 +676,18 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_post_handshake_auth(zelf: &Py<Self>, value: ArgIntoBool) {
+        fn set_post_handshake_auth(
+            zelf: &Py<Self>,
+            value: PySetterValue<ArgIntoBool>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let value = value.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'post_handshake_auth' cannot be deleted")
+            })?;
             let value = value.into_bool();
             *zelf.post_handshake_auth.write() = value;
             zelf.invalidate_policy();
+            Ok(())
         }
 
         #[pygetset]
@@ -655,7 +696,14 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_num_tickets(zelf: &Py<Self>, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_num_tickets(
+            zelf: &Py<Self>,
+            value: PySetterValue<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let value = value.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'num_tickets' cannot be deleted")
+            })?;
             if value < 0 {
                 return Err(vm.new_value_error("num_tickets must be a non-negative integer"));
             }
@@ -675,7 +723,13 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_options(zelf: &Py<Self>, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_options(
+            zelf: &Py<Self>,
+            value: PySetterValue<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let value = value
+                .ok_or_else(|| vm.new_attribute_error("attribute 'options' cannot be deleted"))?;
             // Validate that the value is non-negative
             if value < 0 {
                 return Err(vm.new_value_error("options must be non-negative"));
@@ -716,7 +770,14 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_minimum_version(zelf: &Py<Self>, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_minimum_version(
+            zelf: &Py<Self>,
+            value: PySetterValue<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let value = value.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'minimum_version' cannot be deleted")
+            })?;
             // Validate that the value is a valid TLS version constant
             // Valid values: 0 (default), -2 (MINIMUM_SUPPORTED), -1 (MAXIMUM_SUPPORTED),
             // or 0x0300-0x0304 (SSLv3-TLSv1.3)
@@ -750,7 +811,14 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_maximum_version(zelf: &Py<Self>, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_maximum_version(
+            zelf: &Py<Self>,
+            value: PySetterValue<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let value = value.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'maximum_version' cannot be deleted")
+            })?;
             // Validate that the value is a valid TLS version constant
             // Valid values: 0 (default), -2 (MINIMUM_SUPPORTED), -1 (MAXIMUM_SUPPORTED),
             // or 0x0300-0x0304 (SSLv3-TLSv1.3)
@@ -1499,9 +1567,12 @@ mod _ssl {
         #[pygetset(setter)]
         fn set_sni_callback(
             zelf: &Py<Self>,
-            callback: Option<PyObjectRef>,
+            callback: PySetterValue<Option<PyObjectRef>>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            let callback = callback.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'sni_callback' cannot be deleted")
+            })?;
             // Validate callback is callable or None
             if let Some(ref cb) = callback
                 && !cb.is(vm.ctx.types.none_type)
@@ -1520,7 +1591,7 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             // Alias for set_sni_callback
-            Self::set_sni_callback(zelf, callback, vm)
+            Self::set_sni_callback(zelf, PySetterValue::Assign(callback), vm)
         }
 
         #[pygetset]
@@ -1577,9 +1648,12 @@ mod _ssl {
         #[pygetset(setter)]
         fn set__msg_callback(
             zelf: &Py<Self>,
-            callback: Option<PyObjectRef>,
+            callback: PySetterValue<Option<PyObjectRef>>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            let callback = callback.ok_or_else(|| {
+                vm.new_attribute_error("attribute '_msg_callback' cannot be deleted")
+            })?;
             // Validate callback is callable or None
             if let Some(ref cb) = callback
                 && !cb.is(vm.ctx.types.none_type)
@@ -1800,7 +1874,7 @@ mod _ssl {
             if let Some(session) = args.session
                 && !vm.is_none(&session)
             {
-                PySSLSocket::set_session(&ssl_socket_ref, session, vm)?;
+                PySSLSocket::set_session(&ssl_socket_ref, PySetterValue::Assign(session), vm)?;
             }
 
             Ok(ssl_socket_ref)
@@ -1880,7 +1954,7 @@ mod _ssl {
             if let Some(session) = args.session
                 && !vm.is_none(&session)
             {
-                PySSLSocket::set_session(&ssl_socket_ref, session, vm)?;
+                PySSLSocket::set_session(&ssl_socket_ref, PySetterValue::Assign(session), vm)?;
             }
 
             Ok(ssl_socket_ref)
@@ -3774,7 +3848,13 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_owner(zelf: &Py<Self>, owner: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_owner(
+            zelf: &Py<Self>,
+            owner: PySetterValue<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let owner = owner
+                .ok_or_else(|| vm.new_attribute_error("attribute 'owner' cannot be deleted"))?;
             *zelf.owner.write() = Some(owner.downgrade(None, vm)?);
             Ok(())
         }
@@ -3790,12 +3870,19 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_context(zelf: &Py<Self>, value: PyRef<PySSLContext>, _vm: &VirtualMachine) {
+        fn set_context(
+            zelf: &Py<Self>,
+            value: PySetterValue<PyRef<PySSLContext>>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let value = value
+                .ok_or_else(|| vm.new_attribute_error("attribute 'context' cannot be deleted"))?;
             zelf.key_log.set_sink(value.key_log.clone());
             // Update context reference immediately
             // SSL_set_SSL_CTX allows context changes at any time,
             // even after handshake completion
             *zelf.context.write() = value;
+            Ok(())
         }
 
         #[pygetset]
@@ -3806,9 +3893,12 @@ mod _ssl {
         #[pygetset(setter)]
         fn set_server_hostname(
             zelf: &Py<Self>,
-            value: Option<PyUtf8StrRef>,
+            value: PySetterValue<Option<PyUtf8StrRef>>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            let value = value.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'server_hostname' cannot be deleted")
+            })?;
             // Check if handshake is already done
             if zelf.handshake_completed() {
                 return Err(
@@ -3836,7 +3926,13 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_session(zelf: &Py<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_session(
+            zelf: &Py<Self>,
+            value: PySetterValue<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let value = value
+                .ok_or_else(|| vm.new_attribute_error("attribute 'session' cannot be deleted"))?;
             let session = value
                 .downcast_ref::<PySSLSession>()
                 .ok_or_else(|| vm.new_type_error("Value is not a SSLSession."))?;
