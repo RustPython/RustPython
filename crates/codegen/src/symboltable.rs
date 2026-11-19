@@ -1075,6 +1075,22 @@ enum SymbolUsage {
     TypeParam,
 }
 
+bitflags! {
+    // Statement traversal state, owned by the current lexical scope.
+    #[derive(Clone, Copy)]
+    struct ScanRegion: u8 {
+        const CONDITIONAL = 1 << 0;
+        const TRY = 1 << 1;
+    }
+}
+
+/// A scope owns a statement visit region only while its visit is active.
+#[derive(Clone, Copy)]
+struct ActiveScanRegion {
+    owner: usize,
+    flags: ScanRegion,
+}
+
 struct SymbolTableBuilder {
     class_name: Option<Name>,
     // Scope stack.
@@ -1091,9 +1107,7 @@ struct SymbolTableBuilder {
     // yield/yield from inside comprehension scopes is rejected with a
     // message that names the comprehension kind.
     comprehension_yield_context: Option<&'static str>,
-    // PEP 649: Track if we're inside a conditional block (if/for/while/etc.)
-    in_conditional_block: bool,
-    lazy_prohibited_scopes: Vec<usize>,
+    active_scan_region: Option<ActiveScanRegion>,
     // Mirrors symtable ENTER_RECURSIVE guards during compilation.
     recursion_depth: usize,
     recursion_limit: usize,
@@ -1134,8 +1148,7 @@ impl SymbolTableBuilder {
             varnames_stack: Vec::new(),
             in_iter_def_exp: false,
             comprehension_yield_context: None,
-            in_conditional_block: false,
-            lazy_prohibited_scopes: Vec::new(),
+            active_scan_region: None,
             recursion_depth: 0,
             recursion_limit: DEFAULT_RECURSION_LIMIT,
             next_block_index: 0,
@@ -1584,7 +1597,7 @@ impl SymbolTableBuilder {
         let needs_conditional_annotations = is_ann_assign
             && (matches!(current_scope, Some(CompilerScope::Module))
                 || (matches!(current_scope, Some(CompilerScope::Class))
-                    && self.in_conditional_block));
+                    && self.current_scan_region().contains(ScanRegion::CONDITIONAL)));
         let should_register_conditional_annotations = needs_conditional_annotations
             && !self.tables.last().unwrap().has_conditional_annotations;
 
@@ -1658,10 +1671,11 @@ impl SymbolTableBuilder {
             ),
             _ => return Ok(()),
         };
-        let reason = if self.lazy_prohibited_scopes.contains(&self.tables.len()) {
+        let scope = self.tables.last().unwrap();
+        let reason = if self.current_scan_region().contains(ScanRegion::TRY) {
             Some(format!("lazy {kind} not allowed inside try/except blocks"))
         } else {
-            match self.tables.last().unwrap().typ {
+            match scope.typ {
                 CompilerScope::Function | CompilerScope::AsyncFunction => {
                     Some(format!("lazy {kind} not allowed inside functions"))
                 }
@@ -1675,6 +1689,32 @@ impl SymbolTableBuilder {
         } else {
             Ok(())
         }
+    }
+
+    fn current_scan_region(&self) -> ScanRegion {
+        let owner = self.tables.last().unwrap().block_index;
+        match self.active_scan_region {
+            Some(region) if region.owner == owner => region.flags,
+            _ => ScanRegion::empty(),
+        }
+    }
+
+    /// CPython's conditional and try bits are local to an entry. Statement
+    /// visits nest in stack order, so only the latest region can belong to
+    /// the current entry; a newly entered scope sees no inherited flags.
+    fn with_scan_region(
+        &mut self,
+        flags: ScanRegion,
+        visit: impl FnOnce(&mut Self) -> SymbolTableResult,
+    ) -> SymbolTableResult {
+        let owner = self.tables.last().unwrap().block_index;
+        let flags = flags | self.current_scan_region();
+        let previous = self
+            .active_scan_region
+            .replace(ActiveScanRegion { owner, flags });
+        let result = visit(self);
+        self.active_scan_region = previous;
+        result
     }
 
     fn scan_statement(&mut self, statement: &ast::Stmt) -> SymbolTableResult {
@@ -1816,9 +1856,6 @@ impl SymbolTableBuilder {
                         CompilerScope::Class,
                         self.line_index_start(def_range),
                     );
-                    // Reset in_conditional_block for new class scope
-                    let saved_in_conditional = self.in_conditional_block;
-                    self.in_conditional_block = false;
                     self.class_name = Some(name.id().clone());
                     if type_params.is_some() {
                         self.register_name(
@@ -1830,7 +1867,6 @@ impl SymbolTableBuilder {
                     }
                     self.scan_statements(body)?;
                     self.leave_scope();
-                    self.in_conditional_block = saved_in_conditional;
                     if type_params.is_some() {
                         self.leave_scope();
                     }
@@ -1847,17 +1883,16 @@ impl SymbolTableBuilder {
                     ..
                 }) => {
                     self.scan_expression(test, ExpressionContext::Load)?;
-                    // PEP 649: Track conditional block for annotations
-                    let saved_in_conditional_block = self.in_conditional_block;
-                    self.in_conditional_block = true;
-                    self.scan_statements(body)?;
-                    for elif in elif_else_clauses {
-                        if let Some(test) = &elif.test {
-                            self.scan_expression(test, ExpressionContext::Load)?;
+                    self.with_scan_region(ScanRegion::CONDITIONAL, |builder| {
+                        builder.scan_statements(body)?;
+                        for elif in elif_else_clauses {
+                            if let Some(test) = &elif.test {
+                                builder.scan_expression(test, ExpressionContext::Load)?;
+                            }
+                            builder.scan_statements(&elif.body)?;
                         }
-                        self.scan_statements(&elif.body)?;
-                    }
-                    self.in_conditional_block = saved_in_conditional_block;
+                        Ok(())
+                    })?;
                 }
                 Stmt::For(StmtFor {
                     target,
@@ -1878,23 +1913,19 @@ impl SymbolTableBuilder {
                     }
                     self.scan_expression(target, ExpressionContext::Store)?;
                     self.scan_expression(iter, ExpressionContext::Load)?;
-                    // PEP 649: Track conditional block for annotations
-                    let saved_in_conditional_block = self.in_conditional_block;
-                    self.in_conditional_block = true;
-                    self.scan_statements(body)?;
-                    self.scan_statements(orelse)?;
-                    self.in_conditional_block = saved_in_conditional_block;
+                    self.with_scan_region(ScanRegion::CONDITIONAL, |builder| {
+                        builder.scan_statements(body)?;
+                        builder.scan_statements(orelse)
+                    })?;
                 }
                 Stmt::While(StmtWhile {
                     test, body, orelse, ..
                 }) => {
                     self.scan_expression(test, ExpressionContext::Load)?;
-                    // PEP 649: Track conditional block for annotations
-                    let saved_in_conditional_block = self.in_conditional_block;
-                    self.in_conditional_block = true;
-                    self.scan_statements(body)?;
-                    self.scan_statements(orelse)?;
-                    self.in_conditional_block = saved_in_conditional_block;
+                    self.with_scan_region(ScanRegion::CONDITIONAL, |builder| {
+                        builder.scan_statements(body)?;
+                        builder.scan_statements(orelse)
+                    })?;
                 }
                 Stmt::Break(_) | Stmt::Continue(_) | Stmt::Pass(_) => {
                     // No symbols here.
@@ -2031,17 +2062,15 @@ impl SymbolTableBuilder {
                             statement.range(),
                         ));
                     }
-                    // PEP 649: Track conditional block for annotations
-                    let saved_in_conditional_block = self.in_conditional_block;
-                    self.in_conditional_block = true;
-                    for item in items {
-                        self.scan_expression(&item.context_expr, ExpressionContext::Load)?;
-                        if let Some(expression) = &item.optional_vars {
-                            self.scan_expression(expression, ExpressionContext::Store)?;
+                    self.with_scan_region(ScanRegion::CONDITIONAL, |builder| {
+                        for item in items {
+                            builder.scan_expression(&item.context_expr, ExpressionContext::Load)?;
+                            if let Some(expression) = &item.optional_vars {
+                                builder.scan_expression(expression, ExpressionContext::Store)?;
+                            }
                         }
-                    }
-                    self.scan_statements(body)?;
-                    self.in_conditional_block = saved_in_conditional_block;
+                        builder.scan_statements(body)
+                    })?;
                 }
                 Stmt::Try(StmtTry {
                     body,
@@ -2050,44 +2079,43 @@ impl SymbolTableBuilder {
                     finalbody,
                     ..
                 }) => {
-                    // PEP 649: Track conditional block for annotations
-                    let saved_in_conditional_block = self.in_conditional_block;
-                    self.in_conditional_block = true;
-                    self.lazy_prohibited_scopes.push(self.tables.len());
-                    self.scan_statements(body)?;
-                    for handler in handlers {
-                        let ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
-                            type_,
-                            name,
-                            body,
-                            ..
-                        }) = &handler;
-                        if let Some(expression) = type_ {
-                            self.scan_expression(expression, ExpressionContext::Load)?;
+                    self.with_scan_region(ScanRegion::CONDITIONAL | ScanRegion::TRY, |builder| {
+                        builder.scan_statements(body)?;
+                        for handler in handlers {
+                            let ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                                type_,
+                                name,
+                                body,
+                                ..
+                            }) = &handler;
+                            if let Some(expression) = type_ {
+                                builder.scan_expression(expression, ExpressionContext::Load)?;
+                            }
+                            if let Some(name) = name {
+                                builder.register_name(
+                                    name.id(),
+                                    SymbolUsage::Assigned,
+                                    handler.range(),
+                                )?;
+                            }
+                            builder.scan_statements(body)?;
                         }
-                        if let Some(name) = name {
-                            self.register_name(name.id(), SymbolUsage::Assigned, handler.range())?;
-                        }
-                        self.scan_statements(body)?;
-                    }
-                    self.scan_statements(orelse)?;
-                    self.scan_statements(finalbody)?;
-                    self.lazy_prohibited_scopes.pop();
-                    self.in_conditional_block = saved_in_conditional_block;
+                        builder.scan_statements(orelse)?;
+                        builder.scan_statements(finalbody)
+                    })?;
                 }
                 Stmt::Match(StmtMatch { subject, cases, .. }) => {
                     self.scan_expression(subject, ExpressionContext::Load)?;
-                    // PEP 649: Track conditional block for annotations
-                    let saved_in_conditional_block = self.in_conditional_block;
-                    self.in_conditional_block = true;
-                    for case in cases {
-                        self.scan_pattern(&case.pattern)?;
-                        if let Some(guard) = &case.guard {
-                            self.scan_expression(guard, ExpressionContext::Load)?;
+                    self.with_scan_region(ScanRegion::CONDITIONAL, |builder| {
+                        for case in cases {
+                            builder.scan_pattern(&case.pattern)?;
+                            if let Some(guard) = &case.guard {
+                                builder.scan_expression(guard, ExpressionContext::Load)?;
+                            }
+                            builder.scan_statements(&case.body)?;
                         }
-                        self.scan_statements(&case.body)?;
-                    }
-                    self.in_conditional_block = saved_in_conditional_block;
+                        Ok(())
+                    })?;
                 }
                 Stmt::Raise(StmtRaise { exc, cause, .. }) => {
                     if let Some(expression) = exc {
