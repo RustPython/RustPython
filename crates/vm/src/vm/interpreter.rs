@@ -878,6 +878,9 @@ impl VirtualMachine {
         // hook are still available to report a failed stream flush.
         let mut flush_status = vm.flush_std();
 
+        #[cfg(all(feature = "host_env", any(unix, windows, target_os = "wasi")))]
+        crate::stdlib::_signal::_signal::finalize_signal_handlers(vm);
+
         // GC pass - collect cycles before module cleanup
         vm.state.gc.collect_force(2);
 
