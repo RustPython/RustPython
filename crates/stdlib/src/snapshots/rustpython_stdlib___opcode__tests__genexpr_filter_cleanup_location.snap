@@ -31,30 +31,29 @@ Disassembly of <code object <genexpr> at 0xdeadbeef, file "<?>", line 2>:
 2:?-2:?              RETURN_GENERATOR
 2:?-2:?              POP_TOP
 2:0-2:0      L1:     RESUME                   0
-2:23-2:28    L2:     FOR_ITER                27 (to L5)
+2:23-2:28    L2:     FOR_ITER                27 (to L4)
 2:18-2:19            STORE_FAST               1 (x)
 2:36-2:45            LOAD_GLOBAL              1 (_ishidden + NULL)
 2:46-2:47            LOAD_FAST_BORROW         1 (x)
 2:36-2:48            CALL                     1
 2:36-2:48            TO_BOOL
-2:12-2:13    L3:     POP_JUMP_IF_FALSE        3 (to L4)
+2:12-2:13            POP_JUMP_IF_FALSE        3 (to L3)
 2:12-2:13            NOT_TAKEN
 2:12-2:13            JUMP_BACKWARD           22 (to L2)
-2:12-2:13    L4:     LOAD_FAST_BORROW         1 (x)
+2:12-2:13    L3:     LOAD_FAST_BORROW         1 (x)
 2:12-2:13            YIELD_VALUE              0
 2:12-2:13            RESUME                   9
 2:12-2:13            POP_TOP
 2:12-2:13            JUMP_BACKWARD           29 (to L2)
-2:23-2:28    L5:     END_FOR
+2:23-2:28    L4:     END_FOR
 2:23-2:28            POP_ITER
 2:23-2:28            LOAD_COMMON_CONSTANT     7 (None)
 2:23-2:28            RETURN_VALUE
 
-  --         L6:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --         L5:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
   --                 RERAISE                  1
 ExceptionTable:
-  L1 to L3 -> L6 [2] lasti
-  L4 to L6 -> L6 [2] lasti
+  L1 to L5 -> L5 [2] lasti
 
 Disassembly of <code object boolop at 0xdeadbeef, file "<?>", line 4>:
 4:0-4:0              RESUME                   0
@@ -73,32 +72,30 @@ Disassembly of <code object <genexpr> at 0xdeadbeef, file "<?>", line 5>:
 5:?-5:?              RETURN_GENERATOR
 5:?-5:?              POP_TOP
 5:0-5:0      L1:     RESUME                   0
-5:23-5:29    L2:     FOR_ITER                47 (to L7)
+5:23-5:29    L2:     FOR_ITER                47 (to L5)
 5:18-5:19            STORE_FAST_LOAD_FAST    17 (f, f)
 5:33-5:39            LOAD_ATTR                0 (init)
 5:33-5:39            TO_BOOL
-5:12-5:13    L3:     POP_JUMP_IF_TRUE         3 (to L4)
+5:12-5:13            POP_JUMP_IF_TRUE         3 (to L3)
 5:12-5:13            NOT_TAKEN
 5:12-5:13            JUMP_BACKWARD           22 (to L2)
-5:48-5:49    L4:     LOAD_FAST_BORROW         1 (f)
+5:48-5:49    L3:     LOAD_FAST_BORROW         1 (f)
 5:48-5:57            LOAD_ATTR                2 (kw_only)
 5:48-5:57            TO_BOOL
-5:12-5:13    L5:     POP_JUMP_IF_FALSE        3 (to L6)
+5:12-5:13            POP_JUMP_IF_FALSE        3 (to L4)
 5:12-5:13            NOT_TAKEN
 5:12-5:13            JUMP_BACKWARD           42 (to L2)
-5:12-5:13    L6:     LOAD_FAST_BORROW         1 (f)
+5:12-5:13    L4:     LOAD_FAST_BORROW         1 (f)
 5:12-5:13            YIELD_VALUE              0
 5:12-5:13            RESUME                   9
 5:12-5:13            POP_TOP
 5:12-5:13            JUMP_BACKWARD           49 (to L2)
-5:23-5:29    L7:     END_FOR
+5:23-5:29    L5:     END_FOR
 5:23-5:29            POP_ITER
 5:23-5:29            LOAD_COMMON_CONSTANT     7 (None)
 5:23-5:29            RETURN_VALUE
 
-  --         L8:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --         L6:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
   --                 RERAISE                  1
 ExceptionTable:
-  L1 to L3 -> L8 [2] lasti
-  L4 to L5 -> L8 [2] lasti
-  L6 to L8 -> L8 [2] lasti
+  L1 to L6 -> L6 [2] lasti
