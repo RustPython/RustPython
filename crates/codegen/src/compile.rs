@@ -3853,21 +3853,9 @@ impl<'warnings> Compiler<'warnings> {
                 is_async,
                 ..
             }) => self.compile_with(items, body, *is_async)?,
-            ast::Stmt::For(ast::StmtFor {
-                target,
-                iter,
-                body,
-                orelse,
-                is_async,
-                ..
-            }) => self.compile_for(
-                target,
-                iter,
-                body,
-                orelse,
-                *is_async,
-                self.node_span(statement),
-            )?,
+            ast::Stmt::For(for_stmt) => {
+                self.compile_for_statement(for_stmt, self.node_span(statement))?
+            }
             ast::Stmt::Match(ast::StmtMatch { subject, cases, .. }) => {
                 self.compile_match(subject, cases)?
             }
@@ -6756,137 +6744,150 @@ impl<'warnings> Compiler<'warnings> {
         Ok(())
     }
 
-    fn compile_for(
+    fn compile_for_statement(
         &mut self,
-        target: &ast::Expr,
-        iter: &ast::Expr,
-        body: &[ast::Stmt],
-        orelse: &[ast::Stmt],
-        is_async: bool,
+        for_stmt: &ast::StmtFor,
         for_span: CompilerSourceSpan,
     ) -> CompileResult<()> {
         self.enter_conditional_block();
 
-        // Start loop
-        let for_block = self.new_block();
-        let (body_label, send_block) = if is_async {
-            (None, self.new_block())
+        let after_block = if for_stmt.is_async {
+            self.compile_async_for(for_stmt, for_span)?
         } else {
-            let body_label = self.current_code_info().new_instr_sequence_label();
-            (Some(body_label), BlockIdx::NULL)
+            self.compile_for(for_stmt)?
         };
-        let else_block = self.new_block();
+        self.compile_statements(&for_stmt.orelse)?;
+        self.use_cpython_label_block(after_block);
+
+        // Implicit return after for-loop should be attributed to the iterator.
+        self.set_source_node(for_stmt.iter.range(), for_stmt.iter.node_index());
+
+        self.leave_conditional_block();
+        Ok(())
+    }
+
+    /// CPython `codegen_for()`: the loop fblock encloses iterable evaluation
+    /// and remains active through the iterator cleanup.
+    fn compile_for(&mut self, for_stmt: &ast::StmtFor) -> CompileResult<BlockIdx> {
+        let for_block = self.new_block();
+        let body_label = self.current_code_info().new_instr_sequence_label();
+        let cleanup_block = self.new_block();
         let after_block = self.new_block();
         let for_label = self.instr_sequence_label_for_block(for_block);
         let after_label = self.instr_sequence_label_for_block(after_block);
-        let mut end_async_for_target = BlockIdx::NULL;
 
-        if !is_async {
-            // CPython codegen_for() pushes the loop fblock before compiling
-            // the iterable expression.
-            self.push_fblock_labels(
-                FBlockType::ForLoop,
-                for_label,
-                after_label,
-                FBlockDatum::None,
-            )?;
-        }
+        self.push_fblock_labels(
+            FBlockType::ForLoop,
+            for_label,
+            after_label,
+            FBlockDatum::None,
+        )?;
+        self.compile_expression(&for_stmt.iter)?;
+        self.set_source_node(for_stmt.iter.range(), for_stmt.iter.node_index());
+        emit!(self, Instruction::GetIter { mode: 0 });
 
-        // The thing iterated:
-        self.compile_expression(iter)?;
-
-        if is_async {
-            if self.ctx.func != FunctionContext::AsyncFunction
-                && !self.allows_top_level_await_in_current_context()
-            {
-                return Err(self.error(CodegenErrorType::InvalidAsyncFor));
+        self.use_cpython_label_block(for_block);
+        emit!(
+            self,
+            Instruction::ForIter {
+                delta: cleanup_block
             }
-            self.set_source_node(iter.range(), iter.node_index());
-            emit!(self, Instruction::GetAiter);
+        );
 
-            self.use_cpython_label_block(for_block);
-            self.restore_source_span(for_span);
+        // Keep the raw sequence body label after the traceable target NOP.
+        let saved_range = self.current_source_span;
+        let target = &for_stmt.target;
+        self.set_source_node(target.range(), target.node_index());
+        emit!(self, Instruction::Nop);
+        let result = self
+            .current_code_info()
+            .use_raw_instr_sequence_label(body_label);
+        unwrap_internal(self, result);
+        self.compile_store(target)?;
+        self.restore_source_span(saved_range);
 
-            // codegen_async_for: push fblock BEFORE SETUP_FINALLY
-            self.push_fblock_labels(
-                FBlockType::AsyncForLoop,
-                for_label,
-                after_label,
-                FBlockDatum::None,
-            )?;
+        self.compile_for_body_and_backedge(&for_stmt.body, for_block)?;
+        self.use_cpython_label_block(cleanup_block);
+        // Keep END_FOR before POP_ITER for flowgraph line propagation and tracing.
+        emit!(self, Instruction::EndFor);
+        self.set_no_location();
+        emit!(self, Instruction::PopIter);
+        self.set_no_location();
+        self.pop_fblock_label(FBlockType::ForLoop, for_label);
 
-            // SETUP_FINALLY to guard the __anext__ call
-            emit!(self, PseudoInstruction::SetupFinally { delta: else_block });
-            emit!(self, Instruction::GetAnext);
-            emit!(self, Instruction::PushNull);
-            self.emit_load_const(ConstantData::None);
-            self.use_cpython_label_block(send_block);
-            let _ = self.compile_yield_from_sequence(true);
-            end_async_for_target = send_block;
-            // POP_BLOCK for SETUP_FINALLY - only GetANext/yield_from are protected
-            emit!(self, PseudoInstruction::PopBlock);
-            emit!(self, Instruction::NotTaken);
+        Ok(after_block)
+    }
 
-            // Success block for __anext__
-            self.compile_store(target)?;
-        } else {
-            // Retrieve Iterator
-            self.set_source_node(iter.range(), iter.node_index());
-            emit!(self, Instruction::GetIter { mode: 0 });
+    /// CPython `codegen_async_for()`: protect only __anext__ and its await,
+    /// and pop the loop fblock before handling exhaustion.
+    fn compile_async_for(
+        &mut self,
+        for_stmt: &ast::StmtFor,
+        for_span: CompilerSourceSpan,
+    ) -> CompileResult<BlockIdx> {
+        let for_block = self.new_block();
+        let send_block = self.new_block();
+        let except_block = self.new_block();
+        let after_block = self.new_block();
+        let for_label = self.instr_sequence_label_for_block(for_block);
+        let after_label = self.instr_sequence_label_for_block(after_block);
 
-            self.use_cpython_label_block(for_block);
+        let iter = &for_stmt.iter;
+        self.compile_expression(iter)?;
+        if self.ctx.func != FunctionContext::AsyncFunction
+            && !self.allows_top_level_await_in_current_context()
+        {
+            return Err(self.error(CodegenErrorType::InvalidAsyncFor));
+        }
+        self.set_source_node(iter.range(), iter.node_index());
+        emit!(self, Instruction::GetAiter);
 
-            emit!(self, Instruction::ForIter { delta: else_block });
+        self.use_cpython_label_block(for_block);
+        self.restore_source_span(for_span);
+        self.push_fblock_labels(
+            FBlockType::AsyncForLoop,
+            for_label,
+            after_label,
+            FBlockDatum::None,
+        )?;
 
-            let saved_range = self.current_source_span;
-            self.set_source_node(target.range(), target.node_index());
-            emit!(self, Instruction::Nop);
-            let result = self
-                .current_code_info()
-                .use_raw_instr_sequence_label(body_label.expect("sync for must have body label"));
-            unwrap_internal(self, result);
-            self.compile_store(target)?;
-            self.restore_source_span(saved_range);
-        };
+        emit!(
+            self,
+            PseudoInstruction::SetupFinally {
+                delta: except_block
+            }
+        );
+        emit!(self, Instruction::GetAnext);
+        emit!(self, Instruction::PushNull);
+        self.emit_load_const(ConstantData::None);
+        self.use_cpython_label_block(send_block);
+        let _ = self.compile_yield_from_sequence(true);
+        emit!(self, PseudoInstruction::PopBlock);
+        emit!(self, Instruction::NotTaken);
 
+        self.compile_store(&for_stmt.target)?;
+        self.compile_for_body_and_backedge(&for_stmt.body, for_block)?;
+        self.pop_fblock_label(FBlockType::AsyncForLoop, for_label);
+
+        // END_ASYNC_FOR uses the iterator location but leaves the current
+        // source span unchanged for the common else suite.
+        self.use_cpython_label_block(except_block);
+        let saved_range = self.current_source_span;
+        self.set_source_node(iter.range(), iter.node_index());
+        self.emit_end_async_for(send_block);
+        self.restore_source_span(saved_range);
+
+        Ok(after_block)
+    }
+
+    fn compile_for_body_and_backedge(
+        &mut self,
+        body: &[ast::Stmt],
+        for_block: BlockIdx,
+    ) -> CompileResult<()> {
         self.compile_loop_body_statements(body)?;
         emit!(self, PseudoInstruction::Jump { delta: for_block });
         self.set_no_location();
-
-        if is_async {
-            // codegen_async_for() pops the loop fblock before the
-            // END_ASYNC_FOR exception block. Sync codegen_for() keeps the
-            // fblock through END_FOR/POP_ITER and pops below.
-            self.pop_fblock_label(FBlockType::AsyncForLoop, for_label);
-        }
-
-        self.use_cpython_label_block(else_block);
-
-        // Except block for __anext__ / end of sync for
-        if is_async {
-            // codegen_async_for emits END_ASYNC_FOR at the iterator location,
-            // after the for-loop fblock has already been popped.
-            let saved_range = self.current_source_span;
-            self.set_source_node(iter.range(), iter.node_index());
-            self.emit_end_async_for(end_async_for_target);
-            self.restore_source_span(saved_range);
-        } else {
-            // codegen_for emits END_FOR/POP_ITER with NO_LOCATION. Line numbers
-            // are propagated later by flowgraph.c::resolve_line_numbers().
-            emit!(self, Instruction::EndFor);
-            self.set_no_location();
-            emit!(self, Instruction::PopIter);
-            self.set_no_location();
-            self.pop_fblock_label(FBlockType::ForLoop, for_label);
-        }
-        self.compile_statements(orelse)?;
-
-        self.use_cpython_label_block(after_block);
-
-        // Implicit return after for-loop should be attributed to the `for` line
-        self.set_source_node(iter.range(), iter.node_index());
-
-        self.leave_conditional_block();
         Ok(())
     }
 
