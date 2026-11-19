@@ -314,10 +314,9 @@ pub(super) fn ast_constant_value_to_constant_data(value: ast::ConstantValue) -> 
 
 pub(super) fn constant_object_to_constant_data(
     vm: &VirtualMachine,
-    source_file: &AstSourceContext,
     value_object: PyObjectRef,
 ) -> PyResult<ConstantData> {
-    let value = ConstantLiteral::ast_from_object(vm, source_file, value_object)?;
+    let value = ConstantLiteral::from_object(vm, value_object)?;
     Ok(constant_literal_to_constant_data(value))
 }
 
@@ -450,19 +449,17 @@ fn constant_data_to_object(vm: &VirtualMachine, constant: ConstantData) -> PyObj
 // constructor
 pub(super) fn constant_from_object_with_range(
     vm: &VirtualMachine,
-    source_file: &AstSourceContext,
     object: &PyObject,
     range: AstNodeRange,
 ) -> PyResult<Constant> {
     let value_object = get_node_field(vm, object, "value", "Constant")?;
-    let (value, invalid_type) =
-        match ConstantLiteral::ast_from_object(vm, source_file, value_object.clone()) {
-            Ok(value) => (value, None),
-            Err(_) => (
-                ConstantLiteral::None,
-                Some(first_invalid_constant_type(vm, &value_object)?),
-            ),
-        };
+    let (value, invalid_type) = match ConstantLiteral::from_object(vm, value_object.clone()) {
+        Ok(value) => (value, None),
+        Err(_) => (
+            ConstantLiteral::None,
+            Some(first_invalid_constant_type(vm, &value_object)?),
+        ),
+    };
     let kind = get_node_field_opt(vm, object, "kind")?
         .map(|object| {
             if !object.class().is(vm.ctx.types.str_type) {
@@ -496,7 +493,7 @@ impl Node for Constant {
         let kind = kind
             .or_else(|| constant_literal_kind(&value))
             .map_or_else(|| vm.ctx.none(), |kind| vm.ctx.new_str(kind).into());
-        let value = value.ast_to_object(vm, source_file);
+        let value = value.into_object(vm);
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value, vm).unwrap();
         dict.set_item("kind", kind, vm).unwrap();
@@ -510,12 +507,12 @@ impl Node for Constant {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, &object, "Constant")?;
-        constant_from_object_with_range(vm, source_file, &object, range)
+        constant_from_object_with_range(vm, &object, range)
     }
 }
 
-impl Node for ConstantLiteral {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
+impl ConstantLiteral {
+    fn into_object(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
             Self::None => vm.ctx.none(),
             Self::Bool(value) => vm.ctx.new_bool(value).to_pyobject(vm),
@@ -523,18 +520,14 @@ impl Node for ConstantLiteral {
             Self::Bytes(value) => vm.ctx.new_bytes(value.into()).to_pyobject(vm),
             Self::Int(value) => vm.ctx.new_int(value).into(),
             Self::Tuple(value) => {
-                let value = value
-                    .into_iter()
-                    .map(|c| c.ast_to_object(vm, source_file))
-                    .collect();
+                let value = value.into_iter().map(|c| c.into_object(vm)).collect();
                 vm.ctx.new_tuple(value).to_pyobject(vm)
             }
-            Self::FrozenSet(value) => PyFrozenSet::from_iter(
-                vm,
-                value.into_iter().map(|c| c.ast_to_object(vm, source_file)),
-            )
-            .unwrap()
-            .into_pyobject(vm),
+            Self::FrozenSet(value) => {
+                PyFrozenSet::from_iter(vm, value.into_iter().map(|c| c.into_object(vm)))
+                    .unwrap()
+                    .into_pyobject(vm)
+            }
             Self::Float(value) => vm.ctx.new_float(value).into(),
             Self::Complex { real, imag } => vm
                 .ctx
@@ -544,11 +537,7 @@ impl Node for ConstantLiteral {
         }
     }
 
-    fn ast_from_object(
-        vm: &VirtualMachine,
-        source_file: &AstSourceContext,
-        value_object: PyObjectRef,
-    ) -> PyResult<Self> {
+    fn from_object(vm: &VirtualMachine, value_object: PyObjectRef) -> PyResult<Self> {
         let cls = value_object.class();
         let value = if cls.is(vm.ctx.types.none_type) {
             Self::None
@@ -587,9 +576,7 @@ impl Node for ConstantLiteral {
                 .into_iter()
                 .map(|object| {
                     let object = object.clone();
-                    vm.with_recursion(" during compilation", || {
-                        Node::ast_from_object(vm, source_file, object)
-                    })
+                    vm.with_recursion(" during compilation", || Self::from_object(vm, object))
                 })
                 .collect::<PyResult<_>>()?;
             Self::Tuple(tuple)
@@ -599,9 +586,7 @@ impl Node for ConstantLiteral {
                 .elements()
                 .into_iter()
                 .map(|object| {
-                    vm.with_recursion(" during compilation", || {
-                        Node::ast_from_object(vm, source_file, object)
-                    })
+                    vm.with_recursion(" during compilation", || Self::from_object(vm, object))
                 })
                 .collect::<PyResult<_>>()?;
             Self::FrozenSet(elements)

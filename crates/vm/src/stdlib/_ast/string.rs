@@ -1065,7 +1065,6 @@ pub(super) struct TemplateStr {
 
 pub(super) fn template_str_to_expr(
     vm: &VirtualMachine,
-    source_file: &AstSourceContext,
     template: TemplateStr,
 ) -> PyResult<ast::Expr> {
     let TemplateStr {
@@ -1074,7 +1073,7 @@ pub(super) fn template_str_to_expr(
         values,
         runtime_values: raw_runtime_values,
     } = template;
-    let elements = template_parts_to_elements(vm, source_file, values)?;
+    let elements = template_parts_to_elements(vm, values)?;
     let tstring = ast::TString {
         range,
         node_index: node_index.clone(),
@@ -1100,13 +1099,12 @@ pub(super) fn template_str_to_expr(
 
 pub(super) fn interpolation_to_expr(
     vm: &VirtualMachine,
-    source_file: &AstSourceContext,
     interpolation: TStringInterpolation,
 ) -> PyResult<ast::Expr> {
     let range = interpolation.range;
     let node_index = interpolation.node_index.clone();
     let part = TemplateStrPart::Interpolation(interpolation);
-    let elements = template_parts_to_elements(vm, source_file, vec![part].into_boxed_slice())?;
+    let elements = template_parts_to_elements(vm, vec![part].into_boxed_slice())?;
     let tstring = ast::TString {
         range,
         node_index: node_index.clone(),
@@ -1124,19 +1122,17 @@ pub(super) fn interpolation_to_expr(
 
 fn template_parts_to_elements(
     vm: &VirtualMachine,
-    source_file: &AstSourceContext,
     values: Box<[TemplateStrPart]>,
 ) -> PyResult<ast::InterpolatedStringElements> {
     let mut elements = Vec::with_capacity(values.len());
     for value in values.into_vec() {
-        elements.push(template_part_to_element(vm, source_file, value)?);
+        elements.push(template_part_to_element(vm, value)?);
     }
     Ok(ast::InterpolatedStringElements::from(elements))
 }
 
 fn template_part_to_element(
     vm: &VirtualMachine,
-    source_file: &AstSourceContext,
     part: TemplateStrPart,
 ) -> PyResult<ast::InterpolatedStringElement> {
     match part {
@@ -1161,8 +1157,7 @@ fn template_part_to_element(
                 format_spec,
                 range,
             } = interpolation;
-            let str_constant =
-                super::constant::constant_object_to_constant_data(vm, source_file, str)?;
+            let str_constant = super::constant::constant_object_to_constant_data(vm, str)?;
             let runtime_str = Some(super::constant::constant_data_to_ast_constant_value(
                 str_constant,
             ));
