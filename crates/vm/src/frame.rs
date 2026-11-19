@@ -9226,6 +9226,19 @@ impl ExecutingFrame<'_> {
         let self_or_null = self.pop_value_opt();
         let callable = self.pop_value();
 
+        // Match CPython's _MAYBE_EXPAND_METHOD[_KW] before monitoring CALL.
+        // Calls that already carry a receiver must keep the original callable.
+        let (callable, self_or_null) = if self_or_null.is_none()
+            && let Some(method) = callable.downcast_ref_if_exact::<PyBoundMethod>(vm)
+        {
+            (
+                method.function_obj().to_owned(),
+                Some(method.self_obj().to_owned()),
+            )
+        } else {
+            (callable, self_or_null)
+        };
+
         let final_args = if let Some(self_val) = self_or_null {
             let mut args = args;
             args.prepend_arg(self_val);
