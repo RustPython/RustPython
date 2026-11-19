@@ -534,6 +534,21 @@ fn inline_comprehension(
             symbol.scope = scope;
             parent_symbols.insert(name.clone(), symbol);
         }
+
+        // An inlined comprehension contributes its symbols before
+        // update_symbols(), including forwarding-only FREE entries. Those
+        // entries have no flags of their own but are no longer placeholders
+        // introduced solely to forward a nested scope's free variable.
+        if parent_type == CompilerScope::Class
+            && scope == SymbolScope::Free
+            && comp_free.contains(name)
+        {
+            parent_symbols
+                .get_mut(name)
+                .unwrap()
+                .flags
+                .insert(SymbolFlags::DEF_FREE_CLASS);
+        }
     }
     removed_class_implicits
 }
@@ -802,7 +817,11 @@ impl SymbolTableAnalyzer {
         // generator expressions.
         if symbol_table.typ == CompilerScope::Class || symbol_table.can_see_class_scope {
             for name in &newfree {
-                if let Some(symbol) = symbol_table.symbols.get_mut(name) {
+                if let Some(symbol) = symbol_table.symbols.get_mut(name)
+                    // Forwarding-only entries do not exist until update_symbols()
+                    // inserts them as FREE; they do not get DEF_FREE_CLASS.
+                    && !symbol.flags.is_empty()
+                {
                     symbol.flags.insert(SymbolFlags::DEF_FREE_CLASS);
                 }
             }
@@ -999,16 +1018,7 @@ impl SymbolTableAnalyzer {
                 name == "__classdict__" || name == "__conditional_annotations__";
 
             for (table, typ, _skip) in self.tables.iter_mut().rev().take(decl_depth) {
-                if let CompilerScope::Class = typ {
-                    if let Some(free_class) = table.get_mut(name) {
-                        free_class.flags.insert(SymbolFlags::DEF_FREE_CLASS)
-                    } else {
-                        let mut symbol = Symbol::new(name.clone());
-                        symbol.flags.insert(SymbolFlags::DEF_FREE_CLASS);
-                        symbol.scope = SymbolScope::Free;
-                        table.insert(name.to_owned(), symbol);
-                    }
-                } else if is_class_implicit
+                if is_class_implicit
                     && matches!(
                         typ,
                         CompilerScope::Function
@@ -1398,9 +1408,7 @@ impl SymbolTableBuilder {
             .entry(name.clone())
             .or_insert_with(|| Symbol::new(name));
         symbol.scope = SymbolScope::Free;
-        symbol
-            .flags
-            .insert(SymbolFlags::USE | SymbolFlags::DEF_FREE_CLASS);
+        symbol.flags.insert(SymbolFlags::USE);
     }
 
     fn add_format_parameter(&mut self) {
@@ -3538,6 +3546,47 @@ mod tests {
             symbol.flags.contains(SymbolFlags::DEF_COMP_ITER),
             "CPython symtable_add_def_helper sets DEF_COMP_ITER on comprehension iteration targets"
         );
+    }
+
+    #[test]
+    fn free_class_flag_distinguishes_forwarding_from_class_symbols() {
+        for (class_body, has_flag) in [
+            ("", false),
+            ("        x = 2\n", true),
+            ("        item = x\n", true),
+            ("        global x\n", true),
+            ("        nonlocal x\n", true),
+            ("        item = [lambda: x for _ in range(2)]\n", true),
+        ] {
+            let source = format!(
+                "def outer():\n    x = 1\n    class C:\n{class_body}        def a(self): return x\n        def b(self): return x\n"
+            );
+            let top = scan_source(&source);
+            let outer = top.sub_tables.iter().find(|st| st.name == "outer").unwrap();
+            let class = outer.sub_tables.iter().find(|st| st.name == "C").unwrap();
+            let x = class.lookup(&"x".into()).unwrap();
+            assert_eq!(x.flags.contains(SymbolFlags::DEF_FREE_CLASS), has_flag);
+        }
+    }
+
+    #[test]
+    fn annotation_classdict_only_has_free_class_flag_when_needed_by_child() {
+        for (expression, has_flag) in [
+            ("int", false),
+            ("(__classdict__, (lambda: __classdict__)())", true),
+        ] {
+            let source = format!("class C:\n    item: {expression}\n");
+            let top = scan_source(&source);
+            let class = top.sub_tables.iter().find(|st| st.name == "C").unwrap();
+            let block = class.annotation_block.as_ref().unwrap();
+            let classdict = block.lookup(&"__classdict__".into()).unwrap();
+            assert_eq!(classdict.scope, super::SymbolScope::Free);
+            assert!(classdict.flags.contains(SymbolFlags::USE));
+            assert_eq!(
+                classdict.flags.contains(SymbolFlags::DEF_FREE_CLASS),
+                has_flag
+            );
+        }
     }
 
     #[test]
