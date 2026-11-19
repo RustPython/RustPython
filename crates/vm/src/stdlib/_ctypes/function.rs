@@ -2227,13 +2227,12 @@ fn python_to_ffi(
     let Ok(obj) = obj else { return };
 
     let report_err = |exc, vm: &VirtualMachine| {
-        vm.run_unraisable(
-            exc,
-            Some(
-                "Exception ignored while converting result of ctypes callback function".to_owned(),
-            ),
-            callable.clone(),
-        );
+        let repr = callable
+            .repr(vm)
+            .map_or_else(|_| "<unknown>".to_string(), |s| s.to_string());
+        let msg =
+            format!("Exception ignored while converting result of ctypes callback function {repr}");
+        vm.run_unraisable(exc, Some(msg), vm.ctx.none());
     };
 
     let type_code = ty.type_code(vm);
