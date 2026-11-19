@@ -1,6 +1,7 @@
 use super::*;
-use crate::builtins::{PyComplex, PyFrozenSet, PyTuple};
+use crate::builtins::{PyComplex, PyFrozenSet, PyIntRef, PyTuple};
 use ast::str_prefix::StringLiteralPrefix;
+use malachite_bigint::BigInt;
 use rustpython_codegen::compile::ruff_int_to_bigint;
 use rustpython_common::wtf8::Wtf8Buf;
 use rustpython_compiler_core::bytecode::ConstantData;
@@ -30,11 +31,11 @@ impl Constant {
         }
     }
 
-    pub(super) const fn new_int(value: ast::Int, range: TextRange) -> Self {
+    pub(super) fn new_int(value: ast::Int, range: TextRange) -> Self {
         Self {
             node_index: ast::AtomicNodeIndex::NONE,
             range,
-            value: ConstantLiteral::Int(value),
+            value: ConstantLiteral::Int(ruff_int_to_bigint(&value).unwrap()),
             kind: None,
             invalid_type: None,
         }
@@ -108,11 +109,12 @@ impl Constant {
             kind,
             invalid_type,
         } = self;
+        let kind = kind.or_else(|| constant_literal_kind(&value));
         ast::Expr::Constant(ast::ExprConstant {
             node_index,
             range,
-            value: constant_data_to_ast_constant_value(constant_literal_to_constant_data(&value)),
-            kind: kind.or_else(|| constant_literal_kind(&value)),
+            value: constant_data_to_ast_constant_value(constant_literal_to_constant_data(value)),
+            kind,
             invalid_type: invalid_type.map(String::into_boxed_str),
         })
     }
@@ -127,7 +129,7 @@ pub(crate) enum ConstantLiteral {
         prefix: StringLiteralPrefix,
     },
     Bytes(Box<[u8]>),
-    Int(ast::Int),
+    Int(BigInt),
     Tuple(Vec<Self>),
     FrozenSet(Vec<Self>),
     Float(f64),
@@ -205,34 +207,30 @@ pub(super) fn runtime_stmt_type_comment_object(
     runtime_string_object(vm, value, bytes)
 }
 
-fn constant_literal_to_constant_data(value: &ConstantLiteral) -> ConstantData {
+fn constant_literal_to_constant_data(value: ConstantLiteral) -> ConstantData {
     match value {
         ConstantLiteral::None => ConstantData::None,
-        ConstantLiteral::Bool(value) => ConstantData::Boolean { value: *value },
-        ConstantLiteral::Str { value, .. } => ConstantData::Str {
-            value: value.clone(),
-        },
+        ConstantLiteral::Bool(value) => ConstantData::Boolean { value },
+        ConstantLiteral::Str { value, .. } => ConstantData::Str { value },
         ConstantLiteral::Bytes(value) => ConstantData::Bytes {
-            value: value.to_vec(),
+            value: value.into_vec(),
         },
-        ConstantLiteral::Int(value) => ConstantData::Integer {
-            value: ruff_int_to_bigint(value).unwrap(),
-        },
+        ConstantLiteral::Int(value) => ConstantData::Integer { value },
         ConstantLiteral::Tuple(value) => ConstantData::Tuple {
             elements: value
-                .iter()
+                .into_iter()
                 .map(constant_literal_to_constant_data)
                 .collect(),
         },
         ConstantLiteral::FrozenSet(value) => ConstantData::Frozenset {
             elements: value
-                .iter()
+                .into_iter()
                 .map(constant_literal_to_constant_data)
                 .collect(),
         },
-        ConstantLiteral::Float(value) => ConstantData::Float { value: *value },
+        ConstantLiteral::Float(value) => ConstantData::Float { value },
         ConstantLiteral::Complex { real, imag } => ConstantData::Complex {
-            value: num_complex::Complex::new(*real, *imag),
+            value: num_complex::Complex::new(real, imag),
         },
         ConstantLiteral::Ellipsis => ConstantData::Ellipsis,
     }
@@ -320,7 +318,7 @@ pub(super) fn constant_object_to_constant_data(
     value_object: PyObjectRef,
 ) -> PyResult<ConstantData> {
     let value = ConstantLiteral::ast_from_object(vm, source_file, value_object)?;
-    Ok(constant_literal_to_constant_data(&value))
+    Ok(constant_literal_to_constant_data(value))
 }
 
 fn runtime_string_from_object(
@@ -523,7 +521,7 @@ impl Node for ConstantLiteral {
             Self::Bool(value) => vm.ctx.new_bool(value).to_pyobject(vm),
             Self::Str { value, .. } => vm.ctx.new_str(value).to_pyobject(vm),
             Self::Bytes(value) => vm.ctx.new_bytes(value.into()).to_pyobject(vm),
-            Self::Int(value) => value.ast_to_object(vm, source_file),
+            Self::Int(value) => vm.ctx.new_int(value).into(),
             Self::Tuple(value) => {
                 let value = value
                     .into_iter()
@@ -574,7 +572,9 @@ impl Node for ConstantLiteral {
         } else if cls.is(vm.ctx.types.bytes_type) {
             Self::Bytes(value_object.try_to_value::<Vec<u8>>(vm)?.into())
         } else if cls.is(vm.ctx.types.int_type) {
-            Self::Int(Node::ast_from_object(vm, source_file, value_object)?)
+            // An AST constant stores an integer value, not an unsigned source token.
+            let value: PyIntRef = value_object.try_into_value(vm)?;
+            Self::Int(value.as_bigint().clone())
         } else if cls.is(vm.ctx.types.tuple_type) {
             let tuple = value_object.downcast::<PyTuple>().map_err(|obj| {
                 vm.new_type_error(format!(
