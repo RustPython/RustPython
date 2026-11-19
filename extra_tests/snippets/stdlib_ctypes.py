@@ -1792,7 +1792,10 @@ class _CtypesTypeIdentityTests(_unittest.TestCase):
             _sys.unraisablehook = unraisable_calls.append
 
             # Invalid int return
-            cb_int = ctypes.CFUNCTYPE(ctypes.c_int)(lambda: "not an int")
+            def bad_int():
+                return "not an int"
+
+            cb_int = ctypes.CFUNCTYPE(ctypes.c_int)(bad_int)
             cb_int()
             self.assertEqual(len(unraisable_calls), 1)
             self.assertIs(unraisable_calls[-1].exc_type, TypeError)
@@ -1800,10 +1803,13 @@ class _CtypesTypeIdentityTests(_unittest.TestCase):
                 unraisable_calls[-1].err_msg,
                 "Exception ignored while converting result of ctypes callback function",
             )
-            self.assertEqual(unraisable_calls[-1].object, "not an int")
+            self.assertIs(unraisable_calls[-1].object, bad_int)
 
             # Invalid float return
-            cb_float = ctypes.CFUNCTYPE(ctypes.c_float)(lambda: "not a float")
+            def bad_float():
+                return "not a float"
+
+            cb_float = ctypes.CFUNCTYPE(ctypes.c_float)(bad_float)
             cb_float()
             self.assertEqual(len(unraisable_calls), 2)
             self.assertIs(unraisable_calls[-1].exc_type, TypeError)
@@ -1811,7 +1817,7 @@ class _CtypesTypeIdentityTests(_unittest.TestCase):
                 unraisable_calls[-1].err_msg,
                 "Exception ignored while converting result of ctypes callback function",
             )
-            self.assertEqual(unraisable_calls[-1].object, "not a float")
+            self.assertIs(unraisable_calls[-1].object, bad_float)
 
             # Exception raised in __bool__ for bool return
             class BadBool:
@@ -1819,7 +1825,11 @@ class _CtypesTypeIdentityTests(_unittest.TestCase):
                     raise ValueError("bad bool")
 
             bad_bool = BadBool()
-            cb_bool = ctypes.CFUNCTYPE(ctypes.c_bool)(lambda: bad_bool)
+
+            def bad_bool_fn():
+                return bad_bool
+
+            cb_bool = ctypes.CFUNCTYPE(ctypes.c_bool)(bad_bool_fn)
             cb_bool()
             self.assertEqual(len(unraisable_calls), 3)
             self.assertIs(unraisable_calls[-1].exc_type, ValueError)
@@ -1827,7 +1837,7 @@ class _CtypesTypeIdentityTests(_unittest.TestCase):
                 unraisable_calls[-1].err_msg,
                 "Exception ignored while converting result of ctypes callback function",
             )
-            self.assertIs(unraisable_calls[-1].object, bad_bool)
+            self.assertIs(unraisable_calls[-1].object, bad_bool_fn)
 
             # c_void_p returning None should NOT trigger unraisablehook
             cb_void_p = ctypes.CFUNCTYPE(ctypes.c_void_p)(lambda: None)

@@ -2217,16 +2217,22 @@ fn ffi_to_python(
 }
 
 /// Convert a Python object to a C value and store it at the result pointer
-fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &VirtualMachine) {
+fn python_to_ffi(
+    obj: PyResult,
+    ty: &Py<PyType>,
+    callable: &PyObjectRef,
+    result: *mut c_void,
+    vm: &VirtualMachine,
+) {
     let Ok(obj) = obj else { return };
 
-    let report_err = |exc, vm: &VirtualMachine, obj| {
+    let report_err = |exc, vm: &VirtualMachine| {
         vm.run_unraisable(
             exc,
             Some(
                 "Exception ignored while converting result of ctypes callback function".to_owned(),
             ),
-            obj,
+            callable.clone(),
         );
     };
 
@@ -2242,7 +2248,7 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
                     ),
                 );
             },
-            Err(exc) => report_err(exc, vm, obj),
+            Err(exc) => report_err(exc, vm),
         },
         Some("B" | "c" | "H" | "I" | "L" | "Q") => match obj.try_int(vm) {
             Ok(i) => unsafe {
@@ -2254,7 +2260,7 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
                     ),
                 );
             },
-            Err(exc) => report_err(exc, vm, obj),
+            Err(exc) => report_err(exc, vm),
         },
         Some("f" | "d") => match obj.try_float(vm) {
             Ok(f) => unsafe {
@@ -2264,7 +2270,7 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
                     rustpython_host_env::ctypes::CallbackResultValue::Float(f.to_f64()),
                 );
             },
-            Err(exc) => report_err(exc, vm, obj),
+            Err(exc) => report_err(exc, vm),
         },
         #[cfg(windows)]
         Some("X") => match super::simple::assignment_value("X", &obj, false, vm) {
@@ -2280,7 +2286,7 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
                     );
                 }
             }
-            Err(exc) => report_err(exc, vm, obj),
+            Err(exc) => report_err(exc, vm),
         },
         Some("P" | "z" | "Z") => {
             if vm.is_none(&obj) {
@@ -2302,11 +2308,11 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
                             ),
                         );
                     },
-                    Err(exc) => report_err(exc, vm, obj),
+                    Err(exc) => report_err(exc, vm),
                 }
             }
         }
-        Some("?") => match obj.clone().is_true(vm) {
+        Some("?") => match obj.is_true(vm) {
             Ok(b) => unsafe {
                 rustpython_host_env::ctypes::write_callback_result(
                     type_code.as_deref(),
@@ -2314,7 +2320,7 @@ fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &Virtu
                     rustpython_host_env::ctypes::CallbackResultValue::Bool(b),
                 );
             },
-            Err(exc) => report_err(exc, vm, obj),
+            Err(exc) => report_err(exc, vm),
         },
         _ => {}
     }
@@ -2354,7 +2360,13 @@ unsafe extern "C" fn thunk_callback(
             }
 
             if let Some(ref res_type) = userdata.res_type {
-                python_to_ffi(py_result, res_type, result as *mut c_void, vm);
+                python_to_ffi(
+                    py_result,
+                    res_type,
+                    &userdata.callable,
+                    result as *mut c_void,
+                    vm,
+                );
             }
         });
     });
