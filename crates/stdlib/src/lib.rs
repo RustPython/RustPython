@@ -69,11 +69,23 @@ mod suggestions;
 // mod re;
 #[cfg(all(
     feature = "host_env",
-    not(any(all(target_arch = "wasm32", target_os = "unknown"), target_os = "wasi"))
+    not(any(
+        all(target_arch = "wasm32", target_os = "unknown"),
+        all(
+            target_os = "wasi",
+            not(all(target_env = "p2", feature = "host_env", not(feature = "threading")))
+        )
+    ))
 ))]
 pub mod socket;
 
-#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), target_os = "wasi"))]
+#[cfg(any(
+    all(target_arch = "wasm32", target_os = "unknown"),
+    all(
+        target_os = "wasi",
+        not(all(target_env = "p2", feature = "host_env", not(feature = "threading")))
+    )
+))]
 #[path = "socket_wasm.rs"]
 pub mod socket;
 
@@ -276,10 +288,22 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         sha512::module_def(ctx),
         #[cfg(all(
             feature = "host_env",
-            not(any(all(target_arch = "wasm32", target_os = "unknown"), target_os = "wasi"))
+            not(any(
+                all(target_arch = "wasm32", target_os = "unknown"),
+                all(
+                    target_os = "wasi",
+                    not(all(target_env = "p2", feature = "host_env", not(feature = "threading")))
+                )
+            ))
         ))]
         socket::module_def(ctx),
-        #[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), target_os = "wasi"))]
+        #[cfg(any(
+            all(target_arch = "wasm32", target_os = "unknown"),
+            all(
+                target_os = "wasi",
+                not(all(target_env = "p2", feature = "host_env", not(feature = "threading")))
+            )
+        ))]
         socket::module_def(ctx),
         #[cfg(all(
             feature = "sqlite",

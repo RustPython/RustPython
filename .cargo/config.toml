@@ -21,4 +21,6 @@ rustflags = [
 [target.wasm32-wasip2]
 rustflags = [
     "-C", "link-arg=-zstack-size=1048576",
+    "-L", "crates/host_env/vendor/wasm32-wasip2",
+    "-l", "wasi-emulated-signal",
 ]
