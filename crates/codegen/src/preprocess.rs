@@ -1,4 +1,10 @@
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    vec::Vec,
+};
+use malachite_bigint::BigInt;
+use num_traits::ToPrimitive;
 
 use ruff_python_ast::{
     self as ast, AtomicNodeIndex, ConversionFlag, Expr, ExprFString, FString, FStringFlags,
@@ -9,7 +15,7 @@ use ruff_python_ast::{
 };
 use ruff_text_size::{Ranged, TextRange};
 
-use crate::compile::FutureFeature;
+use crate::compile::{FutureFeature, ruff_int_to_bigint};
 use core::cell::{Cell, RefCell};
 use rustpython_compiler_core::{AstLocationError, AstLocations, SourceLocationRange, bytecode};
 
@@ -858,93 +864,124 @@ fn string_literal_expr_value(expr: &Expr) -> Option<(&str, TextRange)> {
     }
 }
 
-fn fold_match_value_constant_expr(expr: &mut ast::Expr) {
-    match expr {
-        ast::Expr::UnaryOp(unary)
-            if matches!(unary.op, ast::UnaryOp::USub)
-                && matches!(unary.operand.as_ref(), ast::Expr::NumberLiteral(_)) =>
-        {
-            if let Some(number) = negate_match_number(&unary.operand) {
-                *expr = ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
-                    node_index: unary.node_index.clone(),
-                    range: unary.range,
-                    value: number,
-                });
-            }
+/// Numeric constants have two representations before preprocessing: Ruff's
+/// unsigned literal token and the Constant value from Python AST input.
+enum MatchNumber {
+    Int(BigInt),
+    Float(f64),
+    Complex { real: f64, imag: f64 },
+}
+
+impl MatchNumber {
+    fn from_expr(expr: &Expr) -> Option<Self> {
+        Some(match expr {
+            Expr::NumberLiteral(node) => match &node.value {
+                ast::Number::Int(value) => Self::Int(ruff_int_to_bigint(value).ok()?),
+                ast::Number::Float(value) => Self::Float(*value),
+                ast::Number::Complex { real, imag } => Self::Complex {
+                    real: *real,
+                    imag: *imag,
+                },
+            },
+            Expr::Constant(node) => match &node.value {
+                ast::ConstantValue::Integer(value) => Self::Int(value.parse().ok()?),
+                ast::ConstantValue::Float(value) => Self::Float(*value),
+                ast::ConstantValue::Complex { real, imag } => Self::Complex {
+                    real: *real,
+                    imag: *imag,
+                },
+                _ => return None,
+            },
+            _ => return None,
+        })
+    }
+
+    fn negated(self) -> Self {
+        match self {
+            Self::Int(value) => Self::Int(-value),
+            Self::Float(value) => Self::Float(-value),
+            Self::Complex { real, imag } => Self::Complex {
+                real: -real,
+                imag: -imag,
+            },
         }
-        ast::Expr::BinOp(binop) if matches!(binop.op, ast::Operator::Add | ast::Operator::Sub) => {
-            fold_match_value_constant_expr(&mut binop.left);
-            if let Some(number) = fold_match_number_binop(&binop.left, binop.op, &binop.right) {
-                *expr = ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
-                    node_index: binop.node_index.clone(),
-                    range: binop.range,
-                    value: number,
-                });
-            }
+    }
+
+    fn into_constant(self) -> ast::ConstantValue {
+        match self {
+            Self::Int(value) => ast::ConstantValue::Integer(value.to_string().into_boxed_str()),
+            Self::Float(value) => ast::ConstantValue::Float(value),
+            Self::Complex { real, imag } => ast::ConstantValue::Complex { real, imag },
         }
-        _ => {}
     }
 }
 
-fn negate_match_number(expr: &ast::Expr) -> Option<ast::Number> {
-    let ast::Expr::NumberLiteral(number) = expr else {
+fn fold_match_value_constant_expr(expr: &mut Expr) {
+    let folded = match expr {
+        Expr::UnaryOp(unary) if matches!(unary.op, ast::UnaryOp::UAdd | ast::UnaryOp::USub) => {
+            MatchNumber::from_expr(&unary.operand).map(|value| {
+                if unary.op == ast::UnaryOp::USub {
+                    value.negated()
+                } else {
+                    value
+                }
+            })
+        }
+        Expr::BinOp(binop) if matches!(binop.op, Operator::Add | Operator::Sub) => {
+            fold_match_value_constant_expr(&mut binop.left);
+            fold_match_number_binop(&binop.left, binop.op, &binop.right)
+        }
+        _ => None,
+    };
+    if let Some(value) = folded {
+        *expr = Expr::Constant(ast::ExprConstant {
+            node_index: expr.node_index().clone(),
+            range: expr.range(),
+            value: value.into_constant(),
+            kind: None,
+            invalid_type: None,
+        });
+    }
+}
+
+fn fold_match_number_binop(left: &Expr, op: Operator, right: &Expr) -> Option<MatchNumber> {
+    let MatchNumber::Complex { real, imag } = MatchNumber::from_expr(right)? else {
         return None;
     };
-    Some(match &number.value {
-        ast::Number::Int(value) => {
-            if *value == ast::Int::ZERO {
-                ast::Number::Int(ast::Int::ZERO)
-            } else {
+    let left = match MatchNumber::from_expr(left)? {
+        MatchNumber::Int(value) => {
+            // CPython refuses to convert an overflowing integer to float and
+            // leaves the binary expression unfolded in this optimization pass.
+            let value = value.to_f64()?;
+            if !value.is_finite() {
                 return None;
             }
+            value
         }
-        ast::Number::Float(value) => ast::Number::Float(-value),
-        ast::Number::Complex { real, imag } => ast::Number::Complex {
-            real: -real,
-            imag: -imag,
-        },
-    })
-}
-
-fn fold_match_number_binop(
-    left: &ast::Expr,
-    op: ast::Operator,
-    right: &ast::Expr,
-) -> Option<ast::Number> {
-    let ast::Expr::NumberLiteral(left) = left else {
-        return None;
+        MatchNumber::Float(value) => value,
+        MatchNumber::Complex {
+            real: left_real,
+            imag: left_imag,
+        } => {
+            return Some(match op {
+                Operator::Add => MatchNumber::Complex {
+                    real: left_real + real,
+                    imag: left_imag + imag,
+                },
+                Operator::Sub => MatchNumber::Complex {
+                    real: left_real - real,
+                    imag: left_imag - imag,
+                },
+                _ => return None,
+            });
+        }
     };
-    let ast::Expr::NumberLiteral(right) = right else {
-        return None;
-    };
-    let right = match right.value {
-        ast::Number::Complex { real, imag } => (real, imag),
+    let (real, imag) = match op {
+        Operator::Add => (left + real, imag),
+        Operator::Sub => (left - real, -imag),
         _ => return None,
     };
-    enum MatchNumberLeft {
-        Real(f64),
-        Complex { real: f64, imag: f64 },
-    }
-    let left = match &left.value {
-        ast::Number::Int(value) => MatchNumberLeft::Real(value.as_i64()? as f64),
-        ast::Number::Float(value) => MatchNumberLeft::Real(*value),
-        ast::Number::Complex { real, imag } => MatchNumberLeft::Complex {
-            real: *real,
-            imag: *imag,
-        },
-    };
-    let (real, imag) = match (left, op) {
-        (MatchNumberLeft::Real(left), ast::Operator::Add) => (left + right.0, right.1),
-        (MatchNumberLeft::Real(left), ast::Operator::Sub) => (left - right.0, -right.1),
-        (MatchNumberLeft::Complex { real, imag }, ast::Operator::Add) => {
-            (real + right.0, imag + right.1)
-        }
-        (MatchNumberLeft::Complex { real, imag }, ast::Operator::Sub) => {
-            (real - right.0, imag - right.1)
-        }
-        _ => return None,
-    };
-    Some(ast::Number::Complex { real, imag })
+    Some(MatchNumber::Complex { real, imag })
 }
 
 #[cfg(test)]
@@ -1051,10 +1088,10 @@ match value:
         pass
 ",
         );
-        let ast::Expr::NumberLiteral(number) = value else {
-            panic!("expected folded number literal, got {value:?}");
+        let ast::Expr::Constant(number) = value else {
+            panic!("expected folded constant, got {value:?}");
         };
-        assert!(matches!(number.value, ast::Number::Float(value) if value == -1.5));
+        assert!(matches!(number.value, ast::ConstantValue::Float(value) if value == -1.5));
     }
 
     #[test]
@@ -1066,11 +1103,11 @@ match value:
         pass
 ",
         );
-        let ast::Expr::NumberLiteral(number) = value else {
-            panic!("expected folded number literal, got {value:?}");
+        let ast::Expr::Constant(number) = value else {
+            panic!("expected folded constant, got {value:?}");
         };
         assert!(
-            matches!(number.value, ast::Number::Complex { real, imag } if real == 1.0 && imag == 2.0)
+            matches!(number.value, ast::ConstantValue::Complex { real, imag } if real == 1.0 && imag == 2.0)
         );
     }
 
@@ -1095,7 +1132,7 @@ match value:
         let number = fold_match_number_binop(&left, ast::Operator::Add, &right)
             .expect("CPython fold_const_match_patterns() uses PyNumber_Add");
         assert!(
-            matches!(number, ast::Number::Complex { real, imag } if real == 0.0 && imag == 3.0)
+            matches!(number, MatchNumber::Complex { real, imag } if real == 0.0 && imag == 3.0)
         );
     }
 
@@ -1108,11 +1145,13 @@ match value:
         pass
 ",
         );
-        let ast::Expr::NumberLiteral(number) = value else {
-            panic!("expected folded number literal, got {value:?}");
+        let ast::Expr::Constant(number) = value else {
+            panic!("expected folded constant, got {value:?}");
         };
-        assert!(matches!(number.value, ast::Number::Complex { real, imag }
-                if real == 0.0 && imag == 0.0 && imag.is_sign_negative()));
+        assert!(
+            matches!(number.value, ast::ConstantValue::Complex { real, imag }
+                if real == 0.0 && imag == 0.0 && imag.is_sign_negative())
+        );
     }
 
     #[test]
