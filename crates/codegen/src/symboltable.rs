@@ -3229,65 +3229,37 @@ impl SymbolTableBuilder {
                 });
             }
             match role {
-                SymbolUsage::Global if !symbol.is_global() => {
-                    if flags.contains(SymbolFlags::DEF_PARAM) {
+                SymbolUsage::Global | SymbolUsage::Nonlocal => {
+                    // CPython checks the accumulated flags even on a repeated
+                    // directive. Lookup uses the mangled name; diagnostics use
+                    // the spelling from the current directive.
+                    let directive = if matches!(role, SymbolUsage::Global) {
+                        "global"
+                    } else {
+                        "nonlocal"
+                    };
+                    let error = if flags.contains(SymbolFlags::DEF_PARAM) {
+                        Some(format!(
+                            "name '{original_name}' is parameter and {directive}"
+                        ))
+                    } else if flags.contains(SymbolFlags::USE) {
+                        Some(format!(
+                            "name '{original_name}' is used prior to {directive} declaration"
+                        ))
+                    } else if flags.contains(SymbolFlags::DEF_ANNOT) {
+                        Some(format!(
+                            "annotated name '{original_name}' can't be {directive}"
+                        ))
+                    } else if flags.contains(SymbolFlags::DEF_LOCAL) {
+                        Some(format!(
+                            "name '{original_name}' is assigned to before {directive} declaration"
+                        ))
+                    } else {
+                        None
+                    };
+                    if let Some(error) = error {
                         return Err(SymbolTableError {
-                            error: format!("name '{name}' is parameter and global"),
-                            location,
-                            end_location,
-                        });
-                    }
-                    if flags.contains(SymbolFlags::USE) {
-                        return Err(SymbolTableError {
-                            error: format!("name '{name}' is used prior to global declaration"),
-                            location,
-                            end_location,
-                        });
-                    }
-                    if flags.contains(SymbolFlags::DEF_ANNOT) {
-                        return Err(SymbolTableError {
-                            error: format!("annotated name '{name}' can't be global"),
-                            location,
-                            end_location,
-                        });
-                    }
-                    if flags.contains(SymbolFlags::DEF_LOCAL) {
-                        return Err(SymbolTableError {
-                            error: format!(
-                                "name '{name}' is assigned to before global declaration"
-                            ),
-                            location,
-                            end_location,
-                        });
-                    }
-                }
-                SymbolUsage::Nonlocal => {
-                    if flags.contains(SymbolFlags::DEF_PARAM) {
-                        return Err(SymbolTableError {
-                            error: format!("name '{name}' is parameter and nonlocal"),
-                            location,
-                            end_location,
-                        });
-                    }
-                    if flags.contains(SymbolFlags::USE) {
-                        return Err(SymbolTableError {
-                            error: format!("name '{name}' is used prior to nonlocal declaration"),
-                            location,
-                            end_location,
-                        });
-                    }
-                    if flags.contains(SymbolFlags::DEF_ANNOT) {
-                        return Err(SymbolTableError {
-                            error: format!("annotated name '{name}' can't be nonlocal"),
-                            location,
-                            end_location,
-                        });
-                    }
-                    if flags.contains(SymbolFlags::DEF_LOCAL) {
-                        return Err(SymbolTableError {
-                            error: format!(
-                                "name '{name}' is assigned to before nonlocal declaration"
-                            ),
+                            error,
                             location,
                             end_location,
                         });
@@ -3872,6 +3844,55 @@ def f(x=(lambda: 1)()):
             5,
             "CPython reports LOCATION(s) for global directives, at 'global'"
         );
+    }
+
+    #[test]
+    fn repeated_global_rechecks_prior_uses_and_definitions() {
+        for (statement, reason) in [
+            ("x", "is used prior to"),
+            ("x = 1", "is assigned to before"),
+            ("del x", "is assigned to before"),
+        ] {
+            let source = format!("def f():\n    global x\n    {statement}\n    global x\n");
+            let err = scan_source_result(&source).unwrap_err();
+            assert_eq!(err.error, format!("name 'x' {reason} global declaration"));
+            let start = err.location.unwrap();
+            let end = err.end_location.unwrap();
+            assert_eq!((start.line.get(), start.character_offset.get()), (4, 5));
+            assert_eq!((end.line.get(), end.character_offset.get()), (4, 13));
+        }
+        // Repetition alone is legal. Imports do not carry any of the
+        // definition flags checked by a scope directive.
+        assert!(scan_source_result("global x\nglobal x\n").is_ok());
+        assert!(scan_source_result("def f():\n    global x\n    import x\n    global x\n").is_ok());
+    }
+
+    #[test]
+    fn private_scope_directive_conflicts_use_source_spelling() {
+        for (directive, statement, message) in [
+            (
+                "global",
+                "__x = 1",
+                "name '__x' is assigned to before global declaration",
+            ),
+            (
+                "nonlocal",
+                "__x",
+                "name '__x' is used prior to nonlocal declaration",
+            ),
+            (
+                "nonlocal",
+                "__x: int",
+                "annotated name '__x' can't be nonlocal",
+            ),
+        ] {
+            let source =
+                format!("class C:\n    def f():\n        {statement}\n        {directive} __x\n");
+            let err = scan_source_result(&source).unwrap_err();
+            assert_eq!(err.error, message);
+            let start = err.location.unwrap();
+            assert_eq!((start.line.get(), start.character_offset.get()), (4, 9));
+        }
     }
 
     #[test]
