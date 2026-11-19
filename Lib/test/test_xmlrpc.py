@@ -187,7 +187,6 @@ class XMLRPCTestCase(unittest.TestCase):
                           xmlrpclib.loads(strg)[0][0])
         self.assertRaises(TypeError, xmlrpclib.dumps, (arg1,))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dump_encoding(self):
         value = {'key\u20ac\xa4':
                  'value\u20ac\xa4'}
@@ -842,7 +841,6 @@ class SimpleServerTestCase(BaseServerTestCase):
                 # protocol error; provide additional information in test output
                 self.fail("%s\n%s" % (e, getattr(e, "headers", "")))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_client_encoding(self):
         start_string = '\u20ac'
         end_string = '\xa4'
@@ -1023,7 +1021,6 @@ class SimpleServerEncodingTestCase(BaseServerTestCase):
     def threadFunc(evt, numrequests, requestHandler=None, encoding=None):
         http_server(evt, numrequests, requestHandler, 'iso-8859-15')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_server_encoding(self):
         start_string = '\u20ac'
         end_string = '\xa4'

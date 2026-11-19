@@ -1006,7 +1006,6 @@ class ElementTreeTest(unittest.TestCase):
         self.assertRegex(stringlist[0], r"^<\?xml version='1.0' encoding='.+'?>")
         self.assertEqual(['<body', '>', '<tag', ' />', '</body>'], stringlist[1:])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_encoding(self):
         def check(encoding, body=''):
             xml = ("<?xml version='1.0' encoding='%s'?><xml>%s</xml>" %

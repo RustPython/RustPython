@@ -156,3 +156,45 @@ def test_element_frozen_attrib_copy_state_bounded():
 test_element_frozen_attrib_identity_bounded()
 test_element_frozen_attrib_mutation_bounded()
 test_element_frozen_attrib_copy_state_bounded()
+
+
+def test_custom_encoding_lookup_and_streaming():
+    import codecs
+
+    events = []
+
+    def decode(data, errors="strict"):
+        events.append(("decode", len(data), errors))
+        return ("".join("€" if byte == 128 else chr(byte) for byte in data), len(data))
+
+    def search(name):
+        if name == "rustpython_xml_single_byte":
+            events.append("lookup")
+            return codecs.CodecInfo(name=name, encode=None, decode=decode)
+        return None
+
+    codecs.register(search)
+    try:
+        parser = expat.ParserCreate()
+        parser.XmlDeclHandler = lambda *args: events.append("declaration")
+        parser.CharacterDataHandler = lambda text: events.append(text)
+        header = (
+            b'\xef\xbb\xbf<?xml version="1.0" encoding="rustpython_xml_single_byte"?>'
+        )
+        for byte in header[:-1]:
+            parser.Parse(bytes([byte]), False)
+        assert events == []
+        parser.Parse(header[-1:] + b"<r>\x80</r>", True)
+        assert events == ["declaration", "lookup", ("decode", 256, "replace"), "€"]
+
+        parser = expat.ParserCreate("cp1252")
+        with assert_raises(expat.ExpatError) as error:
+            parser.Parse(b"<r>\x81", False)
+        assert error.exception.code == 4
+        with assert_raises(expat.ExpatError):
+            parser.Parse(b"</r>", True)
+    finally:
+        codecs.unregister(search)
+
+
+test_custom_encoding_lookup_and_streaming()
