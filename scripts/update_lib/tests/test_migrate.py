@@ -549,6 +549,41 @@ class TestPatchDirectory(unittest.TestCase):
                 patch_directory(source, target, verbose=False)
                 self.assertEqual((target / "empty.py").read_bytes(), b"")
 
+    def test_preserves_identical_invalid_python_fixture(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source, target = Path(temporary) / "source", Path(temporary) / "target"
+            source.mkdir()
+            target.mkdir()
+            invalid = b"def invalid(\r\n"
+            for directory in (source, target):
+                (directory / "negative.py").write_bytes(invalid)
+            (source / "normal.py").write_text("x = 2\n")
+            (target / "normal.py").write_text("x = 1\n")
+
+            patch_directory(source, target, verbose=False)
+
+            self.assertEqual((target / "negative.py").read_bytes(), invalid)
+            self.assertEqual((target / "normal.py").read_text(), "x = 2\n")
+
+    def test_changed_invalid_python_prevents_directory_writes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source, target = Path(temporary) / "source", Path(temporary) / "target"
+            source.mkdir()
+            target.mkdir()
+            (source / "a_normal.py").write_text("x = 2\n")
+            (source / "b_asset").write_bytes(b"new")
+            (source / "c_negative.py").write_text("def invalid(a\n")
+            (target / "a_normal.py").write_text("x = 1\n")
+            (target / "b_asset").write_bytes(b"old")
+            (target / "c_negative.py").write_text("def invalid(b\n")
+
+            with self.assertRaises(SyntaxError):
+                patch_directory(source, target, verbose=False)
+
+            self.assertEqual((target / "a_normal.py").read_text(), "x = 1\n")
+            self.assertEqual((target / "b_asset").read_bytes(), b"old")
+            self.assertEqual((target / "c_negative.py").read_text(), "def invalid(b\n")
+
     def test_excludes_cache_directories_but_preserves_canonical_assets(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
