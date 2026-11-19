@@ -1082,10 +1082,6 @@ struct SymbolTableBuilder {
     future_annotations: bool,
     allow_top_level_await: bool,
     source_file: SourceFile,
-    // Current scope's varnames being collected (temporary storage)
-    current_varnames: Vec<Name>,
-    // Stack to preserve parent varnames when entering nested scopes
-    varnames_stack: Vec<Vec<Name>>,
     // Track if we're inside an iterable definition expression (for nested comprehensions)
     in_iter_def_exp: bool,
     // yield/yield from inside comprehension scopes is rejected with a
@@ -1130,8 +1126,6 @@ impl SymbolTableBuilder {
             future_annotations: false,
             allow_top_level_await: false,
             source_file,
-            current_varnames: Vec::new(),
-            varnames_stack: Vec::new(),
             in_iter_def_exp: false,
             comprehension_yield_context: None,
             in_conditional_block: false,
@@ -1192,8 +1186,6 @@ impl SymbolTableBuilder {
     fn finish(mut self) -> Result<SymbolTable, SymbolTableError> {
         assert_eq!(self.tables.len(), 1);
         let mut symbol_table = self.tables.pop().unwrap();
-        // Save varnames for the top-level module scope
-        symbol_table.varnames = self.current_varnames;
         // Propagate future_annotations to the symbol table
         symbol_table.future_annotations = self.future_annotations;
         analyze_symbol_table(&mut symbol_table)?;
@@ -1227,9 +1219,6 @@ impl SymbolTableBuilder {
         table.future_annotations = self.future_annotations;
         table.mangled_names = inherited_mangled_names;
         self.tables.push(table);
-        // Save parent's varnames and start fresh for the new scope
-        self.varnames_stack
-            .push(core::mem::take(&mut self.current_varnames));
     }
 
     fn enter_type_param_block(
@@ -1287,20 +1276,13 @@ impl SymbolTableBuilder {
 
     /// Pop symbol table and add to sub table of parent table.
     fn leave_scope(&mut self) {
-        let mut table = self.tables.pop().unwrap();
-        // Save the collected varnames to the symbol table
-        table.varnames = core::mem::take(&mut self.current_varnames);
+        let table = self.tables.pop().unwrap();
         self.tables.last_mut().unwrap().sub_tables.push(table);
-        // Restore parent's varnames
-        self.current_varnames = self.varnames_stack.pop().unwrap_or_default();
     }
 
     /// Pop symbol table without adding it to the parent children list.
     fn discard_scope(&mut self) -> SymbolTable {
-        let mut table = self.tables.pop().unwrap();
-        table.varnames = core::mem::take(&mut self.current_varnames);
-        self.current_varnames = self.varnames_stack.pop().unwrap_or_default();
-        table
+        self.tables.pop().unwrap()
     }
 
     fn resolve_future_annotation_names_as_globals(table: &mut SymbolTable) {
@@ -1359,10 +1341,6 @@ impl SymbolTableBuilder {
             .take()
             .unwrap();
         self.tables.push(*annotation_table);
-        // Save parent's varnames and seed with existing annotation varnames (e.g., "format")
-        self.varnames_stack
-            .push(core::mem::take(&mut self.current_varnames));
-        self.current_varnames = self.tables.last().unwrap().varnames.clone();
 
         if can_see_class_scope && (include_classdict_with_future || !self.future_annotations) {
             self.add_classdict_freevar();
@@ -1378,16 +1356,12 @@ impl SymbolTableBuilder {
     /// Stores the annotation block back to parent instead of sub_tables
     fn leave_annotation_scope(&mut self) {
         let mut table = self.tables.pop().unwrap();
-        // Save the collected varnames to the symbol table
-        table.varnames = core::mem::take(&mut self.current_varnames);
         if self.future_annotations {
             Self::resolve_future_annotation_names_as_globals(&mut table);
         }
         // Store back to parent's annotation_block (not sub_tables)
         let parent = self.tables.last_mut().unwrap();
         parent.annotation_block = Some(Box::new(table));
-        // Restore parent's varnames
-        self.current_varnames = self.varnames_stack.pop().unwrap_or_default();
     }
 
     fn add_classdict_freevar(&mut self) {
@@ -1405,9 +1379,6 @@ impl SymbolTableBuilder {
 
     fn add_format_parameter(&mut self) {
         self.tables.last_mut().unwrap().add_format_parameter();
-        if !self.current_varnames.iter().any(|name| name == ".format") {
-            self.current_varnames.push(".format".into());
-        }
     }
 
     /// Walk up the scope chain to determine if we're inside an async function.
@@ -3357,8 +3328,8 @@ impl SymbolTableBuilder {
                 flags.insert(SymbolFlags::DEF_PARAM);
                 // Parameters are always added to varnames first
                 let name_str = symbol.name.clone();
-                if !self.current_varnames.contains(&name_str) {
-                    self.current_varnames.push(name_str);
+                if !table.varnames.contains(&name_str) {
+                    table.varnames.push(name_str);
                 }
             }
             SymbolUsage::AnnotationAssigned => {
