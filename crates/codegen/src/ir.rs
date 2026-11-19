@@ -4259,8 +4259,29 @@ pub fn assemble_for_tests(
     blocks.mark_except_handlers();
     label_exception_targets(&mut blocks)?;
     let flags = CodeFlags::empty();
-    let (max_stackdepth, nlocalsplus, mut instr_sequence) =
+    let (max_stackdepth, nlocalsplus, instr_sequence) =
         optimized_cfg_to_instruction_sequence(&metadata, flags, &mut blocks)?;
+    assemble_code_object(
+        filename,
+        metadata,
+        flags,
+        max_stackdepth,
+        nlocalsplus,
+        instr_sequence,
+        debug_ranges,
+    )
+}
+
+/// assemble.c _PyAssemble_MakeCodeObject
+fn assemble_code_object(
+    source_path: String,
+    metadata: CodeUnitMetadata,
+    flags: CodeFlags,
+    max_stackdepth: u32,
+    nlocalsplus: usize,
+    mut instr_sequence: InstructionSequence,
+    debug_ranges: bool,
+) -> crate::InternalResult<CodeObject> {
     let localsplusinfo = compute_localsplus_info(&metadata, nlocalsplus, flags)?;
     let CodeUnitMetadata {
         name: obj_name,
@@ -4297,10 +4318,11 @@ pub fn assemble_for_tests(
         posonlyarg_count,
         arg_count: code_arg_count,
         kwonlyarg_count,
-        source_path: filename,
+        source_path,
         first_line_number: Some(first_line_number),
         obj_name: obj_name.clone(),
         qualname: qualname.unwrap_or(obj_name),
+        // Room for one value is always reserved, even where nothing is pushed.
         max_stackdepth: max_stackdepth.max(1),
         instructions: CodeUnits::from(assembled.instructions),
         locations,
@@ -4314,7 +4336,6 @@ pub fn assemble_for_tests(
         exceptiontable: assembled.exceptiontable,
     })
 }
-
 impl CodeInfo {
     pub fn finalize_code(
         mut self,
@@ -4330,85 +4351,17 @@ impl CodeInfo {
             nlocals,
             nparams,
         )?;
-        let (max_stackdepth, nlocalsplus, mut instr_sequence) =
+        let (max_stackdepth, nlocalsplus, instr_sequence) =
             optimized_cfg_to_instruction_sequence(&self.metadata, self.flags, &mut self.blocks)?;
-        let localsplusinfo = compute_localsplus_info(&self.metadata, nlocalsplus, self.flags)?;
-
-        let Self {
-            flags,
-            source_path,
-            private: _, // private is only used during compilation
-
-            blocks: _,
-            current_block: _,
-            instr_sequence: _,
-            instr_sequence_label_map: _,
-            annotations_instr_sequence: _,
-            metadata,
-            static_attributes: _,
-            in_inlined_comp: _,
-            fblock: _,
-            symbol_table_index: _,
-            nparams: _,
-            in_conditional_block: _,
-            next_conditional_annotation_index: _,
-        } = self;
-
-        let CodeUnitMetadata {
-            name: obj_name,
-            qualname,
-            consts: constants,
-            names: name_cache,
-            varnames: varname_cache,
-            cellvars: _,
-            freevars: freevar_cache,
-            fast_hidden: _,
-            fast_hidden_final: _,
-            argcount: arg_count,
-            posonlyargcount: posonlyarg_count,
-            kwonlyargcount: kwonlyarg_count,
-            firstlineno: first_line_number,
-        } = metadata;
-        let code_arg_count = posonlyarg_count
-            .checked_add(arg_count)
-            .ok_or(InternalError::MalformedControlFlowGraph)?;
-
-        resolve_unconditional_jumps(&mut instr_sequence);
-        resolve_jump_offsets(&mut instr_sequence);
-        let assembled = assemble_emit(
-            &mut instr_sequence,
-            first_line_number.get() as i32,
+        assemble_code_object(
+            self.source_path,
+            self.metadata,
+            self.flags,
+            max_stackdepth,
+            nlocalsplus,
+            instr_sequence,
             opts.debug_ranges,
-        )?;
-        let locations = rustpython_compiler_core::marshal::linetable_to_locations(
-            &assembled.linetable,
-            first_line_number.get() as i32,
-            assembled.instructions.len(),
-        );
-
-        Ok(CodeObject {
-            flags,
-            posonlyarg_count,
-            arg_count: code_arg_count,
-            kwonlyarg_count,
-            source_path,
-            first_line_number: Some(first_line_number),
-            obj_name: obj_name.clone(),
-            qualname: qualname.unwrap_or(obj_name),
-
-            // Room for one value is always reserved, even where nothing is pushed.
-            max_stackdepth: max_stackdepth.max(1),
-            instructions: CodeUnits::from(assembled.instructions),
-            locations,
-            constants: constants.into_iter().collect(),
-            names: name_cache.into_iter().collect(),
-            varnames: varname_cache.into_iter().collect(),
-            cellvars: localsplusinfo.cellvars,
-            freevars: freevar_cache.into_iter().collect(),
-            localspluskinds: localsplusinfo.kinds,
-            linetable: assembled.linetable,
-            exceptiontable: assembled.exceptiontable,
-        })
+        )
     }
 }
 
