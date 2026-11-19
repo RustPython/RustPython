@@ -154,21 +154,22 @@ fn checked_future_features(
         let source_code = source_file.to_source_code();
         let location = source_code.source_location(err.range.start(), PositionEncoding::Utf8);
         let end_location = source_code.source_location(err.range.end(), PositionEncoding::Utf8);
-        let error = match err.kind {
-            preprocess::FutureFeatureErrorKind::InvalidFeature(feature) => {
-                CodegenErrorType::InvalidFutureFeature(feature)
-            }
-            preprocess::FutureFeatureErrorKind::InvalidBraces => {
-                CodegenErrorType::InvalidFutureBraces
-            }
-        };
         CodegenError {
             location: Some(location),
             end_location: Some(end_location),
-            error,
+            error: future_feature_error_type(err.kind),
             source_path: source_file.name().to_owned(),
         }
     })
+}
+
+fn future_feature_error_type(kind: preprocess::FutureFeatureErrorKind) -> CodegenErrorType {
+    match kind {
+        preprocess::FutureFeatureErrorKind::InvalidFeature(feature) => {
+            CodegenErrorType::InvalidFutureFeature(feature)
+        }
+        preprocess::FutureFeatureErrorKind::InvalidBraces => CodegenErrorType::InvalidFutureBraces,
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -177,6 +178,7 @@ enum NameUsage {
     Store,
     Delete,
 }
+
 /// Main structure holding the state of compilation.
 struct Compiler<'a> {
     code_stack: Vec<ir::CodeInfo>,
@@ -11654,41 +11656,15 @@ impl<'warnings> Compiler<'warnings> {
 
     fn compile_future_features(&mut self, features: &[ast::Alias]) -> Result<(), CodegenError> {
         for feature in features {
-            let future_feature = feature.name.as_str().try_into().map_err(|name| {
-                self.error_ranged(CodegenErrorType::InvalidFutureFeature(name), feature.range)
+            let flags = preprocess::future_alias_flags(feature.name.as_str()).map_err(|kind| {
+                self.error_ranged(future_feature_error_type(kind), feature.range)
             })?;
-
-            match future_feature {
-                FutureFeature::Braces => {
-                    return Err(
-                        self.error_ranged(CodegenErrorType::InvalidFutureBraces, feature.range)
-                    );
-                }
-                FutureFeature::Annotations => {
-                    self.future_annotations = true;
-                    self.future_features
-                        .insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
-                    self.current_code_info()
-                        .flags
-                        .insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
-                }
-                FutureFeature::BarryAsFLUFL => {
-                    self.future_features
-                        .insert(bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL);
-                    self.current_code_info()
-                        .flags
-                        .insert(bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL);
-                }
-                FutureFeature::AbsoluteImport
-                | FutureFeature::Division
-                | FutureFeature::GeneratorStop
-                | FutureFeature::Generators
-                | FutureFeature::NestedScopes
-                | FutureFeature::PrintFunction
-                | FutureFeature::UnicodeLiterals
-                | FutureFeature::WithStatement => {
-                    // Python 3 features. They are already implemented by default.
-                }
+            if flags.contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS) {
+                self.future_annotations = true;
+            }
+            if !flags.is_empty() {
+                self.future_features |= flags;
+                self.current_code_info().flags |= flags;
             }
         }
         Ok(())
