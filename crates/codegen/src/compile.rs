@@ -1715,14 +1715,14 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     /// Get the index of a global name.
-    fn get_global_name_index(&mut self, name: &str) -> u32 {
+    fn get_global_name_index(&mut self, name: &str) -> oparg::NameIdx {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
             .metadata
             .names
             .get_index_of(name)
             .unwrap_or_else(|| info.metadata.names.insert_full(name.to_owned()).0);
-        idx.to_u32()
+        oparg::NameIdx::from_u32(idx.to_u32())
     }
 
     /// Push the next symbol table on to the stack
@@ -2871,7 +2871,7 @@ impl<'warnings> Compiler<'warnings> {
     // could take impl Into<Cow<str>>, but everything is borrowed from ast structs; we never
     // actually have a `String` to pass
     fn name(&mut self, name: &str) -> bytecode::NameIdx {
-        self._name_inner(name, |i| &mut i.metadata.names)
+        oparg::NameIdx::from_u32(self._name_inner(name, |i| &mut i.metadata.names))
     }
 
     fn varname(&mut self, name: &str) -> oparg::VarNum {
@@ -3721,7 +3721,10 @@ impl<'warnings> Compiler<'warnings> {
                         value: num_traits::Zero::zero(),
                     });
                     self.emit_load_const(ConstantData::None);
-                    let namei = (self.name(&name.name) << 2) | self.import_policy(*is_lazy, false);
+                    let namei = oparg::ImportName::new(
+                        self.name(&name.name),
+                        self.import_policy(*is_lazy, false),
+                    );
                     emit!(self, Instruction::ImportName { namei });
                     if let Some(alias) = &name.asname {
                         let parts: Vec<&str> = name.name.split('.').skip(1).collect();
@@ -3767,8 +3770,10 @@ impl<'warnings> Compiler<'warnings> {
                 });
 
                 let module_name = module.as_ref().map_or("", |s| s.as_str());
-                let module_idx =
-                    (self.name(module_name) << 2) | self.import_policy(*is_lazy, import_star);
+                let module_idx = oparg::ImportName::new(
+                    self.name(module_name),
+                    self.import_policy(*is_lazy, import_star),
+                );
                 emit!(self, Instruction::ImportName { namei: module_idx });
 
                 if import_star {
@@ -6037,7 +6042,12 @@ impl<'warnings> Compiler<'warnings> {
                     }
                 };
 
-                emit!(self, PseudoInstruction::LoadClosure { i: idx.to_u32() });
+                emit!(
+                    self,
+                    PseudoInstruction::LoadClosure {
+                        i: oparg::VarNum::from_u32(idx.to_u32())
+                    }
+                );
             }
 
             // Build tuple of closure variables
@@ -6262,7 +6272,7 @@ impl<'warnings> Compiler<'warnings> {
 
         // Store __classdictcell__ if __classdict__ is a cell variable
         if self.current_symbol_table().needs_classdict {
-            let classdict_idx = u32::from(self.get_cell_var_index("__classdict__"));
+            let classdict_idx = self.get_cell_var_index("__classdict__");
             emit!(self, PseudoInstruction::LoadClosure { i: classdict_idx });
             self.set_no_location();
             self.store_name(&"__classdictcell__".into())?;
@@ -6273,7 +6283,7 @@ impl<'warnings> Compiler<'warnings> {
             emit!(
                 self,
                 PseudoInstruction::LoadClosure {
-                    i: classcell_idx.to_u32()
+                    i: oparg::VarNum::from_u32(classcell_idx.to_u32())
                 }
             );
             self.set_no_location();
@@ -11605,7 +11615,7 @@ impl<'warnings> Compiler<'warnings> {
                     }
                 );
                 for name in pushed_locals.iter().rev() {
-                    let var_num = self.varname(name).as_u32();
+                    let var_num = self.varname(name);
                     emit!(self, PseudoInstruction::StoreFastMaybeNull { var_num });
                 }
                 // Re-raise the exception
@@ -11629,7 +11639,7 @@ impl<'warnings> Compiler<'warnings> {
 
             // Restore saved locals (StoreFast restores the saved cell object for merged cells)
             for name in pushed_locals.iter().rev() {
-                let var_num = self.varname(name).as_u32();
+                let var_num = self.varname(name);
                 emit!(self, PseudoInstruction::StoreFastMaybeNull { var_num });
             }
             self.restore_source_span(saved_source_range_span);
@@ -12461,49 +12471,49 @@ impl<'warnings> Compiler<'warnings> {
 
     /// Emit LOAD_ATTR for attribute access (method=false).
     /// Encodes: (name_idx << 1) | 0
-    fn emit_load_attr(&mut self, name_idx: u32) {
+    fn emit_load_attr(&mut self, name_idx: oparg::NameIdx) {
         let encoded = LoadAttr::new(name_idx, false);
         self.emit_arg(encoded, |namei| Instruction::LoadAttr { namei })
     }
 
     /// Emit LOAD_ATTR with method flag set (for method calls).
     /// Encodes: (name_idx << 1) | 1
-    fn emit_load_attr_method(&mut self, name_idx: u32) {
+    fn emit_load_attr_method(&mut self, name_idx: oparg::NameIdx) {
         let encoded = LoadAttr::new(name_idx, true);
         self.emit_arg(encoded, |namei| Instruction::LoadAttr { namei })
     }
 
     /// Emit LOAD_GLOBAL.
     /// Encodes: (name_idx << 1) | push_null_bit
-    fn emit_load_global(&mut self, name_idx: u32, push_null: bool) {
-        let encoded = (name_idx << 1) | u32::from(push_null);
+    fn emit_load_global(&mut self, name_idx: oparg::NameIdx, push_null: bool) {
+        let encoded = oparg::LoadGlobal::new(name_idx, push_null);
         self.emit_arg(encoded, |namei| Instruction::LoadGlobal { namei });
     }
 
     /// Emit LOAD_SUPER_ATTR for 2-arg super().attr access.
     /// Encodes: (name_idx << 2) | 0b10 (method=0, class=1)
-    fn emit_load_super_attr(&mut self, name_idx: u32) {
+    fn emit_load_super_attr(&mut self, name_idx: oparg::NameIdx) {
         let encoded = LoadSuperAttr::new(name_idx, false, true);
         self.emit_arg(encoded, |namei| Instruction::LoadSuperAttr { namei })
     }
 
     /// Emit LOAD_SUPER_ATTR for 2-arg super().method() call.
     /// Encodes: (name_idx << 2) | 0b11 (method=1, class=1)
-    fn emit_load_super_method(&mut self, name_idx: u32) {
+    fn emit_load_super_method(&mut self, name_idx: oparg::NameIdx) {
         let encoded = LoadSuperAttr::new(name_idx, true, true);
         self.emit_arg(encoded, |namei| Instruction::LoadSuperAttr { namei })
     }
 
     /// Emit LOAD_SUPER_ATTR for 0-arg super().attr access.
     /// Encodes: (name_idx << 2) | 0b00 (method=0, class=0)
-    fn emit_load_zero_super_attr(&mut self, name_idx: u32) {
+    fn emit_load_zero_super_attr(&mut self, name_idx: oparg::NameIdx) {
         let encoded = LoadSuperAttr::new(name_idx, false, false);
         self.emit_arg(encoded, |namei| Instruction::LoadSuperAttr { namei })
     }
 
     /// Emit LOAD_SUPER_ATTR for 0-arg super().method() call.
     /// Encodes: (name_idx << 2) | 0b01 (method=1, class=0)
-    fn emit_load_zero_super_method(&mut self, name_idx: u32) {
+    fn emit_load_zero_super_method(&mut self, name_idx: oparg::NameIdx) {
         let encoded = LoadSuperAttr::new(name_idx, true, false);
         self.emit_arg(encoded, |namei| Instruction::LoadSuperAttr { namei })
     }
@@ -15573,7 +15583,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "fail"
+                    f.names[load_attr.name_idx()].as_str() == "fail"
                 }
                 _ => false,
             })
@@ -15965,8 +15975,7 @@ def f(self, os, tempfile, oldmode):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "assertEqual"
+                    f.names[load_attr.name_idx()].as_str() == "assertEqual"
                 }
                 _ => false,
             })
@@ -16175,7 +16184,7 @@ def f(self):
                 ) && matches!(
                     window[1].op,
                     Instruction::LoadAttr { namei }
-                        if f.names[usize::try_from(namei.get(attr_arg).name_idx()).unwrap()]
+                        if f.names[namei.get(attr_arg).name_idx()]
                             == "assertFalse"
                 ) && matches!(
                     window[2].op,
@@ -16233,7 +16242,7 @@ def f(self):
                 ) && matches!(
                     window[1].op,
                     Instruction::LoadAttr { namei }
-                        if f.names[usize::try_from(namei.get(attr_arg).name_idx()).unwrap()]
+                        if f.names[namei.get(attr_arg).name_idx()]
                             == "assertFalse"
                 ) && matches!(
                     window[2].op,
@@ -16373,7 +16382,7 @@ def f(self):
                 ) && matches!(
                     window[1].op,
                     Instruction::LoadAttr { namei }
-                        if f.names[usize::try_from(namei.get(attr_arg).name_idx()).unwrap()]
+                        if f.names[namei.get(attr_arg).name_idx()]
                             == "close"
                 ) && matches!(window[2].op, Instruction::Call { .. })
                     && matches!(window[3].op, Instruction::PopTop)
@@ -16499,7 +16508,7 @@ def f(self, cm):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "close"
+                    f.names[load_attr.name_idx()].as_str() == "close"
                 }
                 _ => false,
             })
@@ -16538,7 +16547,7 @@ def f(self, g):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "close"
+                    f.names[load_attr.name_idx()].as_str() == "close"
                 }
                 _ => false,
             })
@@ -16625,7 +16634,7 @@ def f(self, x):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "use"
+                    f.names[load_attr.name_idx()].as_str() == "use"
                 }
                 _ => false,
             })
@@ -16786,7 +16795,7 @@ def f(self, block=True):
                 .position(|unit| match unit.op {
                     Instruction::LoadAttr { namei } => {
                         let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                        f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == name
+                        f.names[load_attr.name_idx()].as_str() == name
                     }
                     _ => false,
                 })
@@ -20255,8 +20264,7 @@ def f(template):
                 continue;
             };
             let load_attr = namei.get(OpArg::new(u32::from(u8::from(attr.arg))));
-            if f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() != "interpolations"
-            {
+            if f.names[load_attr.name_idx()].as_str() != "interpolations" {
                 continue;
             }
             saw_interpolations = true;
@@ -20288,7 +20296,7 @@ class C:
         assert!(code.instructions.iter().any(|unit| match unit.op {
             Instruction::StoreGlobal { namei } => {
                 let idx = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                code.names[usize::try_from(idx).unwrap()].as_str() == "_address_fmt_re"
+                code.names[idx].as_str() == "_address_fmt_re"
             }
             _ => false,
         }));
@@ -20298,8 +20306,7 @@ class C:
         code.instructions.iter().find_map(|unit| match unit.op {
             Instruction::StoreName { namei } | Instruction::StoreGlobal { namei } => {
                 let idx = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                (code.names[usize::try_from(idx).unwrap()].as_str() == "__doc__")
-                    .then_some(&unit.op)
+                (code.names[idx].as_str() == "__doc__").then_some(&unit.op)
             }
             _ => None,
         })
@@ -21940,8 +21947,10 @@ def f(one: int):
         let loads_global = |name: &str| {
             f.instructions.iter().any(|unit| match unit.op {
                 Instruction::LoadGlobal { namei } => {
-                    let namei = namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) >> 1;
-                    f.names[usize::try_from(namei).unwrap()].as_str() == name
+                    let namei = namei
+                        .get(OpArg::new(u32::from(u8::from(unit.arg))))
+                        .name_idx();
+                    f.names[namei].as_str() == name
                 }
                 _ => false,
             })
@@ -22063,8 +22072,10 @@ def f():
             .collect();
         let load_global_name = |unit: &&bytecode::CodeUnit| match unit.op {
             Instruction::LoadGlobal { namei } => {
-                let name = namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) >> 1;
-                Some(f.names[usize::try_from(name).unwrap()].as_str())
+                let name = namei
+                    .get(OpArg::new(u32::from(u8::from(unit.arg))))
+                    .name_idx();
+                Some(f.names[name].as_str())
             }
             _ => None,
         };
@@ -22627,8 +22638,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "assertRaises"
+                    f.names[load_attr.name_idx()].as_str() == "assertRaises"
                 }
                 _ => false,
             })
@@ -22648,7 +22658,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "KEY"
+                    f.names[load_attr.name_idx()].as_str() == "KEY"
                 }
                 _ => false,
             })
@@ -22686,7 +22696,7 @@ def f(self, groupby):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "b"
+                    f.names[load_attr.name_idx()].as_str() == "b"
                 }
                 _ => false,
             })
@@ -22732,7 +22742,7 @@ def f(self, typ, dat):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "debug"
+                    f.names[load_attr.name_idx()].as_str() == "debug"
                 }
                 _ => false,
             })
@@ -22748,7 +22758,7 @@ def f(self, typ, dat):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "_mesg"
+                    f.names[load_attr.name_idx()].as_str() == "_mesg"
                 }
                 _ => false,
             })
@@ -22785,7 +22795,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "debug"
+                    f.names[load_attr.name_idx()].as_str() == "debug"
                 }
                 _ => false,
             })
@@ -23241,8 +23251,10 @@ def f(module, fromlist, import_, recursive=False):
         let is_load_global =
             |unit: &&rustpython_compiler_core::bytecode::CodeUnit, name: &str| match unit.op {
                 Instruction::LoadGlobal { namei } => {
-                    let namei = namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) >> 1;
-                    f.names[usize::try_from(namei).unwrap()].as_str() == name
+                    let namei = namei
+                        .get(OpArg::new(u32::from(u8::from(unit.arg))))
+                        .name_idx();
+                    f.names[namei].as_str() == name
                 }
                 _ => false,
             };
@@ -24048,7 +24060,7 @@ def f(tar1, x):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "close"
+                    f.names[load_attr.name_idx()].as_str() == "close"
                 }
                 _ => false,
             })
@@ -24086,7 +24098,7 @@ def f(tar1, x):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "close"
+                    f.names[load_attr.name_idx()].as_str() == "close"
                 }
                 _ => false,
             })
@@ -25068,7 +25080,7 @@ def f(value):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "defects"
+                    f.names[load_attr.name_idx()].as_str() == "defects"
                 }
                 _ => false,
             })
@@ -25086,7 +25098,7 @@ def f(value):
             .rposition(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "format"
+                    f.names[load_attr.name_idx()].as_str() == "format"
                 }
                 _ => false,
             })
@@ -25961,7 +25973,7 @@ def f(self, action):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "_dedent"
+                    f.names[load_attr.name_idx()].as_str() == "_dedent"
                 }
                 _ => false,
             })
@@ -26055,7 +26067,7 @@ async def f(g, self, x):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "aclose"
+                    f.names[load_attr.name_idx()].as_str() == "aclose"
                 }
                 _ => false,
             })
@@ -26450,7 +26462,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if class_code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__classdictcell__"
                 )
@@ -26495,7 +26507,7 @@ class C:
             matches!(
                 unit.op,
                 Instruction::StoreName { namei }
-                    if namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize
+                    if namei.get(OpArg::new(u32::from(u8::from(unit.arg)))).as_usize()
                         == class_name_index
             )
         }));
@@ -26540,7 +26552,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if class_code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__static_attributes__"
                 )
@@ -26573,7 +26585,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if class_code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__classdictcell__"
                 )
@@ -26687,7 +26699,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if class_code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__firstlineno__"
                 )
@@ -26757,7 +26769,7 @@ def f():
                     unit.op,
                     Instruction::StoreName { namei }
                         if class_code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__firstlineno__"
                 )
@@ -26909,7 +26921,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__doc__"
                 )
@@ -26935,7 +26947,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if class_code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__doc__"
                 )
@@ -26974,7 +26986,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__doc__"
                 )
@@ -26998,7 +27010,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if class_code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__doc__"
                 )
@@ -28017,8 +28029,7 @@ def f(self, x):
                     return None;
                 };
                 let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                (f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "fail")
-                    .then_some(idx)
+                (f.names[load_attr.name_idx()].as_str() == "fail").then_some(idx)
             })
             .collect::<Vec<_>>();
         assert!(
@@ -28669,7 +28680,7 @@ def f(self, typ, dat):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "debug"
+                    f.names[load_attr.name_idx()].as_str() == "debug"
                 }
                 _ => false,
             })
@@ -28679,7 +28690,7 @@ def f(self, typ, dat):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "_mesg"
+                    f.names[load_attr.name_idx()].as_str() == "_mesg"
                 }
                 _ => false,
             })
@@ -28726,7 +28737,7 @@ def f(self, literal):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "send"
+                    f.names[load_attr.name_idx()].as_str() == "send"
                 }
                 _ => false,
             })
@@ -28737,7 +28748,7 @@ def f(self, literal):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "send"
+                    f.names[load_attr.name_idx()].as_str() == "send"
                 }
                 _ => false,
             })
@@ -28788,8 +28799,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "do_disassembly_test"
+                    f.names[load_attr.name_idx()].as_str() == "do_disassembly_test"
                 }
                 _ => false,
             })
@@ -30289,9 +30299,7 @@ def f(x):
             .filter(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    load_attr.is_method()
-                        && f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                            == "join"
+                    load_attr.is_method() && f.names[load_attr.name_idx()].as_str() == "join"
                 }
                 _ => false,
             })
@@ -31093,7 +31101,7 @@ class C:
             .filter_map(|unit| match unit.op {
                 Instruction::LoadName { namei } => {
                     let idx = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    Some(class_code.names[usize::try_from(idx).unwrap()].as_str())
+                    Some(class_code.names[idx].as_str())
                 }
                 _ => None,
             })
@@ -33018,7 +33026,7 @@ def f(seq, value):
         assert!(f.instructions.iter().any(|unit| match unit.op {
             Instruction::StoreGlobal { namei } => {
                 let idx = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                f.names[usize::try_from(idx).unwrap()] == "G"
+                f.names[idx] == "G"
             }
             _ => false,
         }));
@@ -36130,7 +36138,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "waiter"
+                    f.names[load_attr.name_idx()].as_str() == "waiter"
                 }
                 _ => false,
             })
@@ -36193,8 +36201,7 @@ def f(self, fut=None):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "add_done_callback"
+                    f.names[load_attr.name_idx()].as_str() == "add_done_callback"
                 }
                 _ => false,
             })
@@ -36256,7 +36263,7 @@ def f(self, fut=None):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "recv"
+                    f.names[load_attr.name_idx()].as_str() == "recv"
                 }
                 _ => false,
             })
@@ -36266,8 +36273,7 @@ def f(self, fut=None):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "add_done_callback"
+                    f.names[load_attr.name_idx()].as_str() == "add_done_callback"
                 }
                 _ => false,
             })
@@ -36327,7 +36333,7 @@ def f(self, cm, p, platform):
                 .position(|unit| match unit.op {
                     Instruction::LoadAttr { namei } => {
                         let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                        f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == name
+                        f.names[load_attr.name_idx()].as_str() == name
                     }
                     _ => false,
                 })
@@ -37249,7 +37255,7 @@ async def wait_for(fut, timeout):
                 matches!(window[0].op, Instruction::LoadFastBorrow { .. })
                     && loaded_names(window[0]).iter().any(|name| name == "fut")
                     && matches!(window[1].op, Instruction::LoadAttr { namei }
-                        if f.names[usize::try_from(namei.get(OpArg::new(u32::from(u8::from(window[1].arg)))).name_idx()).unwrap()] == "result")
+                        if f.names[namei.get(OpArg::new(u32::from(u8::from(window[1].arg)))).name_idx()] == "result")
                     && matches!(window[2].op, Instruction::Call { .. })
                     && matches!(window[3].op, Instruction::ReturnValue)
             }),
@@ -37591,7 +37597,7 @@ def f(x):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "rpartition"
+                    f.names[load_attr.name_idx()].as_str() == "rpartition"
                 }
                 _ => false,
             })
@@ -37633,7 +37639,7 @@ def f(x):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "rpartition"
+                    f.names[load_attr.name_idx()].as_str() == "rpartition"
                 }
                 _ => false,
             })
@@ -37672,7 +37678,7 @@ def f():
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "argv"
+                    f.names[load_attr.name_idx()].as_str() == "argv"
                 }
                 _ => false,
             })
@@ -37950,7 +37956,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::StoreAttr { namei } => {
                     let namei = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(namei).unwrap()].as_str() == "PROTOCOL_VERSION"
+                    f.names[namei].as_str() == "PROTOCOL_VERSION"
                 }
                 _ => false,
             })
@@ -39100,7 +39106,7 @@ def f(p, errors, s, pos, look, final, escape_start, st):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "append"
+                    f.names[load_attr.name_idx()].as_str() == "append"
                 }
                 _ => false,
             })
@@ -39247,7 +39253,7 @@ def f(args):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "_setoption"
+                    f.names[load_attr.name_idx()].as_str() == "_setoption"
                 }
                 _ => false,
             })
@@ -39351,8 +39357,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "get_disassemble_as_string"
+                    f.names[load_attr.name_idx()].as_str() == "get_disassemble_as_string"
                 }
                 _ => false,
             })
@@ -39447,7 +39452,7 @@ def f(self, cm, E):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "x"
+                    f.names[load_attr.name_idx()].as_str() == "x"
                 }
                 _ => false,
             })
@@ -39836,7 +39841,7 @@ def f(self, fd, file, closefd, owned_fd, OSError, AttributeError, errno, os, sta
             Instruction::LoadAttr { namei } => {
                 let arg = OpArg::new(u32::from(u8::from(unit.arg)));
                 let load_attr = namei.get(arg);
-                f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == expected
+                f.names[load_attr.name_idx()].as_str() == expected
             }
             _ => false,
         };
@@ -39849,7 +39854,7 @@ def f(self, fd, file, closefd, owned_fd, OSError, AttributeError, errno, os, sta
             .position(|unit| match unit.op {
                 Instruction::StoreAttr { namei } => {
                     let arg = OpArg::new(u32::from(u8::from(unit.arg)));
-                    f.names[usize::try_from(namei.get(arg)).unwrap()].as_str() == "_fd"
+                    f.names[namei.get(arg)].as_str() == "_fd"
                 }
                 _ => false,
             })
@@ -40021,8 +40026,7 @@ def f(self, fobj, unlink, TESTFN, C):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "assertEqual"
+                    f.names[load_attr.name_idx()].as_str() == "assertEqual"
                 }
                 _ => false,
             })
@@ -40091,7 +40095,7 @@ def f(self, os, alive_r, alive_w, address, pid):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "close"
+                    f.names[load_attr.name_idx()].as_str() == "close"
                 }
                 _ => false,
             })
@@ -40145,7 +40149,7 @@ def f(resource, desired_fds, max_fds):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "getrlimit"
+                    f.names[load_attr.name_idx()].as_str() == "getrlimit"
                 }
                 _ => false,
             })
@@ -40375,7 +40379,7 @@ def f(self, cm):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "y"
+                    f.names[load_attr.name_idx()].as_str() == "y"
                 }
                 _ => false,
             })
@@ -40415,7 +40419,7 @@ def f(self, factory):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "join"
+                    f.names[load_attr.name_idx()].as_str() == "join"
                 }
                 _ => false,
             })
@@ -40457,7 +40461,7 @@ def f(self, cm, E):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "shutdown"
+                    f.names[load_attr.name_idx()].as_str() == "shutdown"
                 }
                 _ => false,
             })
@@ -40501,8 +40505,7 @@ def f(self, cm, E, obj):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "saved_details"
+                    f.names[load_attr.name_idx()].as_str() == "saved_details"
                 }
                 _ => false,
             })
@@ -40551,8 +40554,7 @@ def f(self, cm):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "_exit_callbacks"
+                    f.names[load_attr.name_idx()].as_str() == "_exit_callbacks"
                 }
                 _ => false,
             })
@@ -40598,8 +40600,7 @@ def f(self, arc, tmp_filename, new_mode):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "check_context"
+                    f.names[load_attr.name_idx()].as_str() == "check_context"
                 }
                 _ => false,
             })
@@ -40657,7 +40658,7 @@ def f(self, fd, appending, errno):
             .position(|unit| match unit.op {
                 Instruction::StoreAttr { namei } => {
                     let arg = OpArg::new(u32::from(u8::from(unit.arg)));
-                    f.names[usize::try_from(namei.get(arg)).unwrap()].as_str() == "_fd"
+                    f.names[namei.get(arg)].as_str() == "_fd"
                 }
                 _ => false,
             })
@@ -40697,7 +40698,7 @@ def f(self, cm):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "x"
+                    f.names[load_attr.name_idx()].as_str() == "x"
                 }
                 _ => false,
             })
@@ -40752,7 +40753,7 @@ def f(re, proc, unittest):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "search"
+                    f.names[load_attr.name_idx()].as_str() == "search"
                 }
                 _ => false,
             })
@@ -41025,7 +41026,7 @@ def f(charset, failobj, E):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "lower"
+                    f.names[load_attr.name_idx()].as_str() == "lower"
                 }
                 _ => false,
             })
@@ -41121,8 +41122,7 @@ def f(self, OSError):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let arg = OpArg::new(u32::from(u8::from(unit.arg)));
-                    f.names[usize::try_from(namei.get(arg).name_idx()).unwrap()].as_str()
-                        == "verify_request"
+                    f.names[namei.get(arg).name_idx()].as_str() == "verify_request"
                 }
                 _ => false,
             })
@@ -41481,7 +41481,7 @@ def f(self, E, Event):
             .position(|unit| match unit.op {
                 Instruction::StoreAttr { namei } => {
                     let arg = OpArg::new(u32::from(u8::from(unit.arg)));
-                    f.names[usize::try_from(namei.get(arg)).unwrap()].as_str() == "keymap"
+                    f.names[namei.get(arg)].as_str() == "keymap"
                 }
                 _ => false,
             })
@@ -41491,7 +41491,7 @@ def f(self, E, Event):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "insert"
+                    f.names[load_attr.name_idx()].as_str() == "insert"
                 }
                 _ => false,
             })
@@ -41607,7 +41607,7 @@ def f(items, chunk, out, packI, Error):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "append"
+                    f.names[load_attr.name_idx()].as_str() == "append"
                 }
                 _ => false,
             })
@@ -41721,7 +41721,7 @@ def f(items, decoded, b32rev):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "to_bytes"
+                    f.names[load_attr.name_idx()].as_str() == "to_bytes"
                 }
                 _ => false,
             })
@@ -42565,7 +42565,7 @@ def f(formatstr, args, output, overflowok):
             .position(|unit| match unit.op {
                 Instruction::LoadGlobal { namei } => {
                     let load_global = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_global >> 1).unwrap()].as_str() == "AssertionError"
+                    f.names[load_global.name_idx()].as_str() == "AssertionError"
                 }
                 _ => false,
             })
@@ -42710,8 +42710,7 @@ def f(self, data, length):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "data_received"
+                    f.names[load_attr.name_idx()].as_str() == "data_received"
                 }
                 _ => false,
             })
@@ -42839,7 +42838,7 @@ async def f(self, cm):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "fail"
+                    f.names[load_attr.name_idx()].as_str() == "fail"
                 }
                 _ => false,
             })
@@ -42880,7 +42879,7 @@ def f(self, cm):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "x"
+                    f.names[load_attr.name_idx()].as_str() == "x"
                 }
                 _ => false,
             })
@@ -43004,8 +43003,7 @@ def f(self, obj, expected, buf):
                 .rposition(|unit| match unit.op {
                     Instruction::LoadAttr { namei } => {
                         let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                        f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                            == attr_name
+                        f.names[load_attr.name_idx()].as_str() == attr_name
                     }
                     _ => false,
                 })
@@ -43097,8 +43095,8 @@ def f(self, cls, fns):
         let load_global_name = |unit: &&CodeUnit, name: &str| match unit.op {
             Instruction::LoadGlobal { namei } => {
                 let arg = OpArg::new(u32::from(u8::from(unit.arg)));
-                let load_global = namei.get(arg) >> 1;
-                f.names[usize::try_from(load_global).unwrap()].as_str() == name
+                let load_global = namei.get(arg).name_idx();
+                f.names[load_global].as_str() == name
             }
             _ => false,
         };
@@ -43230,7 +43228,7 @@ def f(s, size, errors, final):
             match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    let name = f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str();
+                    let name = f.names[load_attr.name_idx()].as_str();
                     if name == "warn" {
                         after_warn_attr = true;
                     }
@@ -43294,7 +43292,7 @@ def f(self, exc_type, CRLF, OSError):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "_mesg"
+                    f.names[load_attr.name_idx()].as_str() == "_mesg"
                 }
                 _ => false,
             })
@@ -43380,7 +43378,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "assertIs"
+                    f.names[load_attr.name_idx()].as_str() == "assertIs"
                 }
                 _ => false,
             })
@@ -43418,8 +43416,10 @@ def f(w):
             .iter()
             .position(|unit| match unit.op {
                 Instruction::LoadGlobal { namei } => {
-                    let name = namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) >> 1;
-                    f.names[usize::try_from(name).unwrap()].as_str() == "locals"
+                    let name = namei
+                        .get(OpArg::new(u32::from(u8::from(unit.arg))))
+                        .name_idx();
+                    f.names[name].as_str() == "locals"
                 }
                 _ => false,
             })
