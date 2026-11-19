@@ -3,6 +3,9 @@ use std::io;
 #[cfg(unix)]
 use std::os::fd::BorrowedFd;
 
+#[cfg(not(target_os = "wasi"))]
+use rustix::fs::{self, FlockOperation};
+
 use crate::os::CheckLibcResult;
 
 pub use libc::{F_GETFD, F_GETFL, F_SETFD, F_SETFL, FD_CLOEXEC};
@@ -127,9 +130,19 @@ pub fn ioctl_int(fd: i32, request: libc::c_ulong, arg: i32) -> io::Result<i32> {
     unsafe { libc::ioctl(fd, request as _, arg) }.check_libc_neg()
 }
 
-#[cfg(not(any(target_os = "wasi", target_os = "redox")))]
-pub fn flock(fd: i32, operation: i32) -> io::Result<i32> {
-    unsafe { libc::flock(fd, operation) }.check_libc_neg()
+#[cfg(not(target_os = "wasi"))]
+pub fn flock(fd: &BorrowedFd<'_>, operation: i32) -> io::Result<()> {
+    let operation = match operation {
+        libc::LOCK_SH => FlockOperation::LockShared,
+        libc::LOCK_EX => FlockOperation::LockExclusive,
+        libc::LOCK_UN => FlockOperation::Unlock,
+        f if f == (libc::LOCK_SH | libc::LOCK_NB) => FlockOperation::NonBlockingLockShared,
+        f if f == (libc::LOCK_EX | libc::LOCK_NB) => FlockOperation::NonBlockingLockExclusive,
+        f if f == (libc::LOCK_UN | libc::LOCK_NB) => FlockOperation::NonBlockingUnlock,
+        _ => return Err(std::io::Error::from_raw_os_error(libc::EINVAL)),
+    };
+
+    fs::flock(fd, operation).map_err(Into::into)
 }
 
 #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
