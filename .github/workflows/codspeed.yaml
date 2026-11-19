@@ -85,7 +85,7 @@ jobs:
 
       - name: Install cargo-codspeed
         if: ${{ steps.environment.outputs.match != 'false' }}
-        run: cargo install cargo-codspeed --locked --version ^5
+        run: cargo install cargo-codspeed --locked --version ^6
 
       - name: Build the benchmark targets
         if: ${{ steps.environment.outputs.match != 'false' }}
