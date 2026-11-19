@@ -742,7 +742,7 @@ fn verify_stateless(
 /// The `co_names` entries `identify_unbound_names` reaches through `LOAD_GLOBAL`.
 pub(crate) fn global_names(code: &Py<PyCode>) -> impl Iterator<Item = &'static PyStrInterned> + '_ {
     walk_instructions(code).filter_map(|(_, instr, arg)| match instr {
-        Instruction::LoadGlobal { namei } => Some(code.names[(namei.get(arg) >> 1) as usize]),
+        Instruction::LoadGlobal { namei } => Some(code.names[namei.get(arg).name_idx()]),
         _ => None,
     })
 }

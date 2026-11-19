@@ -2186,10 +2186,12 @@ impl Blocks {
                 }
                 AnyInstruction::Real(Instruction::LoadGlobal { .. })
                     if matches!(nextop, Some(Instruction::PushNull))
-                        && (u32::from(inst.arg) & 1) == 0 =>
+                        && !oparg::LoadGlobal::from_u32(u32::from(inst.arg)).push_null() =>
                 {
+                    let name_idx = oparg::LoadGlobal::from_u32(u32::from(inst.arg)).name_idx();
+                    let load_global = oparg::LoadGlobal::new(name_idx, true);
                     self[block_idx].instructions[i]
-                        .instr_set_op1(inst.instr, OpArg::new(u32::from(inst.arg) | 1));
+                        .instr_set_op1(inst.instr, OpArg::new(load_global.as_u32()));
                     self[block_idx].instructions[i + 1].set_to_nop();
                 }
                 AnyInstruction::Real(Instruction::CompareOp { .. })
@@ -5980,8 +5982,8 @@ impl InstrDisplayContext for CodeInfo {
         &self.metadata.consts[consti.as_usize()]
     }
 
-    fn get_name(&self, i: usize) -> &str {
-        self.metadata.names[i].as_ref()
+    fn get_name(&self, namei: oparg::NameIdx) -> &str {
+        self.metadata.names[namei.as_usize()].as_ref()
     }
 
     fn get_varname(&self, var_num: oparg::VarNum) -> &str {

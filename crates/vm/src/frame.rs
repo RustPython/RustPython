@@ -19,7 +19,8 @@ use crate::{
         tuple::{PyTuple, PyTupleIterator, PyTupleRef},
     },
     bytecode::{
-        self, ADAPTIVE_COOLDOWN_VALUE, Instruction, LoadAttr, LoadSuperAttr, Opcode, SpecialMethod,
+        self, ADAPTIVE_COOLDOWN_VALUE, Instruction, LoadAttr, LoadGlobal, LoadSuperAttr, Opcode,
+        SpecialMethod,
         oparg::{ResumeContext, ResumeLocation},
     },
     convert::{ToPyObject, ToPyResult},
@@ -4800,7 +4801,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::DeleteGlobal { namei: idx } => {
-                let name = self.code.names[idx.get(arg) as usize];
+                let name = self.code.names[idx.get(arg)];
                 match self.globals.del_item(name, vm) {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
@@ -4811,7 +4812,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::DeleteName { namei: idx } => {
-                let name = self.code.names[idx.get(arg) as usize];
+                let name = self.code.names[idx.get(arg)];
                 self.locals
                     .mapping(vm)
                     .ass_subscript(name, None, vm)
@@ -5110,8 +5111,8 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::ImportName { namei: idx } => {
-                let packed = idx.get(arg);
-                self.import(vm, self.code.names[(packed >> 2) as usize], packed & 3)?;
+                let namei = idx.get(arg);
+                self.import(vm, self.code.names[namei.name_idx()], namei.flags())?;
                 Ok(None)
             }
             Instruction::IsOp { invert } => {
@@ -5243,7 +5244,7 @@ impl ExecutingFrame<'_> {
             Instruction::LoadFromDictOrGlobals { i: idx } => {
                 // PEP 649: Pop dict from stack (classdict), check there first, then globals
                 let dict = self.pop_value();
-                let name = self.code.names[idx.get(arg) as usize];
+                let name = self.code.names[idx.get(arg)];
                 let value = self.mapping_get_optional(&dict, name, vm)?;
 
                 self.push_value(match value {
@@ -5379,16 +5380,16 @@ impl ExecutingFrame<'_> {
             Instruction::LoadGlobal { namei: idx } => {
                 let oparg = idx.get(arg);
                 self.adaptive(|s, ii, cb| s.specialize_load_global(vm, oparg, ii, cb));
-                let name = &self.code.names[(oparg >> 1) as usize];
+                let name = &self.code.names[oparg.name_idx()];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
-                if (oparg & 1) != 0 {
+                if oparg.push_null() {
                     self.push_value_opt(None);
                 }
                 Ok(None)
             }
             Instruction::LoadName { namei: idx } => {
-                let name = self.code.names[idx.get(arg) as usize];
+                let name = self.code.names[idx.get(arg)];
                 let result = self.locals.mapping(vm).subscript(name, vm);
                 let value = match result {
                     Ok(x) => {
@@ -5969,11 +5970,11 @@ impl ExecutingFrame<'_> {
             Instruction::StoreGlobal { namei: idx } => {
                 let value = self.pop_value();
                 self.globals
-                    .set_item(self.code.names[idx.get(arg) as usize], value, vm)?;
+                    .set_item(self.code.names[idx.get(arg)], value, vm)?;
                 Ok(None)
             }
             Instruction::StoreName { namei: idx } => {
-                let name = self.code.names[idx.get(arg) as usize];
+                let name = self.code.names[idx.get(arg)];
                 let value = self.pop_value();
                 self.locals
                     .mapping(vm)
@@ -6298,7 +6299,7 @@ impl ExecutingFrame<'_> {
             Instruction::LoadAttrMethodWithValues => {
                 let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
-                let attr_name = self.code.names[oparg.name_idx() as usize];
+                let attr_name = self.code.names[oparg.name_idx()];
 
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -6327,7 +6328,7 @@ impl ExecutingFrame<'_> {
             Instruction::LoadAttrInstanceValue => {
                 let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
-                let attr_name = self.code.names[oparg.name_idx() as usize];
+                let attr_name = self.code.names[oparg.name_idx()];
 
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -6350,7 +6351,7 @@ impl ExecutingFrame<'_> {
             Instruction::LoadAttrWithHint => {
                 let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
-                let attr_name = self.code.names[oparg.name_idx() as usize];
+                let attr_name = self.code.names[oparg.name_idx()];
 
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -6388,7 +6389,7 @@ impl ExecutingFrame<'_> {
             Instruction::LoadAttrModule => {
                 let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
-                let attr_name = self.code.names[oparg.name_idx() as usize];
+                let attr_name = self.code.names[oparg.name_idx()];
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_ptr(cache_base + 6);
                 let keys_version = self.code.instructions.read_cache_ptr(cache_base + 7);
@@ -6442,7 +6443,7 @@ impl ExecutingFrame<'_> {
             Instruction::LoadAttrNondescriptorWithValues => {
                 let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
-                let attr_name = self.code.names[oparg.name_idx() as usize];
+                let attr_name = self.code.names[oparg.name_idx()];
 
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -6545,7 +6546,7 @@ impl ExecutingFrame<'_> {
                 {
                     debug_assert!(func.has_exact_argcount(2));
                     let owner = self.pop_value();
-                    let attr_name = self.code.names[oparg.name_idx() as usize].to_owned().into();
+                    let attr_name = self.code.names[oparg.name_idx()].to_owned().into();
                     let result =
                         func.invoke_exact_args_slots(&mut [Some(owner), Some(attr_name)], vm)?;
                     self.push_value(result);
@@ -6602,10 +6603,10 @@ impl ExecutingFrame<'_> {
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::StoreAttrInstanceValue => {
-                let attr_idx = u32::from(arg);
+                let attr_idx = bytecode::NameIdx::from_u32(u32::from(arg));
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let attr_name = self.code.names[attr_idx as usize];
+                let attr_name = self.code.names[attr_idx];
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
@@ -6624,10 +6625,10 @@ impl ExecutingFrame<'_> {
                 self.store_attr(vm, attr_idx)
             }
             Instruction::StoreAttrWithHint => {
-                let attr_idx = u32::from(arg);
+                let attr_idx = bytecode::NameIdx::from_u32(u32::from(arg));
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let attr_name = self.code.names[attr_idx as usize];
+                let attr_name = self.code.names[attr_idx];
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
@@ -6659,7 +6660,7 @@ impl ExecutingFrame<'_> {
                     owner.set_slot(slot_offset, Some(value));
                     return Ok(None);
                 }
-                let attr_idx = u32::from(arg);
+                let attr_idx = bytecode::NameIdx::from_u32(u32::from(arg));
                 self.store_attr(vm, attr_idx)
             }
             Instruction::StoreSubscrListInt => {
@@ -7561,7 +7562,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadSuperAttrAttr => {
                 let oparg = u32::from(arg);
-                let attr_name = self.code.names[(oparg >> 2) as usize];
+                let attr_name = self.code.names[LoadSuperAttr::from_u32(oparg).name_idx()];
                 // Stack: [global_super, class, self]
                 let self_obj = self.top_value();
                 let class_obj = self.nth_value(1);
@@ -7615,7 +7616,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadSuperAttrMethod => {
                 let oparg = u32::from(arg);
-                let attr_name = self.code.names[(oparg >> 2) as usize];
+                let attr_name = self.code.names[LoadSuperAttr::from_u32(oparg).name_idx()];
                 // Stack: [global_super, class, self]
                 let self_obj = self.top_value();
                 let class_obj = self.nth_value(1);
@@ -8033,7 +8034,7 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::LoadGlobalModule => {
-                let oparg = u32::from(arg);
+                let oparg = LoadGlobal::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
                 // Keep specialized opcode on guard miss (JUMP_TO_PREDICTED behavior).
                 let cached_version = self.code.instructions.read_cache_u16(cache_base + 1);
@@ -8043,24 +8044,24 @@ impl ExecutingFrame<'_> {
                     && let Some(x) =
                         globals.get_item_by_index_and_keys_version(cached_version, cached_index)
                 {
-                    let name = self.code.names[(oparg >> 1) as usize];
+                    let name = self.code.names[oparg.name_idx()];
                     let x = crate::lazy_import::reify_value(x, name, self.globals.as_object(), vm)?;
                     self.push_value(x);
-                    if (oparg & 1) != 0 {
+                    if oparg.push_null() {
                         self.push_value_opt(None);
                     }
                     return Ok(None);
                 }
-                let name = self.code.names[(oparg >> 1) as usize];
+                let name = self.code.names[oparg.name_idx()];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
-                if (oparg & 1) != 0 {
+                if oparg.push_null() {
                     self.push_value_opt(None);
                 }
                 Ok(None)
             }
             Instruction::LoadGlobalBuiltin => {
-                let oparg = u32::from(arg);
+                let oparg = LoadGlobal::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
                 let cached_globals_ver = self.code.instructions.read_cache_u16(cache_base + 1);
                 let cached_builtins_ver = self.code.instructions.read_cache_u16(cache_base + 2);
@@ -8074,18 +8075,18 @@ impl ExecutingFrame<'_> {
                     && let Some(x) = builtins_dict
                         .get_item_by_index_and_keys_version(cached_builtins_ver, cached_index)
                 {
-                    let name = self.code.names[(oparg >> 1) as usize];
+                    let name = self.code.names[oparg.name_idx()];
                     let x = crate::lazy_import::reify_value(x, name, self.builtins, vm)?;
                     self.push_value(x);
-                    if (oparg & 1) != 0 {
+                    if oparg.push_null() {
                         self.push_value_opt(None);
                     }
                     return Ok(None);
                 }
-                let name = self.code.names[(oparg >> 1) as usize];
+                let name = self.code.names[oparg.name_idx()];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
-                if (oparg & 1) != 0 {
+                if oparg.push_null() {
                     self.push_value_opt(None);
                 }
                 Ok(None)
@@ -8677,7 +8678,7 @@ impl ExecutingFrame<'_> {
     #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
     fn import_from(&mut self, vm: &VirtualMachine, idx: bytecode::NameIdx) -> PyResult {
         let module = self.top_value();
-        let name = self.code.names[idx as usize];
+        let name = self.code.names[idx];
 
         if let Some(deferred) = module.downcast_ref_if_exact::<crate::lazy_import::PyLazyImport>(vm)
         {
@@ -10302,7 +10303,7 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        let attr_name = self.code.names[oparg.name_idx() as usize];
+        let attr_name = self.code.names[oparg.name_idx()];
 
         // Match CPython: only specialize module attribute loads when the
         // current module dict has no __getattr__ override and the attribute is
@@ -10556,7 +10557,7 @@ impl ExecutingFrame<'_> {
     ) {
         let obj = self.top_value();
         let owner_type = obj.downcast_ref::<PyType>().unwrap();
-        let attr_name = self.code.names[oparg.name_idx() as usize];
+        let attr_name = self.code.names[oparg.name_idx()];
 
         // Check metaclass: ensure no data descriptor on metaclass for this name
         let mcl = obj.class();
@@ -10644,7 +10645,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn load_attr_slow(&mut self, vm: &VirtualMachine, oparg: LoadAttr) -> FrameResult {
-        let attr_name = self.code.names[oparg.name_idx() as usize];
+        let attr_name = self.code.names[oparg.name_idx()];
 
         if !oparg.is_method() {
             // Regular attribute access: `get_attr` reads through the receiver,
@@ -12024,7 +12025,7 @@ impl ExecutingFrame<'_> {
     fn specialize_load_global(
         &mut self,
         vm: &VirtualMachine,
-        oparg: u32,
+        oparg: LoadGlobal,
         instr_idx: usize,
         cache_base: usize,
     ) {
@@ -12037,7 +12038,7 @@ impl ExecutingFrame<'_> {
         let Some(globals) = self.globals.as_mutable() else {
             return;
         };
-        let name = self.code.names[(oparg >> 1) as usize];
+        let name = self.code.names[oparg.name_idx()];
         let Ok(globals_version @ 1..) = u16::try_from(globals.assign_keys_version(vm)) else {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
@@ -12234,7 +12235,7 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        let attr_name = self.code.names[attr_idx as usize];
+        let attr_name = self.code.names[attr_idx];
         let cls_attr = cls.get_attr(attr_name);
         let has_data_descr = cls_attr.as_ref().is_some_and(|descr| {
             // Assignment must honor __set__ even without __get__.
@@ -12316,7 +12317,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn load_super_attr(&mut self, vm: &VirtualMachine, oparg: LoadSuperAttr) -> FrameResult {
-        let attr_name = self.code.names[oparg.name_idx() as usize];
+        let attr_name = self.code.names[oparg.name_idx()];
 
         // Stack layout (bottom to top): [super, class, self]
         // Pop in LIFO order: self, class, super
@@ -12354,7 +12355,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn store_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
-        let attr_name = self.code.names[attr as usize];
+        let attr_name = self.code.names[attr];
         let parent = self.pop_stackref();
         let value = self.pop_value();
         parent.set_attr(attr_name, value, vm)?;
@@ -12362,7 +12363,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn delete_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
-        let attr_name = self.code.names[attr as usize];
+        let attr_name = self.code.names[attr];
         let parent = self.pop_stackref();
         parent.del_attr(attr_name, vm)?;
         Ok(None)

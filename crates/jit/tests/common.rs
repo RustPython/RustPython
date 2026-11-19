@@ -1,6 +1,6 @@
 use core::ops::ControlFlow;
 use rustpython_compiler_core::bytecode::{
-    CodeObject, CommonConstant, ConstantData, Constants, Instruction, OpArg, OpArgState,
+    CodeObject, CommonConstant, ConstantData, Constants, Instruction, Names, OpArg, OpArgState,
 };
 use rustpython_jit::{CompiledCode, JitType};
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
@@ -90,10 +90,10 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
                 stack.push((true, consti.get(arg).as_usize()));
             }
             Instruction::LoadName { namei } => {
-                stack.push((false, namei.get(arg) as usize));
+                stack.push((false, namei.get(arg).as_usize()));
             }
             Instruction::LoadGlobal { namei } => {
-                stack.push((false, (namei.get(arg) >> 1) as usize));
+                stack.push((false, namei.get(arg).name_idx().as_usize()));
             }
             Instruction::BuildMap { count } => {
                 let count = count.get(arg) as usize;
@@ -133,7 +133,7 @@ fn extract_annotations_from_annotate_code(code: &CodeObject) -> HashMap<Wtf8Buf,
                                     ),
                                 }
                             } else {
-                                match code.names.get(val_idx) {
+                                match code.names.as_slice().get(val_idx) {
                                     Some(name) => name.clone(),
                                     None => panic!(
                                         "Annotation name idx out of bounds for '{:?}': {} (len={})",
@@ -198,7 +198,7 @@ impl StackMachine {
         instruction: Instruction,
         arg: OpArg,
         constants: &Constants<ConstantData>,
-        names: &[String],
+        names: &Names<String>,
     ) -> ControlFlow<()> {
         match instruction {
             Instruction::Resume { .. } | Instruction::Cache | Instruction::NotTaken => {
@@ -218,11 +218,11 @@ impl StackMachine {
             }
             Instruction::LoadName { namei } => self
                 .stack
-                .push(StackValue::String(names[namei.get(arg) as usize].clone())),
+                .push(StackValue::String(names[namei.get(arg)].clone())),
             Instruction::StoreName { namei } => {
                 let idx = namei.get(arg);
                 self.locals
-                    .insert(names[idx as usize].clone(), self.stack.pop().unwrap());
+                    .insert(names[idx].clone(), self.stack.pop().unwrap());
             }
             Instruction::StoreAttr { .. } => {
                 // Do nothing except throw away the stack values

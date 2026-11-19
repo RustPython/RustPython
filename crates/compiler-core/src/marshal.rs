@@ -468,13 +468,9 @@ fn read_marshal_name_tuple<R: Read, Bag: ConstantBag>(
     rdr: &mut R,
     bag: &Bag,
     refs: &mut Vec<Option<Bag::Constant>>,
-) -> Result<Box<[<Bag::Constant as Constant>::Name]>> {
+) -> Result<Names<<Bag::Constant as Constant>::Name>> {
     let names = read_marshal_str_vec(rdr, bag, refs)?;
-    Ok(names
-        .iter()
-        .map(|s| bag.make_name(s))
-        .collect::<Vec<_>>()
-        .into_boxed_slice())
+    Ok(names.iter().map(|s| bag.make_name(s)).collect())
 }
 
 /// Read a marshal tuple of constants. Shares the ref table with the
@@ -1530,7 +1526,7 @@ pub fn serialize_code_with<W: Write, C: Constant, E>(
     }
 
     // 8: co_names (tuple of strings)
-    write_marshal_name_tuple(buf, &code.names);
+    write_marshal_name_tuple(buf, code.names.as_slice());
 
     // 9: co_localsplusnames — varnames ++ cell_only ++ freevars
     let cell_only_names: Vec<&str> = code
@@ -1947,7 +1943,7 @@ mod tests {
         assert_eq!(code.arg_count, 0);
         assert_eq!(code.max_stackdepth, 1);
         assert_eq!(code.names.len(), 1);
-        assert_eq!(code.names[0].as_str(), "x");
+        assert_eq!(code.names.as_slice()[0].as_str(), "x");
         assert_eq!(code.constants.len(), 2);
         // (1, None)
         let consts: &[ConstantData] = &code.constants;
@@ -1972,8 +1968,8 @@ mod tests {
         let code = decode_code(hex);
         assert_eq!(code.obj_name.as_str(), "<module>");
         assert_eq!(code.names.len(), 2);
-        assert_eq!(code.names[0].as_str(), "add");
-        assert_eq!(code.names[1].as_str(), "GREETING");
+        assert_eq!(code.names.as_slice()[0].as_str(), "add");
+        assert_eq!(code.names.as_slice()[1].as_str(), "GREETING");
         assert_eq!(code.constants.len(), 3);
         // Inner code, "hello", None
         let consts: &[ConstantData] = &code.constants;
@@ -2013,7 +2009,7 @@ mod tests {
         assert_eq!(code.qualname.as_str(), "<module>");
         assert_eq!(code.source_path.as_str(), "<t>");
         assert_eq!(code.names.len(), 1);
-        assert_eq!(code.names[0].as_str(), "x");
+        assert_eq!(code.names.as_slice()[0].as_str(), "x");
         assert_eq!(code.constants.len(), 2);
     }
 }

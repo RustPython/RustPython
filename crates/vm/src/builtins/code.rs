@@ -712,7 +712,7 @@ impl PyCode {
             first_traceable,
             co_name: code.obj_name.to_owned(),
             qualified_name: code.qualname.to_owned(),
-            co_names: names_tuple(&code.names),
+            co_names: names_tuple(code.names.as_slice()),
             co_localsplusnames: names_tuple(&localsplus_names),
             co_localspluskinds: ctx.new_bytes(code.localspluskinds.to_vec()),
             co_linetable: ctx.new_bytes(code.linetable.to_vec()),
@@ -757,7 +757,7 @@ impl PyCode {
     /// Keep `names` as `co_names` when it holds the interned names, the way
     /// `intern_strings` interns a names tuple in place.
     fn set_names(&mut self, names: PyTupleRef) {
-        if holds_names(&names, &self.code.names) {
+        if holds_names(&names, self.code.names.as_slice()) {
             self.co_names = names;
         }
     }
@@ -1351,7 +1351,7 @@ impl CodeConstructor {
             obj_name: vm.ctx.intern_str(self.name.as_wtf8()),
             qualname: vm.ctx.intern_str(self.qualname.as_wtf8()),
             constants: bytecode::Constants::new(LiteralTuple(self.consts.clone())),
-            names,
+            names: names.into(),
             varnames,
             cellvars,
             freevars,

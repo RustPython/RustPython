@@ -347,8 +347,6 @@ pub const GET_ITER_YIELD_FROM: u32 = 1;
 pub const GET_ITER_YIELD_FROM_NO_CHECK: u32 = 2;
 pub const GET_ITER_YIELD_FROM_CORO_CHECK: u32 = 3;
 
-pub type NameIdx = u32;
-
 impl OpArgType for u32 {}
 
 oparg_enum!(
@@ -894,6 +892,12 @@ newtype_oparg!(
 newtype_oparg!(
     #[derive(Clone, Copy)]
     #[repr(transparent)]
+    pub struct NameIdx(u32)
+);
+
+newtype_oparg!(
+    #[derive(Clone, Copy)]
+    #[repr(transparent)]
     pub struct LoadAttr(u32)
 );
 
@@ -901,6 +905,18 @@ newtype_oparg!(
     #[derive(Clone, Copy)]
     #[repr(transparent)]
     pub struct LoadSuperAttr(u32)
+);
+
+newtype_oparg!(
+    #[derive(Clone, Copy)]
+    #[repr(transparent)]
+    pub struct LoadGlobal(u32)
+);
+
+newtype_oparg!(
+    #[derive(Clone, Copy)]
+    #[repr(transparent)]
+    pub struct ImportName(u32)
 );
 
 newtype_oparg!(
@@ -1037,13 +1053,13 @@ impl VarNums {
 
 impl LoadAttr {
     #[must_use]
-    pub const fn new(name_idx: u32, is_method: bool) -> Self {
-        Self::from_u32((name_idx << 1) | (is_method as u32))
+    pub const fn new(name_idx: NameIdx, is_method: bool) -> Self {
+        Self::from_u32((name_idx.as_u32() << 1) | (is_method as u32))
     }
 
     #[must_use]
-    pub const fn name_idx(self) -> u32 {
-        self.0 >> 1
+    pub const fn name_idx(self) -> NameIdx {
+        NameIdx::from_u32(self.0 >> 1)
     }
 
     #[must_use]
@@ -1054,13 +1070,15 @@ impl LoadAttr {
 
 impl LoadSuperAttr {
     #[must_use]
-    pub const fn new(name_idx: u32, is_load_method: bool, has_class: bool) -> Self {
-        Self::from_u32((name_idx << 2) | (is_load_method as u32) | ((has_class as u32) << 1))
+    pub const fn new(name_idx: NameIdx, is_load_method: bool, has_class: bool) -> Self {
+        Self::from_u32(
+            (name_idx.as_u32() << 2) | (is_load_method as u32) | ((has_class as u32) << 1),
+        )
     }
 
     #[must_use]
-    pub const fn name_idx(self) -> u32 {
-        self.0 >> 2
+    pub const fn name_idx(self) -> NameIdx {
+        NameIdx::from_u32(self.0 >> 2)
     }
 
     #[must_use]
@@ -1071,5 +1089,39 @@ impl LoadSuperAttr {
     #[must_use]
     pub const fn has_class(self) -> bool {
         (self.0 & 2) == 2
+    }
+}
+
+impl LoadGlobal {
+    #[must_use]
+    pub const fn new(name_idx: NameIdx, push_null: bool) -> Self {
+        Self::from_u32((name_idx.as_u32() << 1) | (push_null as u32))
+    }
+
+    #[must_use]
+    pub const fn name_idx(self) -> NameIdx {
+        NameIdx::from_u32(self.0 >> 1)
+    }
+
+    #[must_use]
+    pub const fn push_null(self) -> bool {
+        (self.0 & 1) == 1
+    }
+}
+
+impl ImportName {
+    #[must_use]
+    pub const fn new(name_idx: NameIdx, flags: u32) -> Self {
+        Self::from_u32((name_idx.as_u32() << 2) | flags)
+    }
+
+    #[must_use]
+    pub const fn name_idx(self) -> NameIdx {
+        NameIdx::from_u32(self.0 >> 2)
+    }
+
+    #[must_use]
+    pub const fn flags(self) -> u32 {
+        self.0 & 3
     }
 }
