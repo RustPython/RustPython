@@ -1785,6 +1785,58 @@ class _CtypesTypeIdentityTests(_unittest.TestCase):
         function = Prototype(ctypes.cast(callback, ctypes.c_void_p).value)
         self.assertEqual(function(), 19)
 
+    def test_callback_return_conversion_unraisable(self):
+        saved_hook = _sys.unraisablehook
+        unraisable_calls = []
+        try:
+            _sys.unraisablehook = unraisable_calls.append
+
+            # Invalid int return
+            cb_int = ctypes.CFUNCTYPE(ctypes.c_int)(lambda: "not an int")
+            cb_int()
+            self.assertEqual(len(unraisable_calls), 1)
+            self.assertIs(unraisable_calls[-1].exc_type, TypeError)
+            self.assertEqual(
+                unraisable_calls[-1].err_msg,
+                "Exception ignored while converting result of ctypes callback function",
+            )
+            self.assertEqual(unraisable_calls[-1].object, "not an int")
+
+            # Invalid float return
+            cb_float = ctypes.CFUNCTYPE(ctypes.c_float)(lambda: "not a float")
+            cb_float()
+            self.assertEqual(len(unraisable_calls), 2)
+            self.assertIs(unraisable_calls[-1].exc_type, TypeError)
+            self.assertEqual(
+                unraisable_calls[-1].err_msg,
+                "Exception ignored while converting result of ctypes callback function",
+            )
+            self.assertEqual(unraisable_calls[-1].object, "not a float")
+
+            # Exception raised in __bool__ for bool return
+            class BadBool:
+                def __bool__(self):
+                    raise ValueError("bad bool")
+
+            bad_bool = BadBool()
+            cb_bool = ctypes.CFUNCTYPE(ctypes.c_bool)(lambda: bad_bool)
+            cb_bool()
+            self.assertEqual(len(unraisable_calls), 3)
+            self.assertIs(unraisable_calls[-1].exc_type, ValueError)
+            self.assertEqual(
+                unraisable_calls[-1].err_msg,
+                "Exception ignored while converting result of ctypes callback function",
+            )
+            self.assertIs(unraisable_calls[-1].object, bad_bool)
+
+            # c_void_p returning None should NOT trigger unraisablehook
+            cb_void_p = ctypes.CFUNCTYPE(ctypes.c_void_p)(lambda: None)
+            res = cb_void_p()
+            self.assertEqual(len(unraisable_calls), 3)
+            self.assertIsNone(res)
+        finally:
+            _sys.unraisablehook = saved_hook
+
 
 for _identity_test_name in _CtypesTypeIdentityTests.__dict__:
     if _identity_test_name.startswith("test_"):
