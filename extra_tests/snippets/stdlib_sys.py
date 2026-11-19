@@ -155,6 +155,75 @@ finally:
     monitoring.free_tool_id(2)
 assert records == ["RAISE", "PY_UNWIND"], records
 
+
+# Unlike starred calls, ordinary monitored calls expand a bound method before
+# reporting the callable and first argument.
+def test_monitored_bound_methods():
+    from types import MethodType
+
+    class Receiver:
+        def method(self, x=1):
+            if x < 0:
+                raise ValueError("negative")
+            return x
+
+    class Callable:
+        def __call__(self, receiver):
+            assert receiver is instance
+            return 1
+
+    instance = Receiver()
+    receiver = [1]
+    bound = instance.method
+    native = MethodType(len, receiver)
+    wrapped = Callable()
+    bound_callable = MethodType(wrapped, instance)
+
+    cases = (
+        (lambda: instance.method(1), Receiver.method, instance, ()),
+        (lambda: bound(), Receiver.method, instance, ()),
+        (lambda: bound(x=1), Receiver.method, instance, ()),
+        (lambda: bound(-1), Receiver.method, instance, ()),
+        (lambda: native(), len, receiver, ("C_RETURN",)),
+        (lambda: native(1), len, receiver, ("C_RAISE",)),
+        (lambda: bound_callable(), wrapped, instance, ("C_RETURN",)),
+    )
+
+    events = monitoring.events
+    records = []
+    monitoring.use_tool_id(2, "bound-method")
+    try:
+        for name in ("CALL", "C_RETURN", "C_RAISE"):
+
+            def callback(code, offset, func, arg, name=name):
+                records.append((name, func, arg))
+
+            monitoring.register_callback(2, getattr(events, name), callback)
+
+        for index, (invoke, func, arg, returns) in enumerate(cases):
+            records.clear()
+            monitoring.set_local_events(2, invoke.__code__, events.CALL)
+            try:
+                if index == 3:
+                    with assert_raises(ValueError):
+                        invoke()
+                elif index == 5:
+                    with assert_raises(TypeError):
+                        invoke()
+                else:
+                    assert invoke() == 1
+            finally:
+                monitoring.set_local_events(2, invoke.__code__, 0)
+            assert tuple(name for name, _, _ in records) == ("CALL", *returns), records
+            assert all(f is func and a is arg for _, f, a in records), records
+    finally:
+        for name in ("CALL", "C_RETURN", "C_RAISE"):
+            monitoring.register_callback(2, getattr(events, name), None)
+        monitoring.free_tool_id(2)
+
+
+test_monitored_bound_methods()
+
 # A loop body large enough to require EXTENDED_ARG on its jump targets.
 namespace = {}
 exec(
