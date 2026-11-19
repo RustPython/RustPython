@@ -1,0 +1,29 @@
+{
+  "context": "Linux-x86_64-3.15.0:--no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env,doc,ucd_3_2_0:threading,jit",
+  "coverage": {
+    "inspect:builtin": "ae3ee8b651d0dbe860fe2b34e3dff37319f2dfff24ef080f32cd694dae93ad64",
+    "inspect:module": "eddfdbcb72eb9ab8080ebe7d8d466e5c5b001ca1c44d9115e3b808a6f158938e",
+    "raw:builtin": "d0d861f32d5237db30a6732409c2ec39256ae68474c88a294c08ee1c857c3d93",
+    "raw:module": "c1dbcff93dcf41769c7c8199fed67f86e8525ec6999413d93c20d2688eb8f0ff"
+  },
+  "observations": [
+    [["($module, /, file=sys.stderr, all_threads=True, c_stack=True, *,\n       max_threads=100)", "($module, /, file=sys.stderr, all_threads=True)"], ["raw:module/faulthandler/enable"]],
+    [["($module, /, signum, file=sys.stderr, all_threads=True,\n         chain=False, *, max_threads=100)", "($module, /, signum, file=sys.stderr, all_threads=True,\n         chain=False)"], ["raw:module/faulthandler/register"]],
+    [["($module, fileobj, /, dialect='excel', **fmtparams)", "($module, fileobj, dialect=<unrepresentable>, /, **kwargs)"], ["raw:module/_csv/writer"]],
+    [["($module, iterable, /, dialect='excel', **fmtparams)", "($module, iterable, dialect=<unrepresentable>, /, **kwargs)"], ["raw:module/_csv/reader"]],
+    [["($module, name, /, dialect='excel', **fmtparams)", "($module, name, dialect=<unrepresentable>, /, **kwargs)"], ["raw:module/_csv/register_dialect"]],
+    [["($self, buffers, ancdata=<unrepresentable>, flags=0,\n        address=<unrepresentable>, /)", "($self, buffers, ancdata=(), flags=0, address=None, /)"], ["raw:module/_socket/socket.sendmsg"]],
+    [["($self, prefix[, start[, end]], /)", "($self, affix, start=<unrepresentable>,\n           end=<unrepresentable>, /)"], ["raw:builtin/bytearray.startswith", "raw:builtin/bytes.startswith", "raw:builtin/str.startswith"]],
+    [["($self, sub[, start[, end]], /)", "($self, sub, start=<unrepresentable>, end=<unrepresentable>, /)"], ["raw:builtin/bytearray.count", "raw:builtin/bytearray.find", "raw:builtin/bytearray.index", "raw:builtin/bytearray.rfind", "raw:builtin/bytearray.rindex", "raw:builtin/bytes.count", "raw:builtin/bytes.find", "raw:builtin/bytes.index", "raw:builtin/bytes.rfind", "raw:builtin/bytes.rindex", "raw:builtin/str.count", "raw:builtin/str.find", "raw:builtin/str.index", "raw:builtin/str.rfind", "raw:builtin/str.rindex"]],
+    [["($self, suffix[, start[, end]], /)", "($self, affix, start=<unrepresentable>, end=<unrepresentable>,\n         /)"], ["raw:builtin/bytearray.endswith", "raw:builtin/bytes.endswith", "raw:builtin/str.endswith"]],
+    [["($self, value, [start, [stop]])", "($self, needle, start=0, stop=<unrepresentable>, /)"], ["raw:module/collections/deque.index"]],
+    [["([iterable[, maxlen]])", ["none"]], ["raw:module/collections/deque"]],
+    [["(fileobj, /, dialect='excel', **fmtparams)", ["uncomparable"]], ["inspect:module/_csv/writer"]],
+    [["(iterable, /, dialect='excel', **fmtparams)", ["uncomparable"]], ["inspect:module/_csv/reader"]],
+    [["(name, /, dialect='excel', **fmtparams)", ["uncomparable"]], ["inspect:module/_csv/register_dialect"]],
+    [["(offset, name=<unrepresentable>)", ["none"]], ["raw:module/datetime/timezone"]],
+    [["(sched_priority)", "(iterable=(), /)"], ["inspect:module/posix/sched_param", "raw:module/posix/sched_param"]],
+    [["(self, fullname)", "(self, fullname, *, compile_source=True)"], ["inspect:module/zipimport/_get_module_code"]],
+    [["(src, dst, *, follow_symlinks=True)", "(*args, **kwargs)"], ["inspect:module/shutil/_copyxattr"]]
+  ]
+}
