@@ -193,10 +193,6 @@ struct Compiler<'a> {
     /// True when compiling in "single" (interactive) mode.
     /// Expression statements at module scope emit CALL_INTRINSIC_1(Print).
     interactive: bool,
-    /// Counter for dead-code elimination during constant folding.
-    /// When > 0, the compiler walks AST (consuming sub_tables) but emits no bytecode.
-    /// Mirrors CPython's `c_do_not_emit_bytecode`.
-    do_not_emit_bytecode: u32,
     /// Mirrors `c_disable_warning` while compiling FINALLY_END copies.
     disable_warning: u32,
     syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
@@ -1325,7 +1321,6 @@ impl<'warnings> Compiler<'warnings> {
             opts,
             in_annotation: false,
             interactive: false,
-            do_not_emit_bytecode: 0,
             disable_warning: 0,
             syntax_warning_handler,
             save_nested_seqs: false,
@@ -11737,9 +11732,6 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn _emit<I: Into<AnyInstruction>>(&mut self, instr: I, arg: OpArg, target: BlockIdx) {
-        if self.do_not_emit_bytecode > 0 {
-            return;
-        }
         let instr = instr.into();
         let opcode = AnyOpcode::from(instr);
         debug_assert!(
@@ -11778,9 +11770,6 @@ impl<'warnings> Compiler<'warnings> {
         instr: I,
         target_label: ir::InstructionSequenceLabel,
     ) {
-        if self.do_not_emit_bytecode > 0 {
-            return;
-        }
         let instr = instr.into();
         debug_assert!(
             instr.has_target(),
@@ -12544,34 +12533,6 @@ impl<'warnings> Compiler<'warnings> {
         is_break: bool,
     ) -> CompileResult<()> {
         let range = span.range;
-        if self.do_not_emit_bytecode > 0 {
-            // Still validate that we're inside a loop even in dead code
-            let code = self.current_code_info();
-            let mut found_loop = false;
-            for i in (0..code.fblock.len()).rev() {
-                match code.fblock[i].fb_type {
-                    FBlockType::WhileLoop | FBlockType::ForLoop | FBlockType::AsyncForLoop => {
-                        found_loop = true;
-                        break;
-                    }
-                    FBlockType::ExceptionGroupHandler => {
-                        return Err(self.error_ranged(
-                            CodegenErrorType::BreakContinueReturnInExceptStar,
-                            range,
-                        ));
-                    }
-                    _ => {}
-                }
-            }
-            if !found_loop {
-                if is_break {
-                    return Err(self.error_ranged(CodegenErrorType::InvalidBreak, range));
-                }
-                return Err(self.error_ranged(CodegenErrorType::InvalidContinue, range));
-            }
-            return Ok(());
-        }
-
         let prev_source_range = self.current_source_span;
         self.restore_source_span(span);
         emit!(self, Instruction::Nop);
