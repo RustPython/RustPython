@@ -671,6 +671,24 @@ def check_profile_callables():
     result = capture(lambda: len(1))
     assert result == [("c_call", len), ("c_exception", len)]
 
+    class NativeMethod:
+        select = classmethod(max)
+
+    method = NativeMethod.select
+    assert capture(lambda: method(1)) == [("c_call", max), ("c_exception", max)]
+    assert capture(lambda: method(*(1,))) == []
+
+    def key_with_native_call(value):
+        return len(())
+
+    # EX suppresses only the wrapped native dispatch, not calls in callbacks.
+    assert capture(lambda: method(*(1,), key=key_with_native_call)) == [
+        ("c_call", len),
+        ("c_return", len),
+        ("c_call", len),
+        ("c_return", len),
+    ]
+
     def native_calls():
         values = []
         for value in range(20):
@@ -708,3 +726,57 @@ def check_profile_callables():
 
 
 check_profile_callables()
+
+
+def check_bound_ex_monitoring():
+    class NativeMethod:
+        select = classmethod(max)
+
+    def success():
+        return NativeMethod.select(*(1,), key=lambda value: 0)
+
+    def failure():
+        return NativeMethod.select(*(1,))
+
+    monitoring.use_tool_id(2, "bound-ex")
+    try:
+        for function in (success, failure):
+            events = []
+            for name in ("CALL", "C_RETURN", "C_RAISE"):
+
+                def callback(code, offset, callee, arg, name=name):
+                    if (
+                        code is function.__code__
+                        and getattr(callee, "__func__", None) is max
+                    ):
+                        events.append(name)
+
+                monitoring.register_callback(
+                    2, getattr(monitoring.events, name), callback
+                )
+            monitoring.set_events(
+                2,
+                monitoring.events.CALL
+                | monitoring.events.C_RETURN
+                | monitoring.events.C_RAISE,
+            )
+            try:
+                if function is success:
+                    assert function() is NativeMethod
+                else:
+                    try:
+                        function()
+                    except TypeError:
+                        pass
+                    else:
+                        raise AssertionError(
+                            "bound max must reject incomparable operands"
+                        )
+            finally:
+                monitoring.set_events(2, 0)
+            assert events == ["CALL"], events
+    finally:
+        monitoring.free_tool_id(2)
+
+
+check_bound_ex_monitoring()

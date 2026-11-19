@@ -8935,9 +8935,32 @@ impl ExecutingFrame<'_> {
         } else {
             None
         };
-        let invoke = || callable.vectorcall(args, nargs, Some(&kwnames), vm);
+        let invoke = || {
+            // CPython CALL_FUNCTION_EX profiles the original callable, not the
+            // native function wrapped by a method. Bypass only that dispatch's
+            // profile events; Python callbacks and their native calls still trace.
+            if vm.use_tracing.get()
+                && let Some(method) = callable.downcast_ref::<PyBoundMethod>()
+                && method
+                    .function_obj()
+                    .downcast_ref::<PyNativeFunction>()
+                    .is_some()
+            {
+                let function = method.function_obj();
+                let native = function.to_callable().expect("native function is callable");
+                args.insert(0, method.self_obj().to_owned());
+                if let Some(vectorcall) = native.vectorcall {
+                    vectorcall(function, args, nargs + 1, Some(&kwnames), vm)
+                } else {
+                    let args = FuncArgs::from_vectorcall_owned(args, nargs + 1, Some(&kwnames));
+                    (native.call)(function, args, vm)
+                }
+            } else {
+                callable.vectorcall(args, nargs, Some(&kwnames), vm)
+            }
+        };
         let result = if INSTRUMENTED {
-            self.execute_call_instrumented_inner(&callable, arg0, invoke, vm)
+            self.execute_call_instrumented_inner::<true>(&callable, arg0, invoke, vm)
         } else {
             invoke().map(|value| {
                 self.push_value(value);
@@ -9212,17 +9235,24 @@ impl ExecutingFrame<'_> {
         };
 
         let arg0 = final_args.args.first().cloned();
-        self.execute_call_instrumented_inner(&callable, arg0, || callable.call(final_args, vm), vm)
+        self.execute_call_instrumented_inner::<false>(
+            &callable,
+            arg0,
+            || callable.call(final_args, vm),
+            vm,
+        )
     }
 
-    fn execute_call_instrumented_inner(
+    fn execute_call_instrumented_inner<const EX: bool>(
         &mut self,
         callable: &PyObject,
         arg0: Option<PyObjectRef>,
         invoke: impl FnOnce() -> PyResult,
         vm: &VirtualMachine,
     ) -> FrameResult {
-        let is_python_call = callable.downcast_ref_if_exact::<PyFunction>(vm).is_some();
+        // CALL_FUNCTION_EX does not unwrap bound methods for C_RETURN/C_RAISE.
+        let is_python_call = callable.downcast_ref_if_exact::<PyFunction>(vm).is_some()
+            || (EX && callable.downcast_ref::<PyBoundMethod>().is_some());
 
         // Fire CALL event
         let call_arg0 = if self.monitoring_mask & MonitoringEvent::Call.mask() != 0 {
