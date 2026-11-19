@@ -2217,97 +2217,110 @@ fn ffi_to_python(
 }
 
 /// Convert a Python object to a C value and store it at the result pointer
-fn python_to_ffi(obj: PyResult, ty: &Py<PyType>, result: *mut c_void, vm: &VirtualMachine) {
+fn python_to_ffi(
+    obj: PyResult,
+    ty: &Py<PyType>,
+    callable: &PyObjectRef,
+    result: *mut c_void,
+    vm: &VirtualMachine,
+) {
     let Ok(obj) = obj else { return };
+
+    let report_err = |exc, vm: &VirtualMachine| {
+        let repr = callable
+            .repr(vm)
+            .map_or_else(|_| "<unknown>".to_string(), |s| s.to_string());
+        let msg =
+            format!("Exception ignored while converting result of ctypes callback function {repr}");
+        vm.run_unraisable(exc, Some(msg), vm.ctx.none());
+    };
 
     let type_code = ty.type_code(vm);
     match type_code.as_deref() {
-        Some("b" | "h" | "i" | "l" | "q") => {
-            if let Ok(i) = obj.try_int(vm) {
-                unsafe {
-                    rustpython_host_env::ctypes::write_callback_result(
-                        type_code.as_deref(),
-                        result,
-                        rustpython_host_env::ctypes::CallbackResultValue::Signed(
-                            i.as_bigint().to_i64().unwrap_or(0),
-                        ),
-                    );
-                }
-            }
-        }
-        Some("B" | "c" | "H" | "I" | "L" | "Q") => {
-            if let Ok(i) = obj.try_int(vm) {
-                unsafe {
-                    rustpython_host_env::ctypes::write_callback_result(
-                        type_code.as_deref(),
-                        result,
-                        rustpython_host_env::ctypes::CallbackResultValue::Unsigned(
-                            i.as_bigint().to_u64().unwrap_or(0),
-                        ),
-                    );
-                }
-            }
-        }
-        Some("f" | "d") => {
-            if let Ok(f) = obj.try_float(vm) {
-                unsafe {
-                    rustpython_host_env::ctypes::write_callback_result(
-                        type_code.as_deref(),
-                        result,
-                        rustpython_host_env::ctypes::CallbackResultValue::Float(f.to_f64()),
-                    );
-                }
-            }
-        }
-        #[cfg(windows)]
-        Some("X") => {
-            match super::simple::assignment_value("X", &obj, false, vm) {
-                Ok((mut bytes, _, _)) => {
-                    let address = rustpython_host_env::ctypes::read_pointer_from_buffer(&bytes);
-                    // libffi's result slot is fresh storage, not a previous BSTR.
-                    bytes.commit();
-                    unsafe {
-                        rustpython_host_env::ctypes::write_callback_result(
-                            Some("X"),
-                            result,
-                            rustpython_host_env::ctypes::CallbackResultValue::Pointer(address),
-                        );
-                    }
-                }
-                Err(exc) => vm.run_unraisable(
-                    exc,
-                    Some(
-                        "Exception ignored while converting result of ctypes callback function"
-                            .to_owned(),
+        Some("b" | "h" | "i" | "l" | "q") => match obj.try_int(vm) {
+            Ok(i) => unsafe {
+                rustpython_host_env::ctypes::write_callback_result(
+                    type_code.as_deref(),
+                    result,
+                    rustpython_host_env::ctypes::CallbackResultValue::Signed(
+                        i.as_bigint().to_i64().unwrap_or(0),
                     ),
-                    obj,
-                ),
+                );
+            },
+            Err(exc) => report_err(exc, vm),
+        },
+        Some("B" | "c" | "H" | "I" | "L" | "Q") => match obj.try_int(vm) {
+            Ok(i) => unsafe {
+                rustpython_host_env::ctypes::write_callback_result(
+                    type_code.as_deref(),
+                    result,
+                    rustpython_host_env::ctypes::CallbackResultValue::Unsigned(
+                        i.as_bigint().to_u64().unwrap_or(0),
+                    ),
+                );
+            },
+            Err(exc) => report_err(exc, vm),
+        },
+        Some("f" | "d") => match obj.try_float(vm) {
+            Ok(f) => unsafe {
+                rustpython_host_env::ctypes::write_callback_result(
+                    type_code.as_deref(),
+                    result,
+                    rustpython_host_env::ctypes::CallbackResultValue::Float(f.to_f64()),
+                );
+            },
+            Err(exc) => report_err(exc, vm),
+        },
+        #[cfg(windows)]
+        Some("X") => match super::simple::assignment_value("X", &obj, false, vm) {
+            Ok((mut bytes, _, _)) => {
+                let address = rustpython_host_env::ctypes::read_pointer_from_buffer(&bytes);
+                // libffi's result slot is fresh storage, not a previous BSTR.
+                bytes.commit();
+                unsafe {
+                    rustpython_host_env::ctypes::write_callback_result(
+                        Some("X"),
+                        result,
+                        rustpython_host_env::ctypes::CallbackResultValue::Pointer(address),
+                    );
+                }
             }
-        }
+            Err(exc) => report_err(exc, vm),
+        },
         Some("P" | "z" | "Z") => {
-            if let Ok(i) = obj.try_int(vm) {
+            if vm.is_none(&obj) {
                 unsafe {
                     rustpython_host_env::ctypes::write_callback_result(
                         type_code.as_deref(),
                         result,
-                        rustpython_host_env::ctypes::CallbackResultValue::Pointer(
-                            i.as_bigint().to_usize().unwrap_or(0),
-                        ),
+                        rustpython_host_env::ctypes::CallbackResultValue::Pointer(0),
                     );
+                }
+            } else {
+                match obj.try_int(vm) {
+                    Ok(i) => unsafe {
+                        rustpython_host_env::ctypes::write_callback_result(
+                            type_code.as_deref(),
+                            result,
+                            rustpython_host_env::ctypes::CallbackResultValue::Pointer(
+                                i.as_bigint().to_usize().unwrap_or(0),
+                            ),
+                        );
+                    },
+                    Err(exc) => report_err(exc, vm),
                 }
             }
         }
-        Some("?") => {
-            if let Ok(b) = obj.is_true(vm) {
-                unsafe {
-                    rustpython_host_env::ctypes::write_callback_result(
-                        type_code.as_deref(),
-                        result,
-                        rustpython_host_env::ctypes::CallbackResultValue::Bool(b),
-                    );
-                }
-            }
-        }
+        Some("?") => match obj.is_true(vm) {
+            Ok(b) => unsafe {
+                rustpython_host_env::ctypes::write_callback_result(
+                    type_code.as_deref(),
+                    result,
+                    rustpython_host_env::ctypes::CallbackResultValue::Bool(b),
+                );
+            },
+            Err(exc) => report_err(exc, vm),
+        },
         _ => {}
     }
 }
@@ -2346,7 +2359,13 @@ unsafe extern "C" fn thunk_callback(
             }
 
             if let Some(ref res_type) = userdata.res_type {
-                python_to_ffi(py_result, res_type, result as *mut c_void, vm);
+                python_to_ffi(
+                    py_result,
+                    res_type,
+                    &userdata.callable,
+                    result as *mut c_void,
+                    vm,
+                );
             }
         });
     });
