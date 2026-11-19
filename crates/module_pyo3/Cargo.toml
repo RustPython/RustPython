@@ -1,0 +1,25 @@
+[package]
+name = "rustpython-module_pyo3"
+description = "RustPython pyo3 module - bridge to CPython via PyO3"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[features]
+default = ["doc"]
+doc = ["rustpython-vm/doc"]
+threading = ["rustpython-vm/threading"]
+
+[dependencies]
+rustpython-vm = { workspace = true }
+rustpython-derive = { workspace = true }
+pyo3 = { workspace = true, features = ["auto-initialize"] }
+malachite-bigint = { workspace = true }
+num-complex = { workspace = true }
+num-traits = { workspace = true }
+
+[lints]
+workspace = true
