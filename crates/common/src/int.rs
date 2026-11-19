@@ -1,21 +1,8 @@
-use malachite_base::{num::conversion::traits::RoundingInto, rounding_modes::RoundingMode};
 use malachite_bigint::{BigInt, BigUint, Sign};
 use malachite_q::Rational;
 use num_traits::{One, ToPrimitive, Zero};
 
-#[must_use]
-pub fn true_div(numerator: &BigInt, denominator: &BigInt) -> f64 {
-    // Rational has no signed zero. Preserve the division sign before
-    // converting a zero numerator, as CPython's long_true_divide does.
-    if numerator.is_zero() && denominator.sign() == Sign::Minus {
-        return -0.0;
-    }
-    let rational = Rational::from_integers_ref(numerator.into(), denominator.into());
-    // Nearest rounding can return the largest finite value for a quotient
-    // slightly beyond it; overflow starts at the halfway rounding boundary.
-    let (rounded, _) = rational.rounding_into(RoundingMode::Nearest);
-    rounded
-}
+pub use rustpython_literal::float::true_div;
 
 #[must_use]
 pub fn float_to_ratio(value: f64) -> Option<(BigInt, BigInt)> {

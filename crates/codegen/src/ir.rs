@@ -5264,9 +5264,13 @@ fn eval_const_binop(
                     if r.is_zero() {
                         return None;
                     }
-                    let l_f = l.to_f64()?;
-                    let r_f = r.to_f64()?;
-                    let result = l_f / r_f;
+                    // Python divides first and rounds the quotient once. Converting
+                    // large operands independently can change the rounded value.
+                    let result = if l.bits().max(r.bits()) <= u64::from(f64::MANTISSA_DIGITS) {
+                        l.to_f64()? / r.to_f64()?
+                    } else {
+                        rustpython_literal::float::true_div(l, r)
+                    };
                     if !result.is_finite() {
                         return None;
                     }
@@ -8125,6 +8129,47 @@ mod tests {
             code.blocks[0].instructions[0].instr.real(),
             Some(Instruction::LoadFastBorrow { .. })
         ));
+    }
+
+    #[test]
+    fn integer_true_division_folds_the_exact_quotient() {
+        use oparg::BinaryOperator::TrueDivide;
+
+        let ten_to_310 = BigInt::from(10_u8).pow(310_u32);
+        let ten_to_400 = BigInt::from(10_u8).pow(400_u32);
+        let integer = |value| ConstantData::Integer { value };
+        let cases = [
+            (
+                BigInt::from((1_u64 << 53) + 1),
+                BigInt::from(3),
+                Some(0x4325_5555_5555_5556),
+            ),
+            (
+                BigInt::from(1),
+                ten_to_310.clone(),
+                Some(0x0000_1268_8b70_e62b),
+            ),
+            (ten_to_310.clone(), ten_to_310, Some(1.0_f64.to_bits())),
+            (BigInt::from(0), -&ten_to_400, Some((-0.0_f64).to_bits())),
+            (
+                BigInt::from(-1),
+                ten_to_400.clone(),
+                Some((-0.0_f64).to_bits()),
+            ),
+            (ten_to_400, BigInt::from(2), None),
+            (BigInt::from(1), BigInt::from(0), None),
+        ];
+
+        for (numerator, denominator, expected) in cases {
+            let result = eval_const_binop(&integer(numerator), &integer(denominator), TrueDivide);
+            assert_eq!(
+                result.map(|result| match result {
+                    ConstantData::Float { value } => value.to_bits(),
+                    other => panic!("expected float, got {other:?}"),
+                }),
+                expected
+            );
+        }
     }
 
     #[test]

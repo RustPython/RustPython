@@ -2,7 +2,27 @@ use crate::format::Case;
 use alloc::borrow::ToOwned;
 use alloc::format;
 use alloc::string::{String, ToString};
+use malachite_base::{num::conversion::traits::RoundingInto, rounding_modes::RoundingMode};
+use malachite_bigint::{BigInt, Sign};
+use malachite_q::Rational;
 use num_traits::Zero;
+
+/// Round the exact quotient of two integers to a Python float.
+///
+/// The denominator must be nonzero.
+#[must_use]
+pub fn true_div(numerator: &BigInt, denominator: &BigInt) -> f64 {
+    // Rational has no signed zero. Preserve the division sign before
+    // converting a zero numerator, as CPython's long_true_divide does.
+    if numerator.is_zero() && denominator.sign() == Sign::Minus {
+        return -0.0;
+    }
+    let rational = Rational::from_integers_ref(numerator.into(), denominator.into());
+    // Nearest rounding can return the largest finite value for a quotient
+    // slightly beyond it; overflow starts at the halfway rounding boundary.
+    let (rounded, _) = rational.rounding_into(RoundingMode::Nearest);
+    rounded
+}
 
 #[must_use]
 pub fn parse_str(literal: &str) -> Option<f64> {
