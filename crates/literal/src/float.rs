@@ -418,6 +418,38 @@ pub fn to_hex(value: f64) -> String {
     }
 }
 
+// Canonical (floordiv, mod) for floats matching CPython's _float_div_mod
+// (Objects/floatobject.c). `mod_` and `floordiv` delegate here so that
+// `divmod(a, b) == (a // b, a % b)` holds by construction.
+#[must_use]
+pub fn divmod(v1: f64, v2: f64) -> Option<(f64, f64)> {
+    if v2 == 0.0 {
+        return None;
+    }
+    let mut m = v1 % v2;
+    let mut d = (v1 - m) / v2;
+    if m != 0.0 {
+        // Non-zero remainder must have the sign of the divisor.
+        if v2.is_sign_negative() != m.is_sign_negative() {
+            m += v2;
+            d -= 1.0;
+        }
+    } else {
+        // Zero remainder: sign matches divisor (IEEE 754 / CPython contract).
+        m = (0.0_f64).copysign(v2);
+    }
+    let d = if d != 0.0 {
+        let f = num_traits::float::FloatCore::floor(d);
+        // Snap up if (v1 - m) / v2 undershot the true integer quotient by
+        // more than half an ULP (mirrors CPython's `if (div - *floordiv > 0.5)`).
+        if d - f > 0.5 { f + 1.0 } else { f }
+    } else {
+        // Zero quotient: take the sign of the true quotient v1 / v2.
+        (0.0_f64).copysign(v1 / v2)
+    };
+    Some((d, m))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

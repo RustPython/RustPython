@@ -4896,38 +4896,11 @@ fn const_folding_safe_mod(left: &ConstantData, right: &ConstantData) -> Option<C
             Some(ConstantData::Integer { value })
         }
         (ConstantData::Float { value: l }, ConstantData::Float { value: r }) => {
-            let (_, modulo) = float_div_mod(*l, *r)?;
+            let (_, modulo) = rustpython_literal::float::divmod(*l, *r)?;
             Some(ConstantData::Float { value: modulo })
         }
         _ => None,
     }
-}
-
-fn float_div_mod(left: f64, right: f64) -> Option<(f64, f64)> {
-    if right == 0.0 {
-        return None;
-    }
-
-    let mut modulo = left % right;
-    let div = (left - modulo) / right;
-    let floordiv = if modulo != 0.0 {
-        let div = if (right < 0.0) != (modulo < 0.0) {
-            modulo += right;
-            div - 1.0
-        } else {
-            div
-        };
-        let mut floordiv = div.floor();
-        if div - floordiv > 0.5 {
-            floordiv += 1.0;
-        }
-        floordiv
-    } else {
-        modulo = 0.0f64.copysign(right);
-        0.0f64.copysign(left / right)
-    };
-
-    Some((floordiv, modulo))
 }
 
 /// flowgraph.c eval_const_binop complex result construction
@@ -5310,7 +5283,7 @@ fn eval_const_binop(
                     l / r
                 }
                 BinOp::FloorDivide => {
-                    let (floordiv, _) = float_div_mod(*l, *r)?;
+                    let (floordiv, _) = rustpython_literal::float::divmod(*l, *r)?;
                     floordiv
                 }
                 BinOp::Remainder => return const_folding_safe_mod(left, right),
@@ -7590,6 +7563,41 @@ mod tests {
                 assert_eq!(actual.lineno_override, expected.lineno_override);
             }
         }
+    }
+
+    #[test]
+    fn float_divmod_folds_quotient_and_remainder_independently() {
+        use oparg::BinaryOperator::{FloorDivide, Remainder};
+
+        let float = |value| ConstantData::Float { value };
+        let smallest = f64::from_bits(1);
+        for (left, right, quotient, remainder) in [
+            (2.0, 2.0, 1.0, 0.0),
+            (2.0, -2.0, -1.0, -0.0),
+            (-2.0, -2.0, 1.0, -0.0),
+            (-2.0, -3.0, 0.0, -2.0),
+            (-0.0, 2.0, -0.0, 0.0),
+            (smallest, smallest, 1.0, 0.0),
+            (1.0, 0.1, 9.0, f64::from_bits(0x3fb9_9999_9999_9996)),
+            (2.0, f64::NEG_INFINITY, -1.0, f64::NEG_INFINITY),
+            (f64::INFINITY, 2.0, f64::NAN, f64::NAN),
+            (f64::NAN, -2.0, f64::NAN, f64::NAN),
+        ] {
+            for (op, expected) in [(FloorDivide, quotient), (Remainder, remainder)] {
+                let Some(ConstantData::Float { value: result }) =
+                    eval_const_binop(&float(left), &float(right), op)
+                else {
+                    panic!("expected float constant");
+                };
+                if expected.is_nan() {
+                    assert!(result.is_nan());
+                } else {
+                    assert_eq!(result.to_bits(), expected.to_bits());
+                }
+            }
+        }
+        assert!(eval_const_binop(&float(2.0), &float(-0.0), FloorDivide).is_none());
+        assert!(eval_const_binop(&float(2.0), &float(0.0), Remainder).is_none());
     }
 
     #[test]
