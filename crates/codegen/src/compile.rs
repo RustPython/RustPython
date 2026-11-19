@@ -2924,79 +2924,48 @@ impl<'warnings> Compiler<'warnings> {
             return current_obj_name;
         }
 
-        // Check parent scope
         let mut parent_idx = stack_size - 2;
         let mut parent = &self.code_stack[parent_idx];
+        let mut parent_table = &self.symbol_table_stack[parent.symbol_table_index];
 
-        let mut parent_scope = self
-            .symbol_table_stack
-            .get(parent_idx)
-            .map(|table| table.typ);
-
-        // CPython skips both generic-parameter scopes and annotation scopes
-        // when building qualnames for the contained function/class code object.
+        // CPython compiler units skip the annotation scope (including generic
+        // parameters). If that scope was directly under the module, the
+        // current unit keeps its bare name, even for a signature annotation.
         if matches!(
-            parent_scope,
-            Some(
-                CompilerScope::TypeParams
-                    | CompilerScope::Annotation
-                    | CompilerScope::TypeAlias
-                    | CompilerScope::TypeVariable,
-            )
-        ) || parent.metadata.name.starts_with("<generic parameters of ")
-        {
-            if stack_size == 2 {
-                // If we're immediately within the module, qualname is just the name
+            parent_table.typ,
+            CompilerScope::TypeParams
+                | CompilerScope::Annotation
+                | CompilerScope::TypeAlias
+                | CompilerScope::TypeVariable
+        ) {
+            if parent_idx <= 1 {
                 return current_obj_name;
             }
-            // Use grandparent
-            parent_idx = stack_size - 3;
+            parent_idx -= 1;
             parent = &self.code_stack[parent_idx];
-            parent_scope = self
-                .symbol_table_stack
-                .get(parent_idx)
-                .map(|table| table.typ);
+            parent_table = &self.symbol_table_stack[parent.symbol_table_index];
         }
 
-        // Check if this is a global class/function.
-        // CPython compiler_set_qualname() only applies this GLOBAL_EXPLICIT
-        // shortcut to function, async-function, and class scopes. Annotation
-        // scopes, including type-alias value scopes, still inherit the parent
-        // function's .<locals> qualname.
-        let mut force_global = false;
+        // CPython looks up a mangled definition name in the same enclosing
+        // unit used for qualification, not in the intervening annotation
+        // scope. A global function or class is bound in the module.
         let current_scope = self
             .code_stack
             .last()
             .map(|code| self.symbol_table_stack[code.symbol_table_index].typ);
-        if matches!(
+        let force_global = if matches!(
             current_scope,
             Some(CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Class)
         ) {
-            if stack_size > self.symbol_table_stack.len() {
-                // We might be in a situation where symbol table isn't pushed yet
-                // In this case, check the parent symbol table
-                if let Some(parent_table) = self.symbol_table_stack.last()
-                    && let Some(symbol) = parent_table.lookup(&current_obj_name.clone().into())
-                    && symbol.scope == SymbolScope::GlobalExplicit
-                {
-                    force_global = true;
-                }
-            } else if let Some(_current_table) = self.symbol_table_stack.last() {
-                // Mangle the name if necessary (for private names in classes)
-                let target = &current_obj_name.clone().into();
-                let mangled_name = self.mangle(target);
-
-                // Look up in parent symbol table to check scope
-                if self.symbol_table_stack.len() >= 2 {
-                    let parent_table = &self.symbol_table_stack[self.symbol_table_stack.len() - 2];
-                    if let Some(symbol) = parent_table.lookup(&mangled_name)
-                        && symbol.scope == SymbolScope::GlobalExplicit
-                    {
-                        force_global = true;
-                    }
-                }
-            }
-        }
+            let target = current_obj_name.as_str().into();
+            let private = parent.private.as_deref().map(Name::from);
+            let mangled_name = symboltable::mangle_name(private.as_ref(), &target);
+            parent_table
+                .lookup(&mangled_name)
+                .is_some_and(|symbol| symbol.scope == SymbolScope::GlobalExplicit)
+        } else {
+            false
+        };
 
         // Build the prefix the current name is qualified by, if any
         let base = if force_global {
@@ -3008,10 +2977,8 @@ impl<'warnings> Compiler<'warnings> {
 
             // Determine if parent is a function-like scope
             let is_function_parent = matches!(
-                parent_scope,
-                Some(
-                    CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda
-                )
+                parent_table.typ,
+                CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda
             );
 
             // Use parent's qualname if available, otherwise use parent_obj_name
@@ -27110,6 +27077,62 @@ def outer():
                 "outer.<locals>.inner.__annotate__"
             ]
         );
+    }
+
+    #[test]
+    fn generic_definition_qualnames_use_the_enclosing_scope() {
+        let code = compile_exec(
+            "\
+def annotate[T](x: T):
+    pass
+
+def outer():
+    global publish, Publish
+    async def publish[T](x: T):
+        pass
+    class Publish[T]:
+        pass
+    def private[T](x: T):
+        pass
+
+class Owner:
+    global _Owner__method
+    def __method[T](x: T):
+        pass
+",
+        );
+        let annotation = |generic: &str| {
+            let generic = find_code(&code, generic).unwrap();
+            find_direct_child_code(generic, "__annotate__")
+                .unwrap()
+                .qualname
+                .as_str()
+        };
+        for (name, expected) in [
+            ("publish", "publish"),
+            ("Publish", "Publish"),
+            ("private", "outer.<locals>.private"),
+            ("__method", "__method"),
+        ] {
+            assert_eq!(find_code(&code, name).unwrap().qualname, expected);
+        }
+        for (name, expected) in [
+            ("<generic parameters of annotate>", "__annotate__"),
+            (
+                "<generic parameters of publish>",
+                "outer.<locals>.publish.__annotate__",
+            ),
+            (
+                "<generic parameters of private>",
+                "outer.<locals>.private.__annotate__",
+            ),
+            (
+                "<generic parameters of __method>",
+                "Owner.__method.__annotate__",
+            ),
+        ] {
+            assert_eq!(annotation(name), expected);
+        }
     }
 
     #[test]
