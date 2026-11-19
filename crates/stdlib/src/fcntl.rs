@@ -48,13 +48,14 @@ mod fcntl {
 
     #[cfg(not(target_os = "wasi"))]
     #[pyattr]
-    use host_fcntl::{F_DUPFD, F_DUPFD_CLOEXEC, F_GETLK, F_SETLK, F_SETLKW};
+    use host_fcntl::{
+        F_DUPFD, F_DUPFD_CLOEXEC, F_GETLK, F_RDLCK, F_SETLK, F_SETLKW, F_UNLCK, F_WRLCK, LOCK_EX,
+        LOCK_NB, LOCK_SH, LOCK_UN,
+    };
 
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyattr]
-    use host_fcntl::{
-        F_GETOWN, F_RDLCK, F_SETOWN, F_UNLCK, F_WRLCK, LOCK_EX, LOCK_NB, LOCK_SH, LOCK_UN,
-    };
+    use host_fcntl::{F_GETOWN, F_SETOWN};
 
     #[cfg(target_vendor = "apple")]
     #[pyattr]
@@ -319,8 +320,8 @@ mod fcntl {
         Ok(vm.ctx.new_bytes(buf.into_bytes("ioctl", vm)?).into())
     }
 
-    // XXX: at the time of writing, wasi and redox don't have the necessary constants/function
-    #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
+    // XXX: at the time of writing, wasi doesn't have the necessary constants/function
+    #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
     fn flock(_io::Fildes(fd): _io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult<()> {
         // SAFETY: fd's owner isn't dropped before flock ends.
@@ -345,8 +346,8 @@ mod fcntl {
         whence: i32,
     }
 
-    // XXX: at the time of writing, wasi and redox don't have the necessary constants
-    #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
+    // XXX: at the time of writing, wasi doesn't have the necessary constants
+    #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
     fn lockf(
         _io::Fildes(fd): _io::Fildes,
