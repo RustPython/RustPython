@@ -207,6 +207,28 @@ pub enum FutureFeatureErrorKind {
     InvalidBraces,
 }
 
+/// Classify one imported name like CPython's future_check_features.
+pub(crate) fn future_alias_flags(
+    name: &str,
+) -> Result<bytecode::CodeFlags, FutureFeatureErrorKind> {
+    let feature = name
+        .try_into()
+        .map_err(FutureFeatureErrorKind::InvalidFeature)?;
+    Ok(match feature {
+        FutureFeature::Braces => return Err(FutureFeatureErrorKind::InvalidBraces),
+        FutureFeature::Annotations => bytecode::CodeFlags::FUTURE_ANNOTATIONS,
+        FutureFeature::BarryAsFLUFL => bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL,
+        FutureFeature::AbsoluteImport
+        | FutureFeature::Division
+        | FutureFeature::GeneratorStop
+        | FutureFeature::Generators
+        | FutureFeature::NestedScopes
+        | FutureFeature::PrintFunction
+        | FutureFeature::UnicodeLiterals
+        | FutureFeature::WithStatement => bytecode::CodeFlags::empty(),
+    })
+}
+
 pub fn checked_future_features(
     module: &ast::Mod,
 ) -> Result<bytecode::CodeFlags, FutureFeatureError> {
@@ -235,42 +257,14 @@ pub fn checked_future_features_in_body(
                 ..
             }) if *level == 0 && module.as_ref().map(|id| id.as_str()) == Some("__future__") => {
                 for alias in names {
-                    let future_feature =
-                        alias
-                            .name
-                            .as_str()
-                            .try_into()
-                            .map_err(|name| FutureFeatureError {
-                                features: future_features,
-                                range: alias.range,
-                                kind: FutureFeatureErrorKind::InvalidFeature(name),
-                            })?;
-
-                    match future_feature {
-                        FutureFeature::Braces => {
-                            return Err(FutureFeatureError {
-                                features: future_features,
-                                range: alias.range,
-                                kind: FutureFeatureErrorKind::InvalidBraces,
-                            });
+                    let flags = future_alias_flags(alias.name.as_str()).map_err(|kind| {
+                        FutureFeatureError {
+                            features: future_features,
+                            range: alias.range,
+                            kind,
                         }
-                        FutureFeature::Annotations => {
-                            future_features.insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS)
-                        }
-                        FutureFeature::BarryAsFLUFL => {
-                            future_features.insert(bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL)
-                        }
-                        FutureFeature::AbsoluteImport
-                        | FutureFeature::Division
-                        | FutureFeature::GeneratorStop
-                        | FutureFeature::Generators
-                        | FutureFeature::NestedScopes
-                        | FutureFeature::PrintFunction
-                        | FutureFeature::UnicodeLiterals
-                        | FutureFeature::WithStatement => {
-                            // Python 3 features. They are already implemented by default.
-                        }
-                    }
+                    })?;
+                    future_features |= flags;
                 }
             }
             _ => return Ok(future_features),
