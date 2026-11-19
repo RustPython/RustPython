@@ -1497,11 +1497,10 @@ pub(crate) mod _elementtree {
         if element.class().is(PyElement::class(&vm.ctx)) {
             check_element(&child, vm)?;
             element.downcast_ref::<PyElement>().unwrap().push(child);
-            Ok(())
         } else {
             vm.call_method(element, "append", (child,))?;
-            Ok(())
         }
+        Ok(())
     }
 
     /// Attach the buffered character data to `element` as its text or tail.

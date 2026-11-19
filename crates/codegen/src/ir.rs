@@ -1537,9 +1537,7 @@ impl Block {
             "CPython basicblock_addop requires 0 <= oparg < (1 << 30)"
         );
         let off = self.basicblock_next_instr()?;
-        let except_handler = self.instructions[off].except_handler;
         info.target = BlockIdx::NULL;
-        info.except_handler = except_handler;
         self.instructions[off] = info;
         Ok(())
     }
@@ -3229,7 +3227,7 @@ impl Blocks {
             target: BlockIdx::NULL,
             location: loc_source.location,
             end_location: loc_source.end_location,
-            except_handler: None,
+            except_handler: loc_source.except_handler,
             semantic_location: loc_source.semantic_location,
             lineno_override: loc_source.lineno_override,
         })?;
@@ -3327,7 +3325,7 @@ impl Blocks {
                 target: BlockIdx::NULL,
                 location: last_ins.location,
                 end_location: last_ins.end_location,
-                except_handler: None,
+                except_handler: last_ins.except_handler,
                 semantic_location: last_ins.semantic_location,
                 lineno_override: last_ins.lineno_override,
             };
@@ -3358,7 +3356,7 @@ impl Blocks {
             target: BlockIdx::NULL,
             location: loc,
             end_location: end_loc,
-            except_handler: None,
+            except_handler: last_ins.except_handler,
             semantic_location: last_ins.semantic_location,
             lineno_override: last_ins.lineno_override,
         })?;
@@ -4949,28 +4947,16 @@ fn eval_const_complex_binop(
 
     let value = match op {
         BinOp::Add => left + right,
-        BinOp::Subtract => {
-            let re = left.re - right.re;
-            // Preserve signed-zero behavior for real-zero
-            // minus zero-complex expressions such as `0 - 0j`.
-            let im = if left.re == 0.0
-                && left.im == 0.0
-                && right.re == 0.0
-                && right.im == 0.0
-                && !right.im.is_sign_negative()
-            {
-                -0.0
-            } else {
-                left.im - right.im
-            };
+        BinOp::Subtract => left - right,
+        BinOp::Multiply => {
+            let (re, im) =
+                rustpython_literal::complex::multiply((left.re, left.im), (right.re, right.im));
             Complex::new(re, im)
         }
-        BinOp::Multiply => left * right,
         BinOp::TrueDivide => {
-            if right == Complex::new(0.0, 0.0) {
-                return None;
-            }
-            left / right
+            let (re, im) =
+                rustpython_literal::complex::divide((left.re, left.im), (right.re, right.im))?;
+            Complex::new(re, im)
         }
         BinOp::Power => {
             if left == Complex::new(0.0, 0.0) {
@@ -4997,7 +4983,48 @@ fn eval_const_complex_binop(
         }
         _ => return None,
     };
-    eval_const_complex_const(value)
+    if matches!(op, BinOp::Power) {
+        eval_const_complex_const(value)
+    } else {
+        Some(ConstantData::Complex { value })
+    }
+}
+
+// Python keeps real/complex operands distinct; coercing the real operand to
+// a zero-imaginary complex changes signed zeros and nonfinite multiplication.
+fn eval_const_mixed_complex_binop(
+    real: f64,
+    value: Complex<f64>,
+    real_left: bool,
+    op: oparg::BinaryOperator,
+) -> Option<ConstantData> {
+    use oparg::BinaryOperator as BinOp;
+    let result = match op {
+        BinOp::Add if real_left => Complex::new(real + value.re, value.im),
+        BinOp::Add => Complex::new(value.re + real, value.im),
+        BinOp::Subtract if real_left => Complex::new(real - value.re, -value.im),
+        BinOp::Subtract => Complex::new(value.re - real, value.im),
+        BinOp::Multiply if real_left => Complex::new(real * value.re, real * value.im),
+        BinOp::Multiply => Complex::new(value.re * real, value.im * real),
+        BinOp::TrueDivide if real_left => {
+            let (re, im) = rustpython_literal::complex::real_divide(real, (value.re, value.im))?;
+            Complex::new(re, im)
+        }
+        BinOp::TrueDivide => {
+            if real == 0.0 {
+                return None;
+            }
+            Complex::new(value.re / real, value.im / real)
+        }
+        _ => {
+            return if real_left {
+                eval_const_complex_binop(Complex::new(real, 0.0), value, op)
+            } else {
+                eval_const_complex_binop(value, Complex::new(real, 0.0), op)
+            };
+        }
+    };
+    Some(ConstantData::Complex { value: result })
 }
 
 /// flowgraph.c eval_const_binop subscript index conversion
@@ -5315,16 +5342,26 @@ fn eval_const_binop(
             )
         }
         (ConstantData::Integer { value: l }, ConstantData::Complex { value: r }) => {
-            eval_const_complex_binop(Complex::new(l.to_f64()?, 0.0), *r, op)
+            eval_const_mixed_complex_binop(
+                l.to_f64().filter(|value| value.is_finite())?,
+                *r,
+                true,
+                op,
+            )
         }
         (ConstantData::Complex { value: l }, ConstantData::Integer { value: r }) => {
-            eval_const_complex_binop(*l, Complex::new(r.to_f64()?, 0.0), op)
+            eval_const_mixed_complex_binop(
+                r.to_f64().filter(|value| value.is_finite())?,
+                *l,
+                false,
+                op,
+            )
         }
         (ConstantData::Float { value: l }, ConstantData::Complex { value: r }) => {
-            eval_const_complex_binop(Complex::new(*l, 0.0), *r, op)
+            eval_const_mixed_complex_binop(*l, *r, true, op)
         }
         (ConstantData::Complex { value: l }, ConstantData::Float { value: r }) => {
-            eval_const_complex_binop(*l, Complex::new(*r, 0.0), op)
+            eval_const_mixed_complex_binop(*r, *l, false, op)
         }
         (ConstantData::Complex { value: l }, ConstantData::Complex { value: r }) => {
             eval_const_complex_binop(*l, *r, op)
@@ -7790,30 +7827,36 @@ mod tests {
         blocks.normalize_jumps_in_block(BlockIdx::new(0)).unwrap();
         let not_taken = &blocks[0].instructions[1];
         assert_eq!(not_taken.instr.real_opcode(), Some(Opcode::NotTaken));
-        assert_eq!(not_taken.except_handler, None);
+        assert_eq!(not_taken.except_handler, Some(handler));
     }
 
     #[test]
-    fn basicblock_addop_reuses_cpython_spare_except_handler_slot() {
-        let handler = ExceptHandlerInfo {
+    fn basicblock_addop_overwrites_spare_exception_handler() {
+        let stale = ExceptHandlerInfo {
             handler_block: BlockIdx::new(7),
             preserve_lasti: true,
         };
-        let mut block = Block::default();
-        let mut stale = test_instr(Instruction::Nop, 11);
-        stale.except_handler = Some(handler);
-        test_block_push(&mut block, stale);
-        block.basicblock_clear();
+        let replacement = ExceptHandlerInfo {
+            handler_block: BlockIdx::new(8),
+            preserve_lasti: false,
+        };
+        for new_handler in [None, Some(replacement)] {
+            let mut block = Block::default();
+            let mut old = test_instr(Instruction::Nop, 11);
+            old.except_handler = Some(stale);
+            test_block_push(&mut block, old);
+            block.basicblock_clear();
 
-        block
-            .basicblock_addop(test_instr(Instruction::PopTop, 12))
-            .expect("basicblock_addop succeeds");
+            let mut new = test_instr(Instruction::PopTop, 12);
+            new.except_handler = new_handler;
+            block
+                .basicblock_addop(new)
+                .expect("basicblock_addop succeeds");
 
-        // CPython `basicblock_addop()` writes opcode/oparg/target/location into
-        // the reused `b_instr[b_iused]` slot, but does not clear `i_except`.
-        assert_eq!(block.instruction_used, 1);
-        assert_eq!(block.instructions[0].except_handler, Some(handler));
-        assert_eq!(block.instructions[0].target, BlockIdx::NULL);
+            assert_eq!(block.instruction_used, 1);
+            assert_eq!(block.instructions[0].except_handler, new_handler);
+            assert_eq!(block.instructions[0].target, BlockIdx::NULL);
+        }
     }
 
     #[test]
@@ -7856,64 +7899,6 @@ mod tests {
         // the provided instruction copy, including its `i_except` value.
         assert_eq!(block.instruction_used, 2);
         assert_eq!(block.instructions[0].except_handler, None);
-    }
-
-    #[test]
-    fn basicblock_clear_preserves_cpython_spare_slots() {
-        let handler = ExceptHandlerInfo {
-            handler_block: BlockIdx::new(3),
-            preserve_lasti: true,
-        };
-        let mut block = Block::default();
-        let mut stale = test_instr(Instruction::PopTop, 31);
-        stale.except_handler = Some(handler);
-        test_block_push(&mut block, stale);
-
-        block.basicblock_clear();
-        block
-            .basicblock_addop(test_instr(Instruction::Nop, 32))
-            .expect("basicblock_addop succeeds");
-
-        // CPython `remove_unreachable()` sets `b_iused = 0` without clearing the
-        // backing `b_instr` slot. A later `basicblock_addop()` reuses that slot
-        // and does not overwrite `i_except`.
-        assert_eq!(block.instruction_used, 1);
-        assert_eq!(block.instructions[0].except_handler, Some(handler));
-    }
-
-    #[test]
-    fn basicblock_clear_reuses_cpython_spare_slots_in_offset_order() {
-        let mut block = Block::default();
-        for i in 0..3 {
-            let mut stale = test_instr(Instruction::Nop, 35 + i);
-            stale.except_handler = Some(ExceptHandlerInfo {
-                handler_block: BlockIdx::new(i + 1),
-                preserve_lasti: false,
-            });
-            test_block_push(&mut block, stale);
-        }
-
-        block.basicblock_clear();
-        for i in 0..3 {
-            block
-                .basicblock_addop(test_instr(Instruction::PopTop, 38 + i))
-                .expect("basicblock_addop succeeds");
-        }
-
-        let handlers = block
-            .used_instructions()
-            .iter()
-            .map(|instr| {
-                instr
-                    .except_handler
-                    .expect("reused CPython slot")
-                    .handler_block
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            handlers,
-            [BlockIdx::new(1), BlockIdx::new(2), BlockIdx::new(3)]
-        );
     }
 
     #[test]

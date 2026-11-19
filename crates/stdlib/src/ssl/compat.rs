@@ -744,6 +744,24 @@ pub(super) fn ssl_write(
     data: &[u8],
     vm: &VirtualMachine,
 ) -> SslResult<usize> {
+    if !socket.is_bio_mode() {
+        return ssl_write_chunk(socket, data, vm);
+    }
+
+    // MemoryBIO accepts the complete ciphertext. Keep rustls' bounded record
+    // buffer, but do not expose its internal partial writes to SSLObject users:
+    // CPython does not enable SSL_MODE_ENABLE_PARTIAL_WRITE. In particular,
+    // asyncio would otherwise repeatedly copy the remaining plaintext suffix.
+    let mut written = 0;
+    while written < data.len() {
+        // A message callback from the previous chunk can initiate shutdown.
+        socket.check_write_state(vm).map_err(SslError::Py)?;
+        written += ssl_write_chunk(socket, &data[written..], vm)?;
+    }
+    Ok(written)
+}
+
+fn ssl_write_chunk(socket: &Py<PySSLSocket>, data: &[u8], vm: &VirtualMachine) -> SslResult<usize> {
     if data.is_empty() {
         return Ok(0);
     }

@@ -897,8 +897,8 @@ def outer():
     }
 
     #[test]
-    fn with_cleanup_excludes_not_taken() {
-        // The NOT_TAKEN after the with body is outside the exception table entries.
+    fn with_cleanup_covers_not_taken() {
+        // The synthetic NOT_TAKEN shares the conditional jump's cleanup handler.
         assert_dis_snapshot!(
             positions: r#"
 def f(c):

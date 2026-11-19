@@ -3,10 +3,14 @@
 pub(crate) use module::module_def;
 
 pub use rustpython_host_env::posix::set_inheritable;
+#[cfg(target_os = "linux")]
+mod xattr;
 
 #[pymodule(name = "posix", with(
     super::os::_os,
     super::posix_unix_like::_posix_unix_like,
+    #[cfg(target_os = "linux")]
+    xattr::_xattr,
     #[cfg(any(
         target_os = "linux",
         target_os = "netbsd",

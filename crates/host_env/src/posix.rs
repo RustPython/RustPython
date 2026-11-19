@@ -14,6 +14,8 @@ pub use super::posix_unix_like::*;
 pub use crate::os::{AccessMode, F_OK, R_OK, W_OK, X_OK};
 
 pub use libc::{c_char, pid_t};
+#[cfg(target_os = "linux")]
+pub mod xattr;
 
 // CPython caps subprocess extra_groups using NGROUPS_MAX from the target
 // headers, not sysconf(_SC_NGROUPS_MAX). These are the verified header values;

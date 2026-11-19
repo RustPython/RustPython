@@ -105,6 +105,161 @@ pub fn parse_str(s: &str) -> Option<(f64, f64)> {
     Some(value)
 }
 
+type ComplexParts = (f64, f64);
+
+const fn parts(re: f64, im: f64) -> ComplexParts {
+    (re, im)
+}
+
+/// Only the magnitude of an infinite part matters once a product has gone to
+/// nan, so it stands in as a signed one; a nan beside it stands in as a
+/// signed zero.
+fn signed_unit(part: f64) -> f64 {
+    if part.is_infinite() { 1.0 } else { 0.0f64 }.copysign(part)
+}
+
+fn tamed(value: ComplexParts) -> ComplexParts {
+    parts(signed_unit(value.0), signed_unit(value.1))
+}
+
+fn nans_to_zero(value: ComplexParts) -> ComplexParts {
+    let zeroed = |part: f64| {
+        if part.is_nan() {
+            0.0f64.copysign(part)
+        } else {
+            part
+        }
+    };
+    parts(zeroed(value.0), zeroed(value.1))
+}
+
+/// Multiply, recovering the infinities that the plain formula turns into nan,
+/// the way C11 Annex G.5.1 does.
+#[inline]
+#[must_use]
+pub fn multiply(a: ComplexParts, b: ComplexParts) -> ComplexParts {
+    let r = parts(a.0 * b.0 - a.1 * b.1, a.0 * b.1 + a.1 * b.0);
+    if !(r.0.is_nan() && r.1.is_nan()) {
+        return r;
+    }
+
+    // "Box" an infinite operand into a signed one and turn the other's nans
+    // into signed zeros, so that the infinity survives a second pass.
+    let (mut a, mut b) = (a, b);
+    let a_infinite = a.0.is_infinite() || a.1.is_infinite();
+    if a_infinite {
+        a = tamed(a);
+        b = nans_to_zero(b);
+    }
+    let b_infinite = b.0.is_infinite() || b.1.is_infinite();
+    if b_infinite {
+        b = tamed(b);
+        a = nans_to_zero(a);
+    }
+    // An infinity that overflow lost, rather than one an operand carried.
+    let overflowed = !a_infinite
+        && !b_infinite
+        && ((a.0 * b.0).is_infinite()
+            || (a.1 * b.1).is_infinite()
+            || (a.0 * b.1).is_infinite()
+            || (a.1 * b.0).is_infinite());
+    if overflowed {
+        a = nans_to_zero(a);
+        b = nans_to_zero(b);
+    }
+
+    if !(a_infinite || b_infinite || overflowed) {
+        return r;
+    }
+    parts(
+        f64::INFINITY * (a.0 * b.0 - a.1 * b.1),
+        f64::INFINITY * (a.0 * b.1 + a.1 * b.0),
+    )
+}
+
+/// Divide a real by a complex. Written out rather than routed through `quot`
+/// with a zero imaginary part, which would lose the sign of a zero.
+#[inline]
+#[must_use]
+pub fn real_divide(a: f64, b: ComplexParts) -> Option<ComplexParts> {
+    let abs_re = b.0.abs();
+    let abs_im = b.1.abs();
+
+    let r = if abs_re >= abs_im {
+        if abs_re == 0.0 {
+            return None;
+        }
+        let ratio = b.1 / b.0;
+        let denom = b.0 + b.1 * ratio;
+        parts(a / denom, -a * ratio / denom)
+    } else if abs_im >= abs_re {
+        let ratio = b.0 / b.1;
+        let denom = b.0 * ratio + b.1;
+        parts(a * ratio / denom, -a / denom)
+    } else {
+        // One part of the divisor is a nan, so neither comparison held.
+        parts(f64::NAN, f64::NAN)
+    };
+
+    // A quotient that came out as nan recovers the way `recovered_quot` does,
+    // except that a real numerator has no imaginary term to carry a sign.
+    if r.0.is_nan() && r.1.is_nan() && (b.0.is_infinite() || b.1.is_infinite()) && a.is_finite() {
+        let (x, y) = tamed(b);
+        return Some(parts(0.0 * (a * x), 0.0 * -(a * y)));
+    }
+
+    Some(r)
+}
+
+/// Divide by whichever part of the divisor is larger, so that the ratio the
+/// other part is scaled by cannot overflow. `None` stands for a divisor of
+/// zero.
+#[inline]
+#[must_use]
+pub fn divide(a: ComplexParts, b: ComplexParts) -> Option<ComplexParts> {
+    let abs_re = b.0.abs();
+    let abs_im = b.1.abs();
+
+    let r = if abs_re >= abs_im {
+        if abs_re == 0.0 {
+            return None;
+        }
+        let ratio = b.1 / b.0;
+        let denom = b.0 + b.1 * ratio;
+        parts((a.0 + a.1 * ratio) / denom, (a.1 - a.0 * ratio) / denom)
+    } else if abs_im >= abs_re {
+        let ratio = b.0 / b.1;
+        let denom = b.0 * ratio + b.1;
+        parts((a.0 * ratio + a.1) / denom, (a.1 * ratio - a.0) / denom)
+    } else {
+        // One part of the divisor is a nan, so neither comparison held.
+        parts(f64::NAN, f64::NAN)
+    };
+
+    Some(recovered_quot(r, a, b))
+}
+
+/// Recover the infinities and zeros a quotient came out of as nan, the way
+/// C11 Annex G.5.2 does.
+fn recovered_quot(r: ComplexParts, a: ComplexParts, b: ComplexParts) -> ComplexParts {
+    if !(r.0.is_nan() && r.1.is_nan()) {
+        return r;
+    }
+
+    if (a.0.is_infinite() || a.1.is_infinite()) && b.0.is_finite() && b.1.is_finite() {
+        let (x, y) = tamed(a);
+        parts(
+            f64::INFINITY * (x * b.0 + y * b.1),
+            f64::INFINITY * (y * b.0 - x * b.1),
+        )
+    } else if (b.0.is_infinite() || b.1.is_infinite()) && a.0.is_finite() && a.1.is_finite() {
+        let (x, y) = tamed(b);
+        parts(0.0 * (a.0 * x + a.1 * y), 0.0 * (a.1 * x - a.0 * y))
+    } else {
+        r
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,3 +295,5 @@ mod tests {
         assert_eq!(parse_str("abc"), None);
     }
 }
+
+// Shared runtime/compiler arithmetic, with no Python object ownership.

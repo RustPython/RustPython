@@ -63,11 +63,11 @@ impl PathConverter {
     }
 
     /// Format a type error message
-    fn type_error_msg(&self, type_name: &str, allow_fd: bool) -> String {
-        let expected = if allow_fd {
-            "string, bytes, os.PathLike or integer"
-        } else {
-            "string, bytes or os.PathLike"
+    fn type_error_msg(&self, type_name: &str, allow_fd: bool, nullable: bool) -> String {
+        let expected = match (allow_fd, nullable) {
+            (true, false) => "string, bytes, os.PathLike or integer",
+            (true, true) => "string, bytes, os.PathLike, integer or None",
+            (false, _) => "string, bytes or os.PathLike",
         };
         format!(
             "{}{} should be {}, not {}",
@@ -101,8 +101,18 @@ impl PathConverter {
         allow_fd: bool,
         vm: &VirtualMachine,
     ) -> PyResult<OsPath> {
+        self.try_pathlike_with_nullable(obj, allow_fd, false, vm)
+    }
+
+    pub(crate) fn try_pathlike_with_nullable(
+        &self,
+        obj: PyObjectRef,
+        allow_fd: bool,
+        nullable: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<OsPath> {
         // Call __fspath__
-        let type_error_msg = || self.type_error_msg(&obj.class().name(), allow_fd);
+        let type_error_msg = || self.type_error_msg(&obj.class().name(), allow_fd, nullable);
         let method =
             vm.get_method_or_type_error(obj.clone(), identifier!(vm, __fspath__), type_error_msg)?;
         if vm.is_none(&method) {
@@ -113,8 +123,7 @@ impl PathConverter {
         // Match __fspath__ result
         self.try_match_str_bytes(result.clone(), vm)?.map_err(|_| {
             vm.new_type_error(format!(
-                "{}expected {}.__fspath__() to return str or bytes, not {}",
-                self.error_prefix(),
+                "expected {}.__fspath__() to return str or bytes, not {}",
                 obj.class().name(),
                 result.class().name(),
             ))

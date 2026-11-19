@@ -204,6 +204,8 @@ pub(crate) mod _signal {
                 // SAFETY: Trust `SignalNum::VALID_RANGE`
                 let signum = unsafe { SignalNum::new_unchecked(signum) };
 
+                signal::INTERRUPT_IGNORED[signum.as_usize()]
+                    .store(is_default || is_ignored, Ordering::Relaxed);
                 let signal_handlers = &vm.state.signal_handlers;
                 let _old_handler =
                     core::mem::replace(&mut signal_handlers.lock()[signum], py_handler);
@@ -223,6 +225,38 @@ pub(crate) mod _signal {
                 // to replace, even when installing Python's default handlers.
                 signal(SignalNum::SIGINT.into(), int_handler, vm)
                     .expect("Failed to set sigint handler");
+            }
+        }
+    }
+
+    /// CPython's _PySignal_Fini: disable native callbacks before user objects
+    /// are collected, but allow simulated interrupts to report missing handlers.
+    #[cfg(any(unix, windows, target_os = "wasi"))]
+    pub(crate) fn finalize_signal_handlers(vm: &VirtualMachine) {
+        if !vm.state.is_main_interpreter() {
+            return;
+        }
+        for raw in SignalNum::VALID_RANGE {
+            // SAFETY: The range excludes invalid signal table indices.
+            let signum = unsafe { SignalNum::new_unchecked(raw) };
+            signal::TRIGGERS[signum.as_usize()].store(false, Ordering::Relaxed);
+            let handler = {
+                let mut handlers = vm.state.signal_handlers.lock();
+                signal::INTERRUPT_IGNORED[signum.as_usize()].store(false, Ordering::Relaxed);
+                handlers[signum].take()
+            };
+            if let Some(handler) = handler {
+                if !vm.is_none(&handler) && handler_disposition(&handler, vm).is_none() {
+                    let default = cfg_select! {
+                        target_os = "wasi" => host_signal::Handler::Default,
+                        _ => SIG_DFL,
+                    };
+                    // SAFETY: Only dispositions installed by Python are reset.
+                    let _ = unsafe { host_signal::install_handler(raw, default) };
+                }
+                // A destructor may register another handler. Do not hold the
+                // table lock or overwrite its disposition after dropping it.
+                drop(handler);
             }
         }
     }
@@ -300,7 +334,14 @@ pub(crate) mod _signal {
             .map_err(|err| err.into_pyexception(vm))?;
 
         let signal_handlers = &vm.state.signal_handlers;
-        let old_handler = signal_handlers.lock()[signalnum].replace(handler);
+        let old_handler = {
+            let mut handlers = signal_handlers.lock();
+            signal::INTERRUPT_IGNORED[signalnum.as_usize()].store(
+                handler_disposition(&handler, vm).is_some(),
+                Ordering::Relaxed,
+            );
+            handlers[signalnum].replace(handler)
+        };
         Ok(old_handler)
     }
 

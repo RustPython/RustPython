@@ -346,7 +346,6 @@ pub fn symlink(
             if src.len() >= max_path {
                 return false;
             }
-            resolved.extend_from_slice(src);
         } else {
             let separator_len = usize::from(!parent.is_empty());
             if parent.len() + separator_len + src.len() >= max_path {
@@ -356,8 +355,8 @@ pub fn symlink(
             if !parent.is_empty() {
                 resolved.push(b'\\' as u16);
             }
-            resolved.extend_from_slice(src);
         }
+        resolved.extend_from_slice(src);
         resolved.push(0);
 
         let mut info: WIN32_FILE_ATTRIBUTE_DATA = unsafe { core::mem::zeroed() };

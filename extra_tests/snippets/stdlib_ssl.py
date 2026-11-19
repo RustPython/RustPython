@@ -143,6 +143,16 @@ assert client.write(saved_write) == len(saved_write)
 server_in.write(client_out.read())
 assert server.read(len(saved_write)) == saved_write
 
+# SSLObject writes complete the input even when rustls has a smaller internal
+# record buffer. Exposing partial writes makes asyncio copy large suffixes.
+payload = b"bio complete write" * 4096
+assert client.write(payload) == len(payload)
+server_in.write(client_out.read())
+received = bytearray()
+while len(received) < len(payload):
+    received.extend(server.read(len(payload) - len(received)))
+assert received == payload
+
 try:
     server.unwrap()
 except ssl.SSLWantReadError:

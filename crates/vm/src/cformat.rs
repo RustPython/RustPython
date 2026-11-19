@@ -427,7 +427,10 @@ impl<'a> FormatValues<'a> {
         let converted = if precision {
             value_int.as_bigint().to_i32().map(|value| value as isize)
         } else {
-            value_int.as_bigint().to_isize()
+            value_int
+                .as_bigint()
+                .to_isize()
+                .filter(|&width| width != isize::MIN)
         };
         converted.ok_or_else(|| {
             arg.overflow_error(
@@ -650,11 +653,8 @@ fn cformat<S: FormatOutput>(
             if width < 0 {
                 flags.insert(CConversionFlags::LEFT_ADJUST);
             }
-            // Negating PY_SSIZE_T_MIN leaves a negative width in CPython,
-            // which imposes no padding requirement.
-            min_field_width = Some(CFormatQuantity::Amount(
-                width.checked_abs().unwrap_or(0) as usize
-            ));
+            // star() rejects isize::MIN before negating a negative width.
+            min_field_width = Some(CFormatQuantity::Amount(width.unsigned_abs()));
         }
         let mut precision =
             parse_precision(&mut characters).map_err(|(error, _)| parse_error(vm, error, start))?;
