@@ -3796,22 +3796,6 @@ fn instruction_sequence_label_map_resolve_label(
     })
 }
 
-fn instruction_sequence_label_map_resolve_label_to_block(
-    map: &InstructionSequenceLabelMap,
-    label: InstructionSequenceLabel,
-) -> BlockIdx {
-    if !is_label(label) {
-        return BlockIdx::NULL;
-    }
-    instruction_sequence_label_map_block_for_label(map, label).unwrap_or_else(|| {
-        debug_assert!(
-            false,
-            "CPython instruction-sequence label must map to a codegen CFG block"
-        );
-        BlockIdx::NULL
-    })
-}
-
 fn instruction_sequence_label_oparg(label: InstructionSequenceLabel) -> OpArg {
     debug_assert!(is_label(label));
     OpArg::new(label.idx() as u32)
@@ -3989,25 +3973,8 @@ impl CodeInfo {
         instruction_sequence_use_label(&mut self.instr_sequence, label)
     }
 
-    pub(crate) fn mark_cpython_cfg_label(&mut self, block: BlockIdx) -> crate::InternalResult<()> {
-        let label = instruction_sequence_label_map_ensure_label_for_block(
-            &mut self.instr_sequence_label_map,
-            &mut self.instr_sequence,
-            block,
-        )?;
-        self.blocks[block].cpython_label = label;
-        Ok(())
-    }
-
     pub(crate) fn resolve_instr_sequence_label(&self, block: BlockIdx) -> BlockIdx {
         instruction_sequence_label_map_resolve_label(&self.instr_sequence_label_map, block)
-    }
-
-    pub(crate) fn block_for_instr_sequence_label(
-        &self,
-        label: InstructionSequenceLabel,
-    ) -> BlockIdx {
-        instruction_sequence_label_map_resolve_label_to_block(&self.instr_sequence_label_map, label)
     }
 
     pub(crate) fn use_instr_sequence_label_at_block(

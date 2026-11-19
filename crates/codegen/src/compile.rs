@@ -11794,15 +11794,12 @@ impl<'warnings> Compiler<'warnings> {
         let source = self.source_file.to_source_code();
         let location = source.source_location(range.start(), PositionEncoding::Utf8);
         let end_location = source.source_location(range.end(), PositionEncoding::Utf8);
-        let target = self
-            .current_code_info()
-            .block_for_instr_sequence_label(target_label);
         self.maybe_start_cpython_cfg_addop_block();
         self.push_emitted_instruction_with_target_label(
             ir::InstructionInfo {
                 instr,
                 arg: OpArg::NULL,
-                target,
+                target: BlockIdx::NULL,
                 location,
                 end_location,
                 except_handler: None,
@@ -12681,7 +12678,7 @@ impl<'warnings> Compiler<'warnings> {
             && code.blocks[block.idx()].next == BlockIdx::NULL;
 
         if !can_reuse_current {
-            let result = code.mark_cpython_cfg_label(block);
+            let result = code.instr_sequence_label_for_block(block);
             unwrap_internal(self, result);
             self.switch_to_block(block);
             return;
@@ -12694,7 +12691,9 @@ impl<'warnings> Compiler<'warnings> {
             debug_assert_eq!(target.start_depth, ir::START_DEPTH_UNSET);
             debug_assert!(!target.cold);
         }
-        let result = code.mark_cpython_cfg_label(cur);
+        // Reserve the canonical block's sequence label before aliasing this
+        // target. The real CFG will get its labels from the sequence offsets.
+        let result = code.instr_sequence_label_for_block(cur);
         unwrap_internal(self, result);
 
         let result = self
