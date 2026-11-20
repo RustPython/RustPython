@@ -826,13 +826,9 @@ mod tests {
 
     #[test]
     fn build_time_paths_follow_configured_paths_and_zip() {
-        for layout in [
-            Layout::Legacy,
-            #[cfg(not(windows))]
-            Layout::Tagged,
-        ] {
-            check_build_time_paths_follow_configured_paths_and_zip(layout);
-        }
+        check_build_time_paths_follow_configured_paths_and_zip(Layout::Legacy);
+        #[cfg(not(windows))]
+        check_build_time_paths_follow_configured_paths_and_zip(Layout::Tagged);
     }
 
     fn check_build_time_paths_follow_configured_paths_and_zip(layout: Layout) {
