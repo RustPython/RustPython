@@ -211,19 +211,6 @@ impl Py<PyModule> {
             if let Some(deferred) =
                 attr.downcast_ref_if_exact::<crate::lazy_import::PyLazyImport>(vm)
             {
-                if name.to_str() != Some("__getattr__")
-                    && let Some(getattr) = crate::lazy_import::resolved_dict_item(
-                        &self.dict(),
-                        identifier!(vm, __getattr__),
-                        vm,
-                    )?
-                {
-                    match getattr.call((name.to_owned(),), vm) {
-                        Ok(value) => return Ok(value),
-                        Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
-                        Err(exc) => return Err(exc),
-                    }
-                }
                 if suppress_cycle && crate::lazy_import::is_resolving(deferred, vm) {
                     return Err(vm.new_attribute_error(format!("module has no attribute '{name}'")));
                 }
