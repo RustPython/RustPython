@@ -1785,6 +1785,44 @@ class _CtypesTypeIdentityTests(_unittest.TestCase):
         function = Prototype(ctypes.cast(callback, ctypes.c_void_p).value)
         self.assertEqual(function(), 19)
 
+    @_unittest.skipUnless(
+        _sys.implementation.name == "rustpython",
+        "RustPython prevents slice::from_raw_parts NULL pointer panic",
+    )
+    def test_from_address_null_raises_value_error(self):
+        with self.assertRaisesRegex(ValueError, "NULL pointer access"):
+            ctypes.c_int.from_address(0)
+
+        with self.assertRaisesRegex(ValueError, "NULL pointer access"):
+            ctypes.c_char.from_address(0)
+
+        with self.assertRaisesRegex(ValueError, "NULL pointer access"):
+            ctypes.c_void_p.from_address(0)
+
+        with self.assertRaisesRegex(ValueError, "NULL pointer access"):
+            ctypes.POINTER(ctypes.c_int).from_address(0)
+
+        with self.assertRaisesRegex(ValueError, "NULL pointer access"):
+            (ctypes.c_int * 3).from_address(0)
+
+        class S(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_int)]
+
+        with self.assertRaisesRegex(ValueError, "NULL pointer access"):
+            S.from_address(0)
+
+        class U(ctypes.Union):
+            _fields_ = [("x", ctypes.c_int)]
+
+        with self.assertRaisesRegex(ValueError, "NULL pointer access"):
+            U.from_address(0)
+
+        with self.assertRaisesRegex(TypeError, "abstract class"):
+            ctypes.Structure.from_address(0)
+
+        with self.assertRaisesRegex(TypeError, "abstract class"):
+            ctypes.Union.from_address(0)
+
 
 for _identity_test_name in _CtypesTypeIdentityTests.__dict__:
     if _identity_test_name.startswith("test_"):

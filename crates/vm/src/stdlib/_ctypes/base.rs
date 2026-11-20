@@ -1374,10 +1374,15 @@ impl PyCData {
     /// Create from external memory address
     ///
     /// # Safety
+    /// `ptr` must be non-null and valid for `size` bytes for the lifetime of returned PyCData.
     /// The returned slice's 'static lifetime is a lie.
     /// Actually only valid for the lifetime of the memory pointed to by ptr.
     /// PyCData_AtAddress
     pub unsafe fn at_address(ptr: *const u8, size: usize) -> Self {
+        debug_assert!(
+            !ptr.is_null(),
+            "PyCData::at_address requires non-null pointer"
+        );
         // = PyCData_AtAddress
         // SAFETY: Caller must ensure ptr is valid for the lifetime of returned PyCData
         let slice = unsafe { rustpython_host_env::ctypes::borrow_memory(ptr, size) };
@@ -3301,6 +3306,15 @@ impl Py<PyCData> {
 
         if size == 0 {
             return Err(vm.new_type_error("abstract class"));
+        }
+
+        if address == 0 {
+            return Err(vm.new_value_error("NULL pointer access"));
+        }
+
+        let addr = address as usize;
+        if addr.checked_add(size).is_none() {
+            return Err(vm.new_overflow_error("address overflow"));
         }
 
         // PyCData_AtAddress
