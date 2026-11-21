@@ -4070,6 +4070,19 @@ impl ExecutingFrame<'_> {
                         }
                     }
 
+                    #[cold]
+                    fn contextualize_observer_error(
+                        exception: PyBaseExceptionRef,
+                        vm: &VirtualMachine,
+                    ) -> PyBaseExceptionRef {
+                        // A callback can fail while binding its arguments, before
+                        // any Python frame has established the exception chain.
+                        if exception.traceback().is_none() && exception.__context__().is_none() {
+                            vm.contextualize_exception(&exception);
+                        }
+                        exception
+                    }
+
                     // Check if this is a RERAISE instruction
                     // Both AnyInstruction::Raise { kind: Reraise/ReraiseFromStack } and
                     // AnyInstruction::Reraise are reraise operations that should not add
@@ -4130,7 +4143,7 @@ impl ExecutingFrame<'_> {
                             let exc_obj: PyObjectRef = exception.clone().into();
                             match monitoring::fire_raise(vm, self.code, offset, &exc_obj) {
                                 Ok(()) => exception,
-                                Err(monitor_exc) => monitor_exc,
+                                Err(monitor_exc) => contextualize_observer_error(monitor_exc, vm),
                             }
                         } else {
                             exception
@@ -4142,7 +4155,7 @@ impl ExecutingFrame<'_> {
                     let exception = if !is_reraise {
                         match self.fire_exception_trace(&exception, vm) {
                             Ok(()) => exception,
-                            Err(trace_exc) => trace_exc,
+                            Err(trace_exc) => contextualize_observer_error(trace_exc, vm),
                         }
                     } else {
                         exception
