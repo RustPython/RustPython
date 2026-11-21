@@ -34,7 +34,7 @@ mod builtins {
     use itertools::Itertools;
     use num_complex::Complex64;
     use num_traits::{Signed, ToPrimitive};
-    use rustpython_common::wtf8::CodePoint;
+    use rustpython_common::wtf8::{CodePoint, wtf8_concat};
 
     #[cfg(not(feature = "rustpython-compiler"))]
     const CODEGEN_NOT_SUPPORTED: &str =
@@ -431,7 +431,7 @@ mod builtins {
         #[pyarg(any, optional)]
         globals: Option<PyObjectRef>,
         #[pyarg(any, optional)]
-        locals: Option<ArgMapping>,
+        locals: Option<PyObjectRef>,
     }
 
     /// `_PyEval_EnsureBuiltins`
@@ -454,75 +454,88 @@ mod builtins {
         }
     }
 
-    impl ScopeArgs {
-        fn make_scope(
-            self,
-            vm: &VirtualMachine,
-            func_name: &'static str,
-        ) -> PyResult<crate::scope::Scope> {
-            fn validate_globals_dict(
-                globals: &PyObject,
-                vm: &VirtualMachine,
-                func_name: &'static str,
-            ) -> PyResult<()> {
-                if !globals.fast_isinstance(vm.ctx.types.dict_type)
-                    && !globals.fast_isinstance(vm.ctx.types.frozendict_type)
-                {
-                    return Err(match func_name {
-                        "eval" => {
-                            let is_mapping = globals.mapping_unchecked().check();
-                            vm.new_type_error(if is_mapping {
-                                "globals must be a real dict or a frozendict; try eval(expr, {}, mapping)"
-                            } else {
-                                "globals must be a dict or a frozendict"
-                            })
-                        }
-                        "exec" => vm.new_type_error(format!(
-                            "exec() globals must be a dict or a frozendict, not {}",
-                            globals.class().name()
-                        )),
-                        _ => vm.new_type_error("globals must be a dict or a frozendict"),
-                    });
-                }
-                Ok(())
-            }
+    #[derive(Clone, Copy)]
+    enum ScopeKind {
+        Eval,
+        Exec,
+    }
 
-            let (globals, locals) = match self.globals {
-                Some(globals) => {
-                    validate_globals_dict(&globals, vm, func_name)?;
-
-                    let globals = PyRef::<PyAnyDict>::try_from_object(vm, globals)?;
-                    (
-                        globals.clone(),
-                        self.locals
-                            .unwrap_or_else(|| ArgMapping::from_anydict_exact(globals.clone())),
-                    )
+    impl ScopeKind {
+        fn globals(self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyAnyDict>> {
+            let obj = match obj.downcast::<crate::builtins::PyDict>() {
+                Ok(dict) => return Ok(dict.into()),
+                Err(obj) => obj,
+            };
+            let obj = match obj.downcast::<crate::builtins::PyFrozenDict>() {
+                Ok(dict) => return Ok(dict.into()),
+                Err(obj) => obj,
+            };
+            let message = match self {
+                Self::Eval if obj.mapping_unchecked().check() => {
+                    return Err(vm.new_type_error(
+                        "globals must be a real dict or a frozendict; try eval(expr, {}, mapping)",
+                    ));
                 }
-                None => (
-                    vm.current_globals(),
-                    if let Some(locals) = self.locals {
-                        locals
-                    } else {
-                        vm.current_locals()?
-                    },
+                Self::Eval => {
+                    return Err(vm.new_type_error("globals must be a dict or a frozendict"));
+                }
+                Self::Exec => wtf8_concat!(
+                    "exec() globals must be a dict or a frozendict, not ",
+                    obj.class().fully_qualified_name(vm)?,
                 ),
+            };
+            Err(vm.new_type_error(message))
+        }
+
+        fn locals(self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<ArgMapping> {
+            if obj.mapping_unchecked().check() {
+                return Ok(ArgMapping::new(obj));
+            }
+            Err(match self {
+                Self::Eval => vm.new_type_error("locals must be a mapping"),
+                Self::Exec => {
+                    let name = obj.class().slot_name();
+                    let name = &name[..name.floor_char_boundary(name.len().min(100))];
+                    vm.new_type_error(format!("locals must be a mapping or None, not {name}"))
+                }
+            })
+        }
+    }
+
+    impl ScopeArgs {
+        fn make_scope(self, vm: &VirtualMachine, kind: ScopeKind) -> PyResult<crate::scope::Scope> {
+            let Self { globals, locals } = self;
+            let explicit_globals = globals.is_some();
+            let convert_globals = || globals.map(|obj| kind.globals(obj, vm)).transpose();
+            let convert_locals = || locals.map(|obj| kind.locals(obj, vm)).transpose();
+            // eval checks locals first; exec checks globals first.
+            let (globals, locals) = match kind {
+                ScopeKind::Eval => {
+                    let locals = convert_locals()?;
+                    (convert_globals()?, locals)
+                }
+                ScopeKind::Exec => (convert_globals()?, convert_locals()?),
+            };
+            let globals = globals.unwrap_or_else(|| vm.current_globals());
+            let locals = match locals {
+                Some(locals) => locals,
+                None if explicit_globals => ArgMapping::from_anydict_exact(globals.clone()),
+                None => vm.current_locals()?,
             };
 
             ensure_builtins(&globals, vm)?;
-
-            let scope = crate::scope::Scope::new(Some(locals), globals);
-            Ok(scope)
+            Ok(crate::scope::Scope::new(Some(locals), globals))
         }
     }
 
     #[derive(FromArgs)]
     struct ExecArgs {
         #[pyarg(positional)]
-        source: Either<PyRef<crate::builtins::PyCode>, ArgStrOrBytesLike>,
+        source: PyObjectRef,
         #[pyarg(any, optional)]
         globals: Option<PyObjectRef>,
         #[pyarg(any, optional)]
-        locals: Option<ArgMapping>,
+        locals: Option<PyObjectRef>,
         #[pyarg(named, optional)]
         closure: Option<PyObjectRef>,
     }
@@ -570,17 +583,26 @@ mod builtins {
             })
     }
 
-    #[pyfunction]
-    fn eval(
-        source: Either<PyRef<crate::builtins::PyCode>, ArgStrOrBytesLike>,
-        scope: ScopeArgs,
+    fn eval_exec_text_source(
+        source: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult {
-        let scope = scope.make_scope(vm, "eval")?;
+        func_name: &str,
+    ) -> PyResult<ArgStrOrBytesLike> {
+        ArgStrOrBytesLike::try_from_object(vm, source).map_err(|_| {
+            vm.new_type_error(format!(
+                "{func_name}() arg 1 must be a string, bytes or code object"
+            ))
+        })
+    }
 
-        // source as string
-        let code = match source {
-            Either::B(either) => {
+    #[pyfunction]
+    fn eval(source: PyObjectRef, scope: ScopeArgs, vm: &VirtualMachine) -> PyResult {
+        let scope = scope.make_scope(vm, ScopeKind::Eval)?;
+
+        // Convert the source only after the scope has been prepared, as in CPython.
+        let code = match source.downcast::<crate::builtins::PyCode>() {
+            Err(source) => {
+                let either = eval_exec_text_source(source, vm, "eval")?;
                 let source = match &either {
                     ArgStrOrBytesLike::Str(source) => {
                         let source = source.try_as_utf8(vm)?.as_str();
@@ -609,7 +631,7 @@ mod builtins {
                 };
                 Ok(Either::B(vm.ctx.new_utf8_str(source)))
             }
-            Either::A(code) => Ok(Either::A(code)),
+            Ok(code) => Ok(Either::A(code)),
         }?;
         run_code(vm, code, scope, crate::compiler::Mode::Eval, "eval", None)
     }
@@ -622,14 +644,15 @@ mod builtins {
             locals,
             closure,
         } = args;
-        let scope = ScopeArgs { globals, locals }.make_scope(vm, "exec")?;
-        let (source, closure) = match source {
-            Either::B(either) => {
+        let scope = ScopeArgs { globals, locals }.make_scope(vm, ScopeKind::Exec)?;
+        let (source, closure) = match source.downcast::<crate::builtins::PyCode>() {
+            Err(source) => {
                 if closure.is_some() {
                     return Err(
                         vm.new_type_error("closure can only be used when source is a code object")
                     );
                 }
+                let either = eval_exec_text_source(source, vm, "exec")?;
                 let source = match &either {
                     ArgStrOrBytesLike::Str(source) => {
                         let source = source.try_as_utf8(vm)?.as_str();
@@ -656,7 +679,7 @@ mod builtins {
                 };
                 (Either::B(vm.ctx.new_utf8_str(source)), None)
             }
-            Either::A(code) => {
+            Ok(code) => {
                 let closure = exec_closure(&code, closure, vm)?;
                 (Either::A(code), closure)
             }
