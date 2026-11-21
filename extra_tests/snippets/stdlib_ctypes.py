@@ -1828,13 +1828,10 @@ class _CtypesTypeIdentityTests(_unittest.TestCase):
         "RustPython rejects array length exceeding isize::MAX",
     )
     def test_array_length_exceeding_slice_limit_rejected(self):
-        class ArraySubclass(ctypes.Array):
-            pass
-
         with self.assertRaises(OverflowError):
             type(
                 "BigArray",
-                (ArraySubclass,),
+                (ctypes.Array,),
                 {"_type_": ctypes.c_char, "_length_": _sys.maxsize + 1},
             )
 
