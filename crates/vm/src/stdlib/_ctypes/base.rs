@@ -1381,7 +1381,7 @@ impl PyCData {
     /// PyCData_AtAddress
     pub unsafe fn at_address(ptr: *const u8, size: usize) -> Self {
         debug_assert!(
-            !ptr.is_null() && size <= isize::MAX as usize,
+            !ptr.is_null() && isize::try_from(size).is_ok(),
             "PyCData::at_address requires non-null pointer and size <= isize::MAX"
         );
         // = PyCData_AtAddress
@@ -3309,7 +3309,7 @@ impl Py<PyCData> {
             return Err(vm.new_type_error("abstract class"));
         }
 
-        if size > isize::MAX as usize {
+        if isize::try_from(size).is_err() {
             return Err(vm.new_overflow_error("size too large"));
         }
 
@@ -3343,7 +3343,7 @@ impl Py<PyCData> {
             return Err(vm.new_type_error("abstract class"));
         }
 
-        if size > isize::MAX as usize {
+        if isize::try_from(size).is_err() {
             return Err(vm.new_overflow_error("size too large"));
         }
 
