@@ -2198,6 +2198,10 @@ pub(crate) fn init_module(
     builtins: &Py<PyModule>,
 ) -> PyResult<()> {
     module.__init_methods(vm)?;
+    let _ = vm
+        .state
+        .sysdict_copy
+        .set(module.dict().copy().into_ref(&vm.ctx));
     sys::module_exec(vm, module)?;
     // These values decode OS bytes and can fail before the codec registry is ready.
     // Initialize them outside infallible #[pyattr] functions so startup can report errors.
@@ -2211,6 +2215,7 @@ pub(crate) fn init_module(
     )?;
 
     let modules = vm.ctx.new_dict();
+    let _ = vm.state.modules.set(modules.clone());
     modules
         .set_item("sys", module.to_owned().into(), vm)
         .unwrap();

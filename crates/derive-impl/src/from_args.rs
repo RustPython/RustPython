@@ -568,7 +568,7 @@ fn signature_default(field: &Field, attr: &ArgAttribute) -> Result<TokenStream> 
         } else if is_float_ty(ty) {
             quote!(#repr::Raw("0.0"))
         } else {
-            quote!(#repr::Unrepresentable)
+            quote!(#repr::Unknown)
         };
         return Ok(quote!(Some(#value)));
     }
@@ -629,7 +629,9 @@ enum FromArgsMode {
     Borrowed,
 }
 
-fn parse_from_args_attr(attrs: &[Attribute]) -> Result<FromArgsMode> {
+fn parse_from_args_attr(
+    attrs: &[Attribute],
+) -> Result<(FromArgsMode, Option<crate::text_signature::TextSignature>)> {
     let mut found = None;
     for attr in attrs {
         if !attr.path().is_ident("from_args") {
@@ -641,14 +643,22 @@ fn parse_from_args_attr(attrs: &[Attribute]) -> Result<FromArgsMode> {
         found = Some(attr);
     }
     let Some(attr) = found else {
-        return Ok(FromArgsMode::Owned);
+        return Ok((FromArgsMode::Owned, None));
     };
 
+    let mut text_signature = None;
     let mut borrowed = false;
     let mut legacy = false;
     let mut fname = None;
     attr.parse_nested_meta(|meta| {
-        if meta.path.is_ident("borrowed") {
+        if meta.path.is_ident("text_signature") {
+            if text_signature.is_some() { return Err(meta.error("duplicate `text_signature`")); }
+            let value = meta.value()?.parse::<syn::LitStr>()?;
+            let signature = crate::text_signature::TextSignature::parse(value.value(), value.span())?;
+            signature.validate_receiver(None, value.span())?;
+            text_signature = Some(signature);
+            Ok(())
+        } else if meta.path.is_ident("borrowed") {
             if borrowed {
                 return Err(meta.error("duplicate `borrowed`"));
             }
@@ -669,12 +679,12 @@ fn parse_from_args_attr(attrs: &[Attribute]) -> Result<FromArgsMode> {
             Ok(())
         } else {
             Err(meta.error(
-                "unknown #[from_args] key; expected `borrowed`, `legacy`, or `fname = \"...\"`",
+                "unknown #[from_args] key; expected `text_signature`, `borrowed`, `legacy`, or `fname = \"...\"`",
             ))
         }
     })?;
 
-    match (borrowed, legacy, fname) {
+    let mode = match (borrowed, legacy, fname) {
         (true, false, None) => Ok(FromArgsMode::Borrowed),
         (false, true, Some(fname)) => Ok(FromArgsMode::Legacy(LegacyFromArgs { fname })),
         (true, _, _) => Err(err_span!(
@@ -689,11 +699,13 @@ fn parse_from_args_attr(attrs: &[Attribute]) -> Result<FromArgsMode> {
             attr,
             "#[from_args(fname = \"...\")] requires `legacy`"
         )),
+        (false, false, None) if text_signature.is_some() => Ok(FromArgsMode::Owned),
         (false, false, None) => Err(err_span!(
             attr,
             "#[from_args] requires `legacy` and fname = \"...\""
         )),
-    }
+    }?;
+    Ok((mode, text_signature))
 }
 
 fn field_pyname(field: &Field, attr: &ArgAttribute) -> Result<String> {
@@ -788,7 +800,11 @@ fn compute_arity_bounds(field_attrs: &[ArgAttribute]) -> (usize, usize) {
     (min_arity, max_arity)
 }
 
-fn impl_borrowed_from_args(input: &DeriveInput, fields: &syn::Fields) -> Result<TokenStream> {
+fn impl_borrowed_from_args(
+    input: &DeriveInput,
+    fields: &syn::Fields,
+    text_signature: TokenStream,
+) -> Result<TokenStream> {
     let lifetimes = input.generics.lifetimes().collect::<Vec<_>>();
     if lifetimes.len() != 1 || input.generics.params.len() != 1 {
         bail_span!(
@@ -883,6 +899,7 @@ fn impl_borrowed_from_args(input: &DeriveInput, fields: &syn::Fields) -> Result<
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     Ok(quote! {
         impl #impl_generics ::rustpython_vm::function::ArgsMetadata for #name #ty_generics #where_clause {
+            #text_signature
             const DISPLAY_PARAMS: ::core::option::Option<&'static [::rustpython_vm::function::Param]> =
                 Some(&[#(#params),*]);
         }
@@ -904,12 +921,27 @@ fn impl_borrowed_from_args(input: &DeriveInput, fields: &syn::Fields) -> Result<
 }
 
 pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
-    let legacy = match parse_from_args_attr(&input.attrs)? {
+    let (mode, signature) = parse_from_args_attr(&input.attrs)?;
+    let text_signature = signature.map_or_else(TokenStream::new, |signature| {
+        let text = signature.text.clone();
+        let params = signature.params_tokens();
+        let validator = signature.validator();
+        quote! {
+            const TEXT_SIGNATURE: Option<&'static str> = {
+                #validator(
+                    &[::rustpython_vm::function::SigArg::from_arg::<Self>("")],
+                    &[#(#params),*],
+                );
+                Some(#text)
+            };
+        }
+    });
+    let legacy = match mode {
         FromArgsMode::Borrowed => {
             let Data::Struct(data) = &input.data else {
                 bail_span!(input, "FromArgs input must be a struct");
             };
-            return impl_borrowed_from_args(&input, &data.fields);
+            return impl_borrowed_from_args(&input, &data.fields, text_signature);
         }
         FromArgsMode::Legacy(legacy) => Some(legacy),
         FromArgsMode::Owned => None,
@@ -1027,6 +1059,7 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
     };
     Ok(quote! {
         impl #impl_generics ::rustpython_vm::function::FromArgs for #name #ty_generics #where_clause {
+            #text_signature
             const PARAMS: Option<&'static [::rustpython_vm::function::Param]> =
                 Some(&[#(#params),*]);
 
@@ -1062,6 +1095,45 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_text_signature_is_checked_on_the_argument_spec() {
+        let input = parse_quote! {
+            #[from_args(text_signature = "(value[, end], /)")]
+            struct Args {
+                #[pyarg(positional)] value: u32,
+                #[pyarg(positional, default)] end: Option<u32>,
+            }
+        };
+        let tokens = impl_from_args(input).unwrap().to_string();
+        assert!(tokens.contains("const TEXT_SIGNATURE"));
+        assert!(tokens.contains("validate_text_signature"));
+        assert!(tokens.contains("SigArg :: from_arg :: < Self >"));
+        assert!(tokens.contains("(value[, end], /)"));
+        for input in [
+            parse_quote! { #[from_args(text_signature = "($self, value, /)")] struct Args { value: u32 } },
+            parse_quote! { #[from_args(text_signature = "(value, /)", text_signature = "(value, /)")] struct Args { value: u32 } },
+        ] {
+            assert!(impl_from_args(input).is_err());
+        }
+    }
+
+    #[test]
+    fn unspecified_rust_default_is_not_a_declared_omission() {
+        let default = impl_from_args(parse_quote! {
+            struct Args { #[pyarg(any, default)] value: CustomDefault }
+        })
+        .unwrap()
+        .to_string();
+        assert!(default.contains("DefaultRepr :: Unknown"));
+        let optional = impl_from_args(parse_quote! {
+            struct Args { #[pyarg(any, optional)] value: OptionalArg<PyObjectRef> }
+        })
+        .unwrap()
+        .to_string();
+        assert!(optional.contains("OptionalArgDefault"));
+        assert!(!optional.contains("DefaultRepr :: Unknown"));
+    }
 
     #[test]
     fn borrowed_codegen_uses_one_binding_and_no_owners() {

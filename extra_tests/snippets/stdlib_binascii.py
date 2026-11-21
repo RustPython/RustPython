@@ -79,6 +79,18 @@ for function in (binascii.a2b_base32, binascii.a2b_base64):
     assert "\n  padded\n" in function.__doc__
 assert "Set to True by default if ignorechars is specified" in dec_b64.__doc__
 
+# Flags are converted by truth value, not by type.
+assert binascii.a2b_qp(b"a_b", None) == b"a_b"
+assert binascii.a2b_qp(b"a_b", "x") == b"a b"
+assert binascii.b2a_qp(b"a b\t\n", None) == b"a b=09\n"
+assert binascii.b2a_qp(b"a b\t\n", "x") == b"a=20b=09\n"
+assert binascii.b2a_qp(b"a\nb", False, None) == b"a=0Ab"
+assert binascii.b2a_qp(b"a\nb", False, "x") == b"a\nb"
+assert binascii.b2a_qp(b"a b", False, True, None) == b"a b"
+assert binascii.b2a_qp(b"a b", False, True, "x") == b"a_b"
+assert binascii.b2a_uu(b"", backtick=None) == b" \n"
+assert binascii.b2a_uu(b"", backtick="x") == b"`\n"
+
 # A Python-visible module argument must not be mistaken for a bound receiver.
 import _imp
 import sys

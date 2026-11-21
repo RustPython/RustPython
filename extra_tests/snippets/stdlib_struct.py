@@ -43,6 +43,15 @@ data = struct.pack("B1B", 65, 66)
 with assert_raises(Exception):
     struct.pack("<IH", "14", 12)
 
+with assert_raises(struct.error):
+    struct.pack("d", "a")
+
+with assert_raises(struct.error):
+    struct.pack("<f", None)
+
+with assert_raises(struct.error):
+    struct.pack("e", "a")
+
 assert struct.calcsize("B") == 1
 # assert struct.calcsize("<L4B") == 12
 

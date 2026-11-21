@@ -602,7 +602,6 @@ class BugsTestCase(unittest.TestCase):
                     self.assertEqual(sorted(map(repr, new)),
                                      sorted(map(repr, sample)))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler does not fold this complex constant set
     def test_unorderable_set_items_in_code(self):
         # A constant set containing NaNs which are distinct objects.
         # Run in a subprocess: constants of code objects are immortal

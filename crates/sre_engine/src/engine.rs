@@ -1265,11 +1265,60 @@ fn char_loc_ignore(code: u32, c: u32, locale: Locale) -> bool {
 
 fn charset_loc_ignore(set: &[u32], c: u32, locale: Locale) -> bool {
     let lo = locale.lower(c);
-    if charset(set, lo, locale) {
-        return true;
-    }
     let up = locale.upper(c);
-    up != lo && charset(set, up, locale)
+    if lo == up {
+        return charset(set, lo, locale);
+    }
+
+    // Test both cases before applying NEGATE. OR-ing two complete charset
+    // matches would incorrectly accept a character excluded by either case.
+    let mut ok = true;
+    let mut i = 0;
+    while i < set.len() {
+        let Ok(opcode) = SreOpcode::try_from(set[i]) else {
+            break;
+        };
+        match opcode {
+            SreOpcode::FAILURE => return !ok,
+            SreOpcode::LITERAL => {
+                if lo == set[i + 1] || up == set[i + 1] {
+                    return ok;
+                }
+                i += 2;
+            }
+            SreOpcode::CATEGORY => {
+                let Ok(cat_code) = SreCatCode::try_from(set[i + 1]) else {
+                    break;
+                };
+                if category(cat_code, lo, locale) || category(cat_code, up, locale) {
+                    return ok;
+                }
+                i += 2;
+            }
+            SreOpcode::CHARSET => {
+                let bitmap = &set[i + 1..];
+                if (lo < 256 && bitmap[(lo >> 5) as usize] & (1u32 << (lo & 31)) != 0)
+                    || (up < 256 && bitmap[(up >> 5) as usize] & (1u32 << (up & 31)) != 0)
+                {
+                    return ok;
+                }
+                i += 9;
+            }
+            SreOpcode::RANGE => {
+                if (set[i + 1] <= lo && lo <= set[i + 2]) || (set[i + 1] <= up && up <= set[i + 2])
+                {
+                    return ok;
+                }
+                i += 3;
+            }
+            SreOpcode::NEGATE => {
+                ok = !ok;
+                i += 1;
+            }
+            _ => break,
+        }
+    }
+    false
 }
 
 fn category(cat_code: SreCatCode, c: u32, locale: Locale) -> bool {

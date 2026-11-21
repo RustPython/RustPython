@@ -21,9 +21,9 @@ mod builtins {
         bytecode,
         common::hash::PyHash,
         function::{
-            ArgCallable, ArgIndex, ArgIntoBool, ArgMapping, ArgSpec, ArgStrOrBytesLike,
-            ArgumentError, Either, FromArgs, FsPath, FuncArgs, KwArgs, NameObjects, OptionalArg,
-            Param, PosArgs,
+            ArgCallable, ArgIndex, ArgIntoBool, ArgMapping, ArgNulFreeStr, ArgSpec,
+            ArgStrOrBytesLike, ArgumentError, Either, FromArgs, FsPath, FuncArgs, KwArgs,
+            NameObjects, OptionalArg, Param, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -116,11 +116,8 @@ mod builtins {
     #[allow(dead_code)]
     struct CompileArgs {
         source: PyObjectRef,
-        // Resolved to FsPath at the start of compile() so that bytearray /
-        // memoryview / other buffer-protocol objects raise TypeError, matching
-        // CPython's PyUnicode_FSDecoder (str / bytes / __fspath__ only).
-        filename: PyObjectRef,
-        mode: PyUtf8StrRef,
+        filename: FsPath,
+        mode: ArgNulFreeStr,
         // CPython parity: flags / optimize accept any object with __index__,
         // not just exact int. Matches the argument conversion used by
         // builtin_compile_impl.
@@ -202,11 +199,7 @@ mod builtins {
         }
         #[cfg(feature = "ast")]
         {
-            // CPython parity: PyUnicode_FSDecoder accepts only str / bytes /
-            // __fspath__-bearing objects. Reject buffer-protocol types like
-            // bytearray and memoryview that would otherwise pass through
-            // `FsPath::TryFromObject`'s permissive fallback.
-            let filename = FsPath::try_from_path_like(args.filename, true, vm)?;
+            let filename = args.filename;
 
             use crate::{class::PyClassImpl, stdlib::_ast};
 

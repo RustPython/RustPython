@@ -34,6 +34,11 @@ for bad in (3, 4, 99, 255, 256, 1000, -2, -99, -128):
 # vs C int) — checking the type only, matching test_compile.py.
 assert_raises(OverflowError, compile, "x = 1", "<test>", "exec", optimize=1 << 1000)
 
+# A null character in `mode` is rejected before `flags` is converted, and
+# after `filename` is.
+assert_raises(ValueError, compile, "x = 1", "<test>", "ex\x00ec", {})
+assert_raises(TypeError, compile, "x = 1", bytearray(b"<test>"), "ex\x00ec")
+
 
 # Unrecognised `flags` bits raise ValueError. CPython uses British spelling
 # ("unrecognised") so the message must match exactly.

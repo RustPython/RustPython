@@ -2255,23 +2255,9 @@ pub(crate) mod _asyncio {
                 task.base.fut_state.store(FutureState::Finished);
                 *task.base.fut_result.write() = Some(result);
             }
-            PyTask::schedule_callbacks(task, vm)?;
-            _unregister_task(
-                TaskArg {
-                    task: task.to_owned().into(),
-                },
-                vm,
-            )?;
         } else if is_cancelled_error(&exc, vm) {
             task.base.fut_state.store(FutureState::Cancelled);
             *task.base.fut_cancelled_exc.write() = Some(exc.clone().into());
-            PyTask::schedule_callbacks(task, vm)?;
-            _unregister_task(
-                TaskArg {
-                    task: task.to_owned().into(),
-                },
-                vm,
-            )?;
         } else {
             task.base.fut_state.store(FutureState::Finished);
             // Save the original traceback for later restoration
@@ -2279,14 +2265,14 @@ pub(crate) mod _asyncio {
             *task.base.fut_exception_tb.write() = tb;
             *task.base.fut_exception.write() = Some(exc.clone().into());
             task.base.fut_log_tb.store(true, Ordering::Relaxed);
-            PyTask::schedule_callbacks(task, vm)?;
-            _unregister_task(
-                TaskArg {
-                    task: task.to_owned().into(),
-                },
-                vm,
-            )?;
         }
+        PyTask::schedule_callbacks(task, vm)?;
+        _unregister_task(
+            TaskArg {
+                task: task.to_owned().into(),
+            },
+            vm,
+        )?;
 
         // Re-raise KeyboardInterrupt and SystemExit after storing in task
         if should_reraise {

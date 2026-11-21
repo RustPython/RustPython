@@ -194,7 +194,7 @@ mod _csv {
         name: PyObjectRef,
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "($module, name, /, dialect='excel', **fmtparams)")]
     fn register_dialect(name: PyObjectRef, opts: DialectArg, vm: &VirtualMachine) -> PyResult<()> {
         let name = name
             .downcast::<PyStr>()
@@ -202,6 +202,7 @@ mod _csv {
 
         let dialect = opts.result(vm)?;
         validate_dialect(vm, &dialect)?;
+        name.as_object().hash(vm)?;
         GLOBAL_HASHMAP
             .lock()
             .insert(name.as_wtf8().to_owned(), dialect);
@@ -209,15 +210,11 @@ mod _csv {
         Ok(())
     }
 
-    // Hash a non-str name as the dict lookup would; only str names are registered.
+    // Hash the name as the dict lookup would; only str names are registered.
     fn registry_key(name: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        match name.downcast::<PyStr>() {
-            Ok(name) => Ok(name),
-            Err(obj) => {
-                obj.hash(vm)?;
-                Err(new_csv_error(vm, "unknown dialect"))
-            }
-        }
+        name.hash(vm)?;
+        name.downcast::<PyStr>()
+            .map_err(|_| new_csv_error(vm, "unknown dialect"))
     }
 
     #[pyfunction]
@@ -276,7 +273,7 @@ mod _csv {
         }
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "($module, iterable, /, dialect='excel', **fmtparams)")]
     fn reader(iterable: PyIter, options: DialectArg, vm: &VirtualMachine) -> PyResult<Reader> {
         let dialect = options.result(vm)?;
         Ok(Reader {
@@ -290,7 +287,7 @@ mod _csv {
         })
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "($module, fileobj, /, dialect='excel', **fmtparams)")]
     fn writer(fileobj: PyObjectRef, options: DialectArg, vm: &VirtualMachine) -> PyResult<Writer> {
         let write = match vm.get_attribute_opt(&fileobj, "write")? {
             Some(write) if write.is_callable() => write,

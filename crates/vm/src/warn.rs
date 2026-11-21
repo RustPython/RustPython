@@ -147,7 +147,7 @@ fn get_warnings_attr(
             Err(e) => return Err(e),
         }
     } else {
-        let Ok(modules) = vm.sys_module.get_attr(identifier!(vm, modules), vm) else {
+        let Some(modules) = vm.state.modules.get() else {
             return Ok(None);
         };
         match modules.get_item(vm.ctx.intern_str("warnings"), vm) {

@@ -90,7 +90,7 @@ impl PyClassMethod {
 
 #[pyclass(
     with(GetDescriptor, Constructor, Initializer, Representable),
-    flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
+    flags(BASETYPE, HAS_DICT)
 )]
 impl Py<PyClassMethod> {
     #[pygetset]

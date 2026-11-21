@@ -16,6 +16,9 @@ mod fcntl {
     };
     use rustpython_host_env::io::is_interrupted_error;
 
+    #[cfg(not(target_os = "wasi"))]
+    use std::os::fd::BorrowedFd;
+
     fn retry_on_eintr<T, E: ToPyException>(
         vm: &VirtualMachine,
         mut call: impl FnMut() -> Result<T, E>,
@@ -320,11 +323,13 @@ mod fcntl {
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn flock(_io::Fildes(fd): _io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult<()> {
+        // SAFETY: fd's owner isn't dropped before flock ends.
+        let fd = unsafe { BorrowedFd::borrow_raw(fd) };
         // LOCK_EX without LOCK_NB waits for whoever holds the lock, which may
         // be for good.
         retry_on_eintr(
             vm,
-            || host_fcntl::flock(fd, operation),
+            || host_fcntl::flock(&fd, operation),
             is_interrupted_error,
         )?;
         Ok(())

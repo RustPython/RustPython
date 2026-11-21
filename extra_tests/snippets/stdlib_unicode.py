@@ -131,6 +131,8 @@ assert unicodedata.normalize("NFC", decomposed) == composed
 assert unicodedata.normalize("NFD", composed) == decomposed
 assert unicodedata.is_normalized("NFC", composed)
 assert not unicodedata.is_normalized("NFD", composed)
+assert unicodedata.normalize("X", "") == ""
+assert unicodedata.is_normalized("X", "") is True
 
 # --- \N{} escapes (compiler) ---------------------------------------------
 

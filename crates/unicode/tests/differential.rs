@@ -136,13 +136,11 @@ mod tests {
         if let Some(first) = iter.next() {
             let (mut start, mut end) = (first, first);
             for cp in iter {
-                if cp == end + 1 {
-                    end = cp;
-                } else {
+                if cp != end + 1 {
                     runs.push((start, end));
                     start = cp;
-                    end = cp;
                 }
+                end = cp;
             }
             runs.push((start, end));
         }

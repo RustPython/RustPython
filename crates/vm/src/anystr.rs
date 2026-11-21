@@ -76,6 +76,7 @@ impl ExpandTabsArgs {
 }
 
 #[derive(FromArgs)]
+#[from_args(text_signature = "(prefix[, start[, end]], /)")]
 pub(crate) struct StartsEndsWithArgs {
     #[pyarg(positional)]
     affix: PyObjectRef,
@@ -83,6 +84,13 @@ pub(crate) struct StartsEndsWithArgs {
     start: Option<ArgIndex>,
     #[pyarg(positional, default)]
     end: Option<ArgIndex>,
+}
+
+#[derive(FromArgs)]
+#[from_args(text_signature = "(suffix[, start[, end]], /)")]
+pub(crate) struct EndsWithArgs {
+    #[pyarg(flatten)]
+    pub(crate) inner: StartsEndsWithArgs,
 }
 
 impl StartsEndsWithArgs {

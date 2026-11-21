@@ -11,12 +11,12 @@ use crate::{
     convert::{ToPyObject, TransmuteFromObject},
     function::{Either, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, PySsize},
     iter::PyExactSizeIterator,
-    protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+    protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{OptionalRangeArgs, SequenceExt},
     sliceable::{NameTuple, SequenceIndex, SliceableSequenceOp},
     types::{
-        AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
+        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
         PyComparisonOp, Representable, SelfIter,
     },
     utils::collection_repr,
@@ -553,7 +553,7 @@ impl PyTuple {
 #[pyclass(
     itemsize = core::mem::size_of::<crate::PyObjectRef>(),
     flags(BASETYPE, SEQUENCE, _MATCH_SELF, TUPLE_SUBCLASS),
-    with(AsMapping, AsNumber, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
+    with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
 )]
 impl Py<PyTuple> {
     #[pymethod]
@@ -656,19 +656,6 @@ impl AsSequence for PyTuple {
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
         &AS_SEQUENCE
-    }
-}
-
-impl AsNumber for PyTuple {
-    fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            boolean: Some(|number, _vm| {
-                let zelf = number.obj.downcast_ref::<PyTuple>().unwrap();
-                Ok(!zelf.as_slice().is_empty())
-            }),
-            ..PyNumberMethods::NOT_IMPLEMENTED
-        };
-        &AS_NUMBER
     }
 }
 

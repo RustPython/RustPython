@@ -87,3 +87,11 @@ for name in ("renamed", ""):
     function = types.FunctionType(original.__code__, globals(), name)
     assert function.__name__ == name
     assert function.__qualname__ == "outer.<locals>.nested"
+
+tb = types.TracebackType(
+    tb_next=None, tb_frame=sys._getframe(), tb_lasti=0, tb_lineno=7
+)
+assert tb.tb_next is None
+assert tb.tb_frame is sys._getframe()
+assert tb.tb_lasti == 0
+assert tb.tb_lineno == 7

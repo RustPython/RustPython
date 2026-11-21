@@ -17,7 +17,9 @@ use crate::{
     },
     convert::{ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
-    function::{ArgIndex, ArgIterable, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
+    function::{
+        ArgIndex, ArgIterable, ArgNulFreeStr, FuncArgs, OptionalArg, PyComparisonValue, PySsize,
+    },
     intern::PyInterned,
     object::{MaybeTraverse, TraverseFn},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
@@ -387,32 +389,64 @@ impl IterNext for PyStrIterator {
     }
 }
 
+#[pyclass(module = false, name = "str_ascii_iterator", traverse)]
+#[derive(Debug)]
+pub(crate) struct PyStrAsciiIterator {
+    internal: NativeSequenceIter<PyStrRef>,
+}
+
+impl PyPayload for PyStrAsciiIterator {
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.str_ascii_iterator_type
+    }
+}
+
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
+impl Py<PyStrAsciiIterator> {
+    #[pymethod]
+    fn __length_hint__(&self) -> usize {
+        self.internal.length_hint(|string| string.byte_len())
+    }
+
+    #[pymethod]
+    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.internal
+            .set_state(&object, |string| string.byte_len(), vm)
+    }
+
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let func = builtins_iter(vm)?;
+        Ok(self.internal.reduce(
+            func,
+            |string| string.into(),
+            |vm| vm.ctx.empty_str.to_owned().into(),
+            vm,
+        ))
+    }
+}
+
+impl SelfIter for PyStrAsciiIterator {}
+
+impl IterNext for PyStrAsciiIterator {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        let byte = zelf
+            .internal
+            .next(|string, index| string.as_bytes().get(index).copied());
+        Ok(PyIterReturn::from_result(
+            byte.map(|byte| vm.ctx.latin1_char(byte).into()).ok_or(None),
+        ))
+    }
+}
+
 #[derive(FromArgs)]
 pub struct StrArgs {
     #[pyarg(any, optional)]
     object: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]
-    encoding: OptionalArg<PyObjectRef>,
+    encoding: OptionalArg<ArgNulFreeStr>,
     #[pyarg(any, optional)]
-    errors: OptionalArg<PyObjectRef>,
-}
-
-/// The `encoding` or `errors` argument of `str()`, which must be a str.
-fn str_new_str_arg(
-    arg: OptionalArg<PyObjectRef>,
-    name: &str,
-    vm: &VirtualMachine,
-) -> PyResult<Option<PyUtf8StrRef>> {
-    let OptionalArg::Present(arg) = arg else {
-        return Ok(None);
-    };
-    let arg = arg.downcast::<PyStr>().map_err(|arg| {
-        vm.new_type_error(format!(
-            "str() argument '{name}' must be str, not {}",
-            arg.class().name()
-        ))
-    })?;
-    Ok(Some(arg.try_into_utf8(vm)?))
+    errors: OptionalArg<ArgNulFreeStr>,
 }
 
 impl Constructor for PyStr {
@@ -457,8 +491,8 @@ impl Constructor for PyStr {
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         match args.object {
             OptionalArg::Present(input) => {
-                let encoding = str_new_str_arg(args.encoding, "encoding", vm)?;
-                let errors = str_new_str_arg(args.errors, "errors", vm)?;
+                let encoding = args.encoding.into_option();
+                let errors = args.errors.into_option().map(ArgNulFreeStr::into_utf8_ref);
                 // CPython parity: presence of `encoding` OR `errors` triggers
                 // decode mode. When `errors` is given alone, the encoding
                 // defaults to UTF-8.
@@ -1096,8 +1130,8 @@ impl Py<PyStr> {
     }
 
     #[pymethod]
-    fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        options.matches(
+    fn endswith(&self, options: anystr::EndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        options.inner.matches(
             self.len(),
             "endswith",
             "str",
@@ -1736,6 +1770,12 @@ impl Comparable for PyStr {
 
 impl Iterable for PyStr {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        if zelf.class().is(vm.ctx.types.str_type) && zelf.isascii() {
+            return Ok(PyStrAsciiIterator {
+                internal: NativeSequenceIter::new(zelf, NativeIterKind::Sequence, 0),
+            }
+            .into_pyobject(vm));
+        }
         Ok(PyStrIterator {
             internal: NativeSequenceIter::new(
                 StrIterState {
@@ -1932,6 +1972,7 @@ impl ToPyObject for AsciiChar {
 type SplitArgs = anystr::SplitArgs<PyStrRef>;
 
 #[derive(FromArgs)]
+#[from_args(text_signature = "(sub[, start[, end]], /)")]
 pub(crate) struct FindArgs {
     #[pyarg(positional)]
     sub: PyStrRef,
@@ -1985,6 +2026,7 @@ pub(crate) fn init(ctx: &'static Context) {
         .store(Some(vectorcall_str));
 
     PyStrIterator::extend_class(ctx, ctx.types.str_iterator_type);
+    PyStrAsciiIterator::extend_class(ctx, ctx.types.str_ascii_iterator_type);
 }
 
 impl PyStr {

@@ -117,7 +117,6 @@ mod decl {
 
         vm.audit("marshal.dumps", || (value.clone(), version))?;
 
-        check_exact_type(&value, vm)?;
         let mut buf = Vec::new();
         let mut refs = if version >= 3 {
             Some(WriterRefTable::new())
@@ -240,6 +239,7 @@ mod decl {
         if depth == 0 {
             return Err(vm.new_value_error("object too deeply nested to marshal"));
         }
+        check_exact_type(obj, vm)?;
 
         // Singletons: no FLAG_REF needed
         let is_singleton = vm.is_none(obj)

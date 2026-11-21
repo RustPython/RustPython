@@ -295,7 +295,27 @@ mod _imp {
             return Err(exc.upcast());
         }
 
-        let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+        // CPython reloads core extensions from per-interpreter initialization
+        // snapshots, using the original registry even if sys.modules is rebound.
+        if let Some(snapshot) = match name_str {
+            "sys" => vm.state.sysdict_copy.get(),
+            "builtins" => vm.state.builtins_copy.get(),
+            _ => None,
+        } {
+            if !vm.state.is_main_interpreter()
+                && vm.state.feature_flags.check_multi_interp_extensions
+            {
+                return Err(vm.new_import_error(
+                    format!("module {name_str} does not support loading in subinterpreters"),
+                    name.clone(),
+                ));
+            }
+            let module = crate::import::add_module(vm, name_str)?;
+            module.dict().merge_dict(snapshot, true, vm)?;
+            return Ok(module.into());
+        }
+
+        let sys_modules = vm.sys_modules();
         // Only registered builtins (or the two core modules) may use this cache.
         if let Ok(module) = sys_modules.get_item(&*name, vm) {
             return Ok(module);
@@ -356,7 +376,7 @@ mod _imp {
             return Err(vm.new_value_error("embedded null character".to_owned()));
         }
 
-        let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+        let sys_modules = vm.sys_modules();
         if let Ok(module) = sys_modules.get_item(&*name, vm) {
             return Ok(module);
         }
