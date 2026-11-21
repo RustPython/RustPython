@@ -5,7 +5,7 @@ These are some files to determine performance of rustpython.
 ## Usage
 
 Running `cargo bench` from the root of the repository will start the benchmarks. Once done there will be a graphical
-report under `target/criterion/report/index.html` that you can use use to view the results.
+report under `target/criterion/report/index.html` that you can use to view the results.
 
 `cargo bench` supports name matching to run a subset of the benchmarks. To
 run only the sorted microbenchmark, you can run:
