@@ -2799,6 +2799,7 @@ Invalid expressions in type scopes:
     >>> f(x = 5, *:)
     Traceback (most recent call last):
     SyntaxError: Invalid star expression
+
 Asserts:
 
     >>> assert (a := 1)  # ok
