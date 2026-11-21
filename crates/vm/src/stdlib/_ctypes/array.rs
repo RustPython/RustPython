@@ -276,7 +276,7 @@ impl Initializer for PyCArrayType {
             };
 
         // 6. Check overflow (item_size != 0 && length > MAX / item_size)
-        if item_size != 0 && length > usize::MAX / item_size {
+        if item_size != 0 && length > isize::MAX as usize / item_size {
             return Err(vm.new_overflow_error("array too large"));
         }
 
