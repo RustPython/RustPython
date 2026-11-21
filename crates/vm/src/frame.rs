@@ -4161,13 +4161,19 @@ impl ExecutingFrame<'_> {
                         exception
                     };
 
-                    match self.unwind_blocks(
-                        vm,
-                        UnwindReason::Raising {
-                            exception,
-                            offset: idx as u32,
-                        },
-                    ) {
+                    // Keep instruction unwinding out of the dispatch loop, as
+                    // before traceback preparation moved ahead of callbacks.
+                    #[cold]
+                    #[inline(never)]
+                    fn unwind_instruction_exception(
+                        frame: &mut ExecutingFrame<'_>,
+                        exception: PyBaseExceptionRef,
+                        offset: u32,
+                        vm: &VirtualMachine,
+                    ) -> FrameResult {
+                        frame.unwind_blocks(vm, UnwindReason::Raising { exception, offset })
+                    }
+                    match unwind_instruction_exception(self, exception, idx as u32, vm) {
                         // The handler unwound to a new position, so the next
                         // index is whatever it left in the frame.
                         Ok(None) => next_idx = lasti_cell.load(Relaxed),
