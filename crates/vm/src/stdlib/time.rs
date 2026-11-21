@@ -241,10 +241,21 @@ mod decl {
         host_time::get_tz_info()
     }
 
-    // #[pyfunction]
-    // fn tzset() {
-    //     unsafe { super::_tzset() };
-    // }
+    /// Initialize, or reinitialize, the local timezone to the value stored in
+    /// `os.environ["TZ"]`.
+    #[cfg(unix)]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[pyfunction]
+    fn tzset(vm: &VirtualMachine) -> PyResult<()> {
+        crate::host_env::time::tz::tzset();
+        let module = vm.import("time", 0)?;
+        module.set_attr("timezone", vm.ctx.new_int(timezone(vm)), vm)?;
+        module.set_attr("altzone", vm.ctx.new_int(altzone(vm)), vm)?;
+        #[cfg(not(target_os = "freebsd"))]
+        module.set_attr("daylight", vm.ctx.new_int(daylight(vm)), vm)?;
+        module.set_attr("tzname", tzname(vm), vm)?;
+        Ok(())
+    }
 
     #[cfg(not(target_env = "msvc"))]
     #[cfg(not(target_arch = "wasm32"))]
