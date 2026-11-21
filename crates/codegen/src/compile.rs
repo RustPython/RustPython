@@ -437,9 +437,23 @@ pub fn compile_top_with_syntax_warning_handler<'a>(
 pub fn compile_ast_with_syntax_warning_handler<'a>(
     input: AstInput,
     mode: Mode,
-    mut opts: CompileOpts,
-    mut syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
+    opts: CompileOpts,
+    syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
 ) -> CompileResult<CodeObject> {
+    let mut compiler = lower_ast(input, mode, opts, false, syntax_warning_handler)?;
+    Ok(compiler.exit_scope())
+}
+
+// Like CPython's compiler_setup followed by compiler_codegen, keep the
+// preparation and lowering shared between normal compilation and the
+// codegen test entry point.
+fn lower_ast<'a>(
+    input: AstInput,
+    mode: Mode,
+    mut opts: CompileOpts,
+    save_nested_seqs: bool,
+    mut syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
+) -> CompileResult<Compiler<'a>> {
     let AstInput {
         mut ast,
         source_file,
@@ -499,6 +513,7 @@ pub fn compile_ast_with_syntax_warning_handler<'a>(
         syntax_warning_handler,
     );
     compiler.ast_locations = locations;
+    compiler.save_nested_seqs = save_nested_seqs;
     match ast {
         ast::Mod::Module(module) => {
             let symbols = scan_module_symbols(&module, &source_file, &compiler.opts)?;
@@ -513,7 +528,7 @@ pub fn compile_ast_with_syntax_warning_handler<'a>(
             compiler.compile_eval(&expression, symbols)?;
         }
     }
-    Ok(compiler.exit_scope())
+    Ok(compiler)
 }
 
 /// Unoptimized instruction sequence and the metadata needed by optimize_cfg.
@@ -557,90 +572,10 @@ fn compile_codegen_with_syntax_warning_handler<'a>(
 pub fn compile_codegen_ast<'a>(
     input: AstInput,
     mode: Mode,
-    mut opts: CompileOpts,
-    mut syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
+    opts: CompileOpts,
+    syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
 ) -> CompileResult<CodegenOutput> {
-    let AstInput {
-        mut ast,
-        source_file,
-        mut locations,
-    } = input;
-    opts.future_features |= checked_future_features(&ast, &source_file)?;
-    let future_annotations = opts
-        .future_features
-        .contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
-    if let Some(handler) = syntax_warning_handler.as_deref_mut() {
-        preprocess::warn_control_flow_in_finally(&ast, |range, message| {
-            warn_ast_preprocess_syntax(&source_file, handler, range, message)
-        })?;
-    }
-    let location_error = if matches!(mode, Mode::Single)
-        && let ruff_python_ast::Mod::Module(module) = &mut ast
-    {
-        if let Some(locations) = &mut locations {
-            preprocess::preprocess_statements_with_locations(
-                &mut module.body,
-                opts.optimize,
-                future_annotations,
-                false,
-                locations,
-            )
-        } else {
-            preprocess::preprocess_statements(
-                &mut module.body,
-                opts.optimize,
-                future_annotations,
-                false,
-            );
-            Ok(())
-        }
-    } else if let Some(locations) = &mut locations {
-        preprocess::preprocess_mod_with_locations(
-            &mut ast,
-            opts.optimize,
-            future_annotations,
-            false,
-            locations,
-        )
-    } else {
-        preprocess::preprocess_mod(&mut ast, opts.optimize, future_annotations, false);
-        Ok(())
-    };
-    location_error.map_err(|error| CodegenError {
-        error: CodegenErrorType::AstLocation(error),
-        location: None,
-        end_location: None,
-        source_path: source_file.name().to_owned(),
-    })?;
-
-    let mut compiler = Compiler::new_with_syntax_warning_handler(
-        opts,
-        source_file.clone(),
-        "<module>",
-        syntax_warning_handler,
-    );
-    compiler.ast_locations = locations;
-    compiler.save_nested_seqs = true;
-    match ast {
-        ruff_python_ast::Mod::Module(module) => match mode {
-            Mode::Exec | Mode::Eval => {
-                let symbol_table = scan_module_symbols(&module, &source_file, &compiler.opts)?;
-                compiler.compile_program(&module, symbol_table)?;
-            }
-            Mode::Single => {
-                let symbol_table = scan_module_symbols(&module, &source_file, &compiler.opts)?;
-                compiler.compile_program_single(&module.body, symbol_table)?;
-            }
-            Mode::BlockExpr => {
-                let symbol_table = scan_module_symbols(&module, &source_file, &compiler.opts)?;
-                compiler.compile_block_expr(&module.body, symbol_table)?;
-            }
-        },
-        ruff_python_ast::Mod::Expression(expr) => {
-            let symbol_table = scan_expr_symbols(&expr, &source_file, &compiler.opts)?;
-            compiler.compile_eval(&expr, symbol_table)?;
-        }
-    }
+    let mut compiler = lower_ast(input, mode, opts, true, syntax_warning_handler)?;
 
     let mut unit = compiler
         .code_stack
