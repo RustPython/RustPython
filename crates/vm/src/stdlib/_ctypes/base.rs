@@ -1375,13 +1375,14 @@ impl PyCData {
     ///
     /// # Safety
     /// `ptr` must be non-null and valid for `size` bytes for the lifetime of returned PyCData.
+    /// `size` must not exceed `isize::MAX`.
     /// The returned slice's 'static lifetime is a lie.
     /// Actually only valid for the lifetime of the memory pointed to by ptr.
     /// PyCData_AtAddress
     pub unsafe fn at_address(ptr: *const u8, size: usize) -> Self {
         debug_assert!(
-            !ptr.is_null(),
-            "PyCData::at_address requires non-null pointer"
+            !ptr.is_null() && size <= isize::MAX as usize,
+            "PyCData::at_address requires non-null pointer and size <= isize::MAX"
         );
         // = PyCData_AtAddress
         // SAFETY: Caller must ensure ptr is valid for the lifetime of returned PyCData
@@ -3308,6 +3309,10 @@ impl Py<PyCData> {
             return Err(vm.new_type_error("abstract class"));
         }
 
+        if size > isize::MAX as usize {
+            return Err(vm.new_overflow_error("size too large"));
+        }
+
         if address == 0 {
             return Err(vm.new_value_error("NULL pointer access"));
         }
@@ -3336,6 +3341,10 @@ impl Py<PyCData> {
 
         if size == 0 {
             return Err(vm.new_type_error("abstract class"));
+        }
+
+        if size > isize::MAX as usize {
+            return Err(vm.new_overflow_error("size too large"));
         }
 
         // Get the library handle from dll object

@@ -1823,6 +1823,21 @@ class _CtypesTypeIdentityTests(_unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "abstract class"):
             ctypes.Union.from_address(0)
 
+    @_unittest.skipUnless(
+        _sys.implementation.name == "rustpython",
+        "RustPython rejects array length exceeding isize::MAX",
+    )
+    def test_array_length_exceeding_slice_limit_rejected(self):
+        class ArraySubclass(ctypes.Array):
+            pass
+
+        with self.assertRaises(OverflowError):
+            type(
+                "BigArray",
+                (ArraySubclass,),
+                {"_type_": ctypes.c_char, "_length_": _sys.maxsize + 1},
+            )
+
 
 for _identity_test_name in _CtypesTypeIdentityTests.__dict__:
     if _identity_test_name.startswith("test_"):
