@@ -716,13 +716,13 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             }
             Instruction::LoadGlobal { namei } => {
                 let oparg = namei.get(arg);
-                let name = &bytecode.names[(oparg >> 1) as usize];
+                let name = &bytecode.names[oparg.name_idx()];
 
                 if name.as_ref() != bytecode.obj_name.as_ref() {
                     Err(JitCompileError::NotSupported)
                 } else {
                     self.stack.push(JitValue::FuncRef(func_ref));
-                    if (oparg & 1) != 0 {
+                    if oparg.push_null() {
                         self.stack.push(JitValue::Null);
                     }
                     Ok(())

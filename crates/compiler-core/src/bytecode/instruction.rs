@@ -444,7 +444,7 @@ define_opcodes!(
             namei: Arg<oparg::NameIdx>,
         } = 71,
         ImportName {
-            namei: Arg<oparg::NameIdx>,
+            namei: Arg<oparg::ImportName>,
         } = 72,
         IsOp {
             invert: Arg<oparg::Invert>,
@@ -501,7 +501,7 @@ define_opcodes!(
             i: Arg<oparg::NameIdx>,
         } = 90,
         LoadGlobal {
-            namei: Arg<oparg::NameIdx>,
+            namei: Arg<oparg::LoadGlobal>,
         } = 91,
         LoadName {
             namei: Arg<oparg::NameIdx>,
@@ -717,12 +717,12 @@ define_opcodes!(
         JumpIfFalse { delta: Arg<oparg::Label> } = 258,
         JumpIfTrue { delta: Arg<oparg::Label> } = 259,
         JumpNoInterrupt { delta: Arg<oparg::Label> } = 260,
-        LoadClosure { i: Arg<oparg::NameIdx> } = 261,
+        LoadClosure { i: Arg<oparg::VarNum> } = 261,
         PopBlock = 262,
         SetupCleanup { delta: Arg<oparg::Label> } = 263,
         SetupFinally { delta: Arg<oparg::Label> } = 264,
         SetupWith { delta: Arg<oparg::Label> } = 265,
-        StoreFastMaybeNull { var_num: Arg<oparg::NameIdx> } = 266,
+        StoreFastMaybeNull { var_num: Arg<oparg::VarNum> } = 266,
     }
 );
 

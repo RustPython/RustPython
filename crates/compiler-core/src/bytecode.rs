@@ -27,9 +27,9 @@ pub use crate::bytecode::{
     },
     oparg::{
         BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator, ConvertValueOparg,
-        IntrinsicFunction1, IntrinsicFunction2, Invert, Label, LoadAttr, LoadSuperAttr,
-        MakeFunctionFlag, MakeFunctionFlags, NameIdx, OpArg, OpArgByte, OpArgState, OpArgType,
-        RaiseKind, SpecialMethod, UnpackExArgs,
+        ImportName, IntrinsicFunction1, IntrinsicFunction2, Invert, Label, LoadAttr, LoadGlobal,
+        LoadSuperAttr, MakeFunctionFlag, MakeFunctionFlags, NameIdx, OpArg, OpArgByte, OpArgState,
+        OpArgType, RaiseKind, SpecialMethod, UnpackExArgs,
     },
 };
 
@@ -411,6 +411,60 @@ impl<C: Constant> FromIterator<C> for Constants<C> {
     }
 }
 
+/// Names referenced by a code object (`co_names`), indexed by [`oparg::NameIdx`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Names<N>(Box<[N]>);
+
+impl<N> Names<N> {
+    #[must_use]
+    pub const fn as_slice(&self) -> &[N] {
+        &self.0
+    }
+
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn iter(&self) -> core::slice::Iter<'_, N> {
+        self.0.iter()
+    }
+}
+
+impl<N> Index<oparg::NameIdx> for Names<N> {
+    type Output = N;
+
+    fn index(&self, namei: oparg::NameIdx) -> &Self::Output {
+        &self.0[namei.as_usize()]
+    }
+}
+
+impl<N> From<Box<[N]>> for Names<N> {
+    fn from(names: Box<[N]>) -> Self {
+        Self(names)
+    }
+}
+
+impl<N> FromIterator<N> for Names<N> {
+    fn from_iter<T: IntoIterator<Item = N>>(iter: T) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
+impl<'a, N> IntoIterator for &'a Names<N> {
+    type Item = &'a N;
+    type IntoIter = core::slice::Iter<'a, N>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 // TODO: Newtype "CodeObject.varnames". Make sure only `oparg:VarNum` can be used as index
 impl<T> Index<oparg::VarNum> for [T] {
     type Output = T;
@@ -481,7 +535,7 @@ pub struct CodeObject<C: Constant = ConstantData> {
     /// Qualified name of the object (like CPython's co_qualname)
     pub qualname: C::Name,
     pub constants: Constants<C>,
-    pub names: Box<[C::Name]>,
+    pub names: Names<C::Name>,
     pub varnames: Box<[C::Name]>,
     pub cellvars: Box<[C::Name]>,
     pub freevars: Box<[C::Name]>,
@@ -1364,7 +1418,11 @@ impl<C: Constant> CodeObject<C> {
                 .iter()
                 .map(|x| bag.make_constant(x.borrow_constant()))
                 .collect(),
-            names: map_names(self.names),
+            names: self
+                .names
+                .iter()
+                .map(|x| bag.make_name(x.as_ref()))
+                .collect(),
             varnames: map_names(self.varnames),
             cellvars: map_names(self.cellvars),
             freevars: map_names(self.freevars),
@@ -1396,7 +1454,11 @@ impl<C: Constant> CodeObject<C> {
                 .iter()
                 .map(|x| bag.make_constant(x.borrow_constant()))
                 .collect(),
-            names: map_names(&self.names),
+            names: self
+                .names
+                .iter()
+                .map(|x| bag.make_name(x.as_ref()))
+                .collect(),
             varnames: map_names(&self.varnames),
             cellvars: map_names(&self.cellvars),
             freevars: map_names(&self.freevars),
@@ -1424,7 +1486,7 @@ pub trait InstrDisplayContext {
 
     fn get_constant(&self, consti: oparg::ConstIdx) -> &Self::Constant;
 
-    fn get_name(&self, i: usize) -> &str;
+    fn get_name(&self, namei: oparg::NameIdx) -> &str;
 
     fn get_varname(&self, var_num: oparg::VarNum) -> &str;
 
@@ -1439,8 +1501,8 @@ impl<C: Constant> InstrDisplayContext for CodeObject<C> {
         &self.constants[consti]
     }
 
-    fn get_name(&self, i: usize) -> &str {
-        self.names[i].as_ref()
+    fn get_name(&self, namei: oparg::NameIdx) -> &str {
+        self.names[namei].as_ref()
     }
 
     fn get_varname(&self, var_num: oparg::VarNum) -> &str {
