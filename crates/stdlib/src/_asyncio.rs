@@ -75,6 +75,16 @@ pub(crate) mod _asyncio {
         msg: Option<PyObjectRef>,
     }
 
+    fn cancel_message_delete_error(zelf: &PyObject, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let class = zelf.class();
+        let name = class.slot_name();
+        let end = name.floor_char_boundary(name.len().min(100));
+        vm.new_attribute_error(format!(
+            "attribute '_cancel_message' of '{}' objects cannot be deleted",
+            &name[..end]
+        ))
+    }
+
     #[derive(FromArgs)]
     struct LoopArg {
         #[pyarg(any, optional)]
@@ -735,11 +745,16 @@ pub(crate) mod _asyncio {
         }
 
         #[pygetset(setter)]
-        fn set__cancel_message(zelf: &Py<Self>, value: PySetterValue) {
-            match value {
-                PySetterValue::Assign(v) => *zelf.fut_cancel_msg.write() = Some(v),
-                PySetterValue::Delete => *zelf.fut_cancel_msg.write() = None,
-            }
+        fn set__cancel_message(
+            zelf: &Py<Self>,
+            value: PySetterValue,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let PySetterValue::Assign(value) = value else {
+                return Err(cancel_message_delete_error(zelf.as_object(), vm));
+            };
+            *zelf.fut_cancel_msg.write() = Some(value);
+            Ok(())
         }
 
         #[pygetset]
@@ -1712,11 +1727,16 @@ pub(crate) mod _asyncio {
         }
 
         #[pygetset(setter)]
-        fn set__cancel_message(zelf: &Py<Self>, value: PySetterValue) {
-            match value {
-                PySetterValue::Assign(v) => *zelf.base.fut_cancel_msg.write() = Some(v),
-                PySetterValue::Delete => *zelf.base.fut_cancel_msg.write() = None,
-            }
+        fn set__cancel_message(
+            zelf: &Py<Self>,
+            value: PySetterValue,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let PySetterValue::Assign(value) = value else {
+                return Err(cancel_message_delete_error(zelf.as_object(), vm));
+            };
+            *zelf.base.fut_cancel_msg.write() = Some(value);
+            Ok(())
         }
 
         #[pygetset]
