@@ -333,3 +333,64 @@ for source, offset in [
         )
     else:
         raise AssertionError(source)
+
+
+def match_values(tree):
+    value, mapping = tree.body[0].cases
+    return value.pattern.value, mapping.pattern.keys[0]
+
+
+# Match-only folding also runs at optimization level zero when an optimized AST
+# is requested. Both a source parse and an AST-object input produce constants.
+for pattern, expected in [
+    ("-1", -1),
+    ("-0", 0),
+    ("-9223372036854775808", -(1 << 63)),
+    ("-0x10000000000000001", -((1 << 64) + 1)),
+    ("9223372036854775808+1j", complex(1 << 63, 1)),
+    ("-9223372036854775808-1j", complex(-(1 << 63), -1)),
+    ("0x10000000000000001+2j", complex((1 << 64) + 1, 2)),
+    ("-0.0-0j", complex(-0.0, -0.0)),
+    ("-0j", complex(-0.0, -0.0)),
+]:
+    source = (
+        f"match subject:\n"
+        f"    case {pattern}: matched = 'value'\n"
+        f"    case {{{pattern}: _}}: matched = 'mapping'\n"
+    )
+    plain = compile(source, "<match>", "exec", ast.PyCF_ONLY_AST, optimize=0)
+
+    assert all(isinstance(n, (ast.UnaryOp, ast.BinOp)) for n in match_values(plain))
+    source_result = compile(
+        source, "<match>", "exec", ast.PyCF_OPTIMIZED_AST, optimize=0
+    )
+    object_result = compile(
+        plain, "<match>", "exec", ast.PyCF_OPTIMIZED_AST, optimize=0
+    )
+    for result in (source_result, object_result):
+        for orig, folded in zip(match_values(plain), match_values(result), strict=True):
+            assert isinstance(folded, ast.Constant)
+            assert type(folded.value) is type(expected)
+            if isinstance(expected, complex):
+                assert folded.value.real.hex() == expected.real.hex()
+                assert folded.value.imag.hex() == expected.imag.hex()
+            else:
+                assert folded.value == expected
+            coords = ("lineno", "col_offset", "end_lineno", "end_col_offset")
+            assert all(getattr(folded, k) == getattr(orig, k) for k in coords)
+        for subject, matched in ((expected, "value"), ({expected: 0}, "mapping")):
+            namespace = {"subject": subject}
+            exec(compile(result, "<match>", "exec", optimize=0), namespace)
+            assert namespace["matched"] == matched
+
+# A Python integer too large to convert to double does not turn into infinity
+# in the optimized AST. Only the preceding unary sign can be folded.
+huge = "1" + "0" * 310
+source = f"match subject:\n    case -{huge}+1j: pass\n"
+plain = compile(source, "<match>", "exec", ast.PyCF_ONLY_AST, optimize=0)
+for input_tree in (source, plain):
+    result = compile(input_tree, "<match>", "exec", ast.PyCF_OPTIMIZED_AST, optimize=0)
+    value = result.body[0].cases[0].pattern.value
+    assert isinstance(value, ast.BinOp)
+    assert isinstance(value.left, ast.Constant)
+    assert value.left.value == -int(huge)

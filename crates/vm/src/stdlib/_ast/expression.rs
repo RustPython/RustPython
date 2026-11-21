@@ -278,7 +278,7 @@ impl Node for ast::Expr {
                     &object,
                     range,
                 )?;
-                string::interpolation_to_expr(vm, source_file, interpolation)?
+                string::interpolation_to_expr(vm, interpolation)?
             }
             ExprKind::JoinedStr => {
                 string::joined_str_from_object_with_range(vm, source_file, &object, range)?
@@ -287,11 +287,10 @@ impl Node for ast::Expr {
             ExprKind::TemplateStr => {
                 let template =
                     string::template_str_from_object_with_range(vm, source_file, &object, range)?;
-                string::template_str_to_expr(vm, source_file, template)?
+                string::template_str_to_expr(vm, template)?
             }
             ExprKind::Constant => {
-                constant::constant_from_object_with_range(vm, source_file, &object, range)?
-                    .into_expr()
+                constant::constant_from_object_with_range(vm, &object, range)?.into_expr()
             }
             ExprKind::Attribute => Self::Attribute(expr_attribute_from_object_with_range(
                 vm,
