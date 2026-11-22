@@ -242,7 +242,7 @@ def test_pdb_breakpoint_commands():
     the breakpoint list outputs a tab for the "stop only" and "ignore next"
     lines, which we don't want to put in here.
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     'break 3',
     ...     'break 4, +',
     ...     'disable 1',
@@ -417,7 +417,7 @@ def test_pdb_breakpoint_on_annotated_function_def():
     ...     import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
     ...     pass
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     'break foo',
     ...     'break bar',
     ...     'break foobar',
@@ -491,7 +491,7 @@ def test_pdb_breakpoint_with_filename():
     ...     mod2.func88()
     ...     mod2.func114()
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +ELLIPSIS +SKIP
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE +ELLIPSIS
     ...     'break test.test_inspect.inspect_fodder2:90',
     ...     'continue', # will stop at func88
     ...     'break test/test_inspect/inspect_fodder2.py:115',
@@ -578,7 +578,7 @@ def test_pdb_breakpoints_preserved_across_interactive_sessions():
     2   breakpoint   keep yes   at ...test_pdb.py:...
     (Pdb) continue
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     ...    'break',
     ...    'break pdb.find_function',
     ...    'break',
@@ -602,7 +602,7 @@ def test_pdb_breakpoints_preserved_across_interactive_sessions():
     Deleted breakpoint 1 at ...test_pdb.py:...
     (Pdb) continue
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     ...    'break',
     ...    'clear 2',
     ...    'clear 3',
@@ -642,7 +642,7 @@ def test_pdb_break_anywhere():
     >>> def test_function():
     ...     caller()
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     'b 3',
     ...     'c',
     ... ]):
@@ -3409,7 +3409,7 @@ def test_pdb_function_break():
     >>> def test_function():
     ...     import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +ELLIPSIS +NORMALIZE_WHITESPACE
     ...     'break foo',
     ...     'break bar',
     ...     'break boo',
