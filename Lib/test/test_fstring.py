@@ -606,6 +606,34 @@ x = (
                              r"""f'{("x}'""",
                              ])
 
+    def test_unclosed_multiline_replacement_field(self):
+        for prefix in ('f', 't', 'rf', 'rt'):
+            for quote in ('"', "'"):
+                triple = quote * 3
+                cases = (
+                    # The apparent closing quotes open a string in the field.
+                    ('var = "abc"\na = PREFIXQUOTE {var} extern "C" { QUOTE\n'
+                     'b = QUOTE string QUOTE', 2),
+                    # Parentheses and dictionaries inside the field must not
+                    # change which opening brace the diagnostic identifies.
+                    ('a = PREFIXQUOTE{\n(QUOTE', 1),
+                    ('a = PREFIXQUOTE{\n{0: QUOTE', 1),
+                    # Use the innermost format field or formatted string.
+                    ('a = PREFIXQUOTE{0:\n{1\nQUOTE', 2),
+                    ('a = f"{\nPREFIXQUOTE{1\nQUOTE', 2),
+                    # Account for parentheses outside the formatted string.
+                    ('a = (PREFIXQUOTE{1\nQUOTE', 1),
+                )
+                for source, lineno in cases:
+                    source = source.replace('PREFIX', prefix).replace('QUOTE', triple)
+                    with self.subTest(source=source):
+                        with self.assertRaises(SyntaxError) as cm:
+                            compile(source, '<test>', 'exec')
+                        self.assertEqual(
+                            cm.exception.msg,
+                            f"{prefix[-1]}-string: expecting '}}' to close '{{' "
+                            f"on line {lineno}")
+
     @unittest.skipIf(support.is_wasi, "exhausts limited stack on WASI")
     def test_mismatched_parens(self):
         self.assertAllRaise(SyntaxError, r"closing parenthesis '\}' "
@@ -1328,6 +1356,9 @@ x = (
         self.assertEqual(f'{3!=4:}', 'True')
         self.assertEqual(f'{3!=4!s}', 'True')
         self.assertEqual(f'{3!=4!s:.3}', 'Tru')
+        a = 3
+        b = 4
+        self.assertEqual(f'{a!=b=:>10}', 'a!=b=         1')
 
     def test_equal_equal(self):
         # Because an expression ending in = has special meaning,
@@ -1658,6 +1689,14 @@ x = (
         self.assertEqual(f'{" # nooo "=}', '" # nooo "=\' # nooo \'')
         self.assertEqual(f'{" \" # nooo \" "=}', '" \\" # nooo \\" "=\' " # nooo " \'')
 
+        result = f'''{(
+            1,  # Force lexer metadata reconstruction.
+            "\"#")=}'''
+        self.assertEqual(
+            result,
+            '(\n            1,  \n            "\\"#")=(1, \'"#\')',
+        )
+
         self.assertEqual(f'{ # some comment goes here
   """hello"""=}',  ' \n  """hello"""=\'hello\'')
         self.assertEqual(f'{"""# this is not a comment
@@ -1696,6 +1735,9 @@ x = (
         with self.assertRaisesRegex(SyntaxError,
                                     "f-string: expecting '=', or '!', or ':', or '}'"):
             compile("f'{a $ b}'", "?", "exec")
+        with self.assertRaisesRegex(SyntaxError,
+                                    "f-string: expecting '!', or ':', or '}'"):
+            compile("f'{a=b}'", "?", "exec")
 
     def test_with_two_commas_in_format_specifier(self):
         error_msg = re.escape("Cannot specify ',' with ','.")
