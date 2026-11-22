@@ -1755,7 +1755,7 @@ def test_pdb_return_to_different_file():
     ...     import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
     ...     pprint.pprint(A())
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     ...     'b A.__repr__',
     ...     'continue',
     ...     'return',
@@ -1918,7 +1918,7 @@ def test_pdb_continue_in_bottomframe():
     ...     print(3)
     ...     print(4)
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS +SKIP
+    >>> with PdbTestInput([  # doctest: +ELLIPSIS
     ...     'step',
     ...     'next',
     ...     'break 7',
@@ -2009,7 +2009,7 @@ def test_next_until_return_at_return_event():
     ...     test_function_2()
     ...     end = 1
 
-    >>> with PdbTestInput(['break test_function_2',  # TODO: RUSTPYTHON # doctest: +SKIP
+    >>> with PdbTestInput(['break test_function_2',
     ...                    'continue',
     ...                    'return',
     ...                    'next',
@@ -2651,7 +2651,7 @@ def test_pdb_next_command_in_generator_for_loop():
     ...         print('value', i)
     ...     x = 123
 
-    >>> with PdbTestInput(['break test_gen',  # TODO: RUSTPYTHON # doctest: +SKIP
+    >>> with PdbTestInput(['break test_gen',
     ...                    'continue',
     ...                    'next',
     ...                    'next',
