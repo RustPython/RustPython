@@ -247,8 +247,9 @@ mod decl {
     #[cfg(not(target_arch = "wasm32"))]
     #[pyfunction]
     fn tzset(vm: &VirtualMachine) -> PyResult<()> {
-        crate::host_env::time::tz::tzset();
+        // Import first so a failing importer leaves the libc timezone state untouched.
         let module = vm.import("time", 0)?;
+        crate::host_env::time::tz::tzset();
         module.set_attr("timezone", vm.ctx.new_int(timezone(vm)), vm)?;
         module.set_attr("altzone", vm.ctx.new_int(altzone(vm)), vm)?;
         #[cfg(not(target_os = "freebsd"))]
