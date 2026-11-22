@@ -444,7 +444,7 @@ def test_pdb_commands():
     ...     print(2)
     ...     print(3)
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     'b 3',
     ...     'commands',
     ...     'silent',      # suppress the frame status output
@@ -2228,7 +2228,7 @@ if not SKIP_CORO_TESTS:
             >>> def test_function():
             ...     asyncio.run(main(), loop_factory=asyncio.EventLoop)
 
-            >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS +SKIP
+            >>> with PdbTestInput([  # doctest: +ELLIPSIS
             ...     'b test',
             ...     'k = await task',
             ...     'n',
@@ -2954,7 +2954,7 @@ def test_pdb_issue_20766():
     ...         print('pdb %d: %s' % (i, sess._previous_sigint_handler))
     ...         i += 1
 
-    >>> with PdbTestInput(['continue',  # TODO: RUSTPYTHON # doctest: +SKIP
+    >>> with PdbTestInput(['continue',
     ...                    'continue']):
     ...     test_function()
     > <doctest test.test_pdb.test_pdb_issue_20766[0]>(5)test_function()
