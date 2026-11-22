@@ -382,6 +382,42 @@ SyntaxError: invalid syntax
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
+# Check incorrect "case" placement with specialized error messages
+
+>>> case "pattern": ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
+
+>>> case 1 | 2: ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
+
+>>> case klass(attr=1) | {}: ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
+
+>>> case [] if x > 1: ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
+
+>>> case match: ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
+
+>>> case case: ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
+
+>>> if some:
+...     case 1: ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
+
+>>> case some:
+...     case 1: ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
+
 # But prefixes of soft keywords should
 # still raise specialized errors
 
@@ -1440,20 +1476,20 @@ Better error message for using `except as` with not a name:
 
 Regression tests for gh-133999:
 
-   >>> try: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try: pass
    ... except TypeError as name: raise from None
    Traceback (most recent call last):
-   SyntaxError: invalid syntax
+   SyntaxError: did you forget an expression between 'raise' and 'from'?
 
-   >>> try: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try: pass
    ... except* TypeError as name: raise from None
    Traceback (most recent call last):
-   SyntaxError: invalid syntax
+   SyntaxError: did you forget an expression between 'raise' and 'from'?
 
-   >>> match 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> match 1:
    ...     case 1 | 2 as abc: raise from None
    Traceback (most recent call last):
-   SyntaxError: invalid syntax
+   SyntaxError: did you forget an expression between 'raise' and 'from'?
 
 Ensure that early = are not matched by the parser as invalid comparisons
    >>> f(2, 4, x=34); 1 $ 2
@@ -1701,6 +1737,28 @@ Make sure that the old "raise X, Y[, Z]" form is gone:
    Traceback (most recent call last):
      ...
    SyntaxError: invalid syntax
+
+Better errors for `raise` statement:
+
+    >>> raise ValueError from
+    Traceback (most recent call last):
+    SyntaxError: did you forget an expression after 'from'?
+
+    >>> raise mod.ValueError() from
+    Traceback (most recent call last):
+    SyntaxError: did you forget an expression after 'from'?
+
+    >>> raise from exc
+    Traceback (most recent call last):
+    SyntaxError: did you forget an expression between 'raise' and 'from'?
+
+    >>> raise from None
+    Traceback (most recent call last):
+    SyntaxError: did you forget an expression between 'raise' and 'from'?
+
+    >>> raise from
+    Traceback (most recent call last):
+    SyntaxError: did you forget an expression between 'raise' and 'from'?
 
 Check that an multiple exception types with missing parentheses
 raise a custom exception only when using 'as'
@@ -2009,6 +2067,30 @@ SyntaxError: trailing comma not allowed without surrounding parentheses
 Traceback (most recent call last):
 SyntaxError: trailing comma not allowed without surrounding parentheses
 
+>>> with item,: pass
+Traceback (most recent call last):
+SyntaxError: the last 'with' item has a trailing comma
+
+>>> with item as x,: pass
+Traceback (most recent call last):
+SyntaxError: the last 'with' item has a trailing comma
+
+>>> with item1, item2,: pass
+Traceback (most recent call last):
+SyntaxError: the last 'with' item has a trailing comma
+
+>>> with item1 as x, item2,: pass
+Traceback (most recent call last):
+SyntaxError: the last 'with' item has a trailing comma
+
+>>> with item1 as x, item2 as y,: pass
+Traceback (most recent call last):
+SyntaxError: the last 'with' item has a trailing comma
+
+>>> with item1, item2 as y,: pass
+Traceback (most recent call last):
+SyntaxError: the last 'with' item has a trailing comma
+
 >>> import a from b
 Traceback (most recent call last):
 SyntaxError: Did you mean to use 'from ... import ...' instead?
@@ -2162,6 +2244,16 @@ SyntaxError: only single target (not tuple) can be annotated
 Traceback (most recent call last):
 SyntaxError: only single target (not list) can be annotated
 
+>>> 1: int
+Traceback (most recent call last):
+SyntaxError: illegal target for annotation
+>>> -x: int = 1
+Traceback (most recent call last):
+SyntaxError: illegal target for annotation
+>>> (x for x in y): int
+Traceback (most recent call last):
+SyntaxError: illegal target for annotation
+
 # 'not' after operators:
 
 >>> 3 + not 3
@@ -2294,10 +2386,34 @@ Corner-cases that used to crash:
     SyntaxError: positional patterns follow keyword patterns
 
     >>> match ...:
+    ...   case Foo(y=1, x=2, y=3):
+    ...     ...
+    Traceback (most recent call last):
+    SyntaxError: attribute name repeated in class pattern: y
+
+    >>> match ...:
     ...   case C(a=b, c, d=e, f, g=h, i, j=k, ...):
     ...     ...
     Traceback (most recent call last):
     SyntaxError: positional patterns follow keyword patterns
+
+    >>> match ...:
+    ...   case {**double_star, "spam": "eggs"}:
+    ...     ...
+    Traceback (most recent call last):
+    SyntaxError: double star pattern must be the last (right-most) subpattern in the mapping pattern
+
+    >>> match ...:
+    ...   case {"foo": 1, **double_star, "spam": "eggs"}:
+    ...     ...
+    Traceback (most recent call last):
+    SyntaxError: double star pattern must be the last (right-most) subpattern in the mapping pattern
+
+    >>> match ...:
+    ...   case {"spam": "eggs", "b": {**d, "ham": "bacon"}}:
+    ...     ...
+    Traceback (most recent call last):
+    SyntaxError: double star pattern must be the last (right-most) subpattern in the mapping pattern
 
 Uses of the star operator which should fail:
 
@@ -2683,6 +2799,76 @@ Invalid expressions in type scopes:
     >>> f(x = 5, *:)
     Traceback (most recent call last):
     SyntaxError: Invalid star expression
+
+Asserts:
+
+    >>> assert (a := 1)  # ok
+    >>> assert 1, (a := 1)  # ok
+
+    >>> assert a := 1
+    Traceback (most recent call last):
+    SyntaxError: cannot use named expression without parentheses here
+
+    >>> assert 1, a := 1
+    Traceback (most recent call last):
+    SyntaxError: cannot use named expression without parentheses here
+
+    >>> assert 1 = 2 = 3
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
+
+    >>> assert 1 = 2
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
+
+    >>> assert (1 = 2)
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
+
+    >>> assert 'a' = a
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
+
+    >>> assert x[0] = 1
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to subscript here. Maybe you meant '==' instead of '='?
+
+    >>> assert (yield a) = 2
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to yield expression here. Maybe you meant '==' instead of '='?
+
+    >>> assert a = 2
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to name here. Maybe you meant '==' instead of '='?
+
+    >>> assert (a = 2)
+    Traceback (most recent call last):
+    SyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+
+    >>> assert a = b
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to name here. Maybe you meant '==' instead of '='?
+
+    >>> assert 1, 1 = b
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
+
+    >>> assert 1, (1 = b)
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
+
+    >>> assert 1, a = 1
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to name here. Maybe you meant '==' instead of '='?
+
+    >>> assert 1, (a = 1)
+    Traceback (most recent call last):
+    SyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+
+    >>> assert 1 = a, a = 1
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
+
 """
 
 import re
@@ -2868,6 +3054,14 @@ class SyntaxErrorTestCase(unittest.TestCase):
                 global b  # SyntaxError
             """
         self._check_error(source, "parameter and nonlocal", lineno=3)
+
+    def test_raise_from_error_message(self):
+        source = """if 1:
+        raise AssertionError() from None
+        print(1,,2)
+        """
+        self._check_error(source, "invalid syntax", lineno=3)
+
 
     def test_yield_outside_function(self):
         self._check_error("if 0: yield",                "outside function")
@@ -3189,6 +3383,21 @@ case(34)
             lineno=3
         )
 
+    def test_multiline_string_concat_missing_comma_points_to_last_string(self):
+        # gh-142236: For multi-line string concatenations with a missing comma,
+        # the error should point to the last string, not the first.
+        self._check_error(
+            "print(\n"
+            '    "line1"\n'
+            '    "line2"\n'
+            '    "line3"\n'
+            "    x=1\n"
+            ")",
+            "Perhaps you forgot a comma",
+            lineno=4,  # Points to "line3", the last string
+        )
+
+
     @support.cpython_only
     def test_syntax_error_on_deeply_nested_blocks(self):
         # This raises a SyntaxError, it used to raise a SystemError. Context
@@ -3313,6 +3522,32 @@ while 1:
             ("continue", "import ast")
         ]:
             self._check_error(f"x = {lhs_stmt} if 1 else {rhs_stmt}", msg)
+    def test_diamond_operator(self):
+        self._check_error(
+            "1<>2",
+            r"Maybe you meant '!=' instead of '<>'\?",
+            lineno=1,
+            end_lineno=1,
+            offset=2,
+            end_offset=4,
+        )
+
+
+    def test_diamond_operator_barry_as_flufl(self):
+        compile(
+            "from __future__ import barry_as_FLUFL\n1<>2",
+            "<test>", "exec",
+        )
+        self._check_error(
+            "from __future__ import barry_as_FLUFL\na != b",
+            "with Barry as BDFL, use '<>' instead of '!='",
+            lineno=2,
+            end_lineno=2,
+            offset=3,
+            end_offset=5,
+        )
+
+
 
 def load_tests(loader, tests, pattern):
     from test.support.rustpython import DocTestChecker  # TODO: RUSTPYTHON
