@@ -2078,7 +2078,7 @@ def test_pdb_next_command_for_generator():
     ...             raise AssertionError
     ...     print("finished")
 
-    >>> with PdbTestInput(['step', # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> with PdbTestInput(['step',
     ...                    'step',
     ...                    'step',
     ...                    'step',
@@ -2459,7 +2459,7 @@ def test_pdb_return_command_for_generator():
     ...             raise AssertionError
     ...     print("finished")
 
-    >>> with PdbTestInput(['step',  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> with PdbTestInput(['step',
     ...                    'step',
     ...                    'step',
     ...                    'step',

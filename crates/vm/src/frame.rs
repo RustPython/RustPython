@@ -4028,68 +4028,59 @@ impl ExecutingFrame<'_> {
                 // Instruction raised an exception
                 Err(exception) => {
                     #[cold]
-                    fn handle_exception(
-                        frame: &mut ExecutingFrame<'_>,
-                        exception: PyBaseExceptionRef,
+                    fn prepare_exception(
+                        frame: &ExecutingFrame<'_>,
+                        exception: &Py<PyBaseException>,
                         idx: usize,
-                        is_reraise: bool,
                         is_new_raise: bool,
                         complete_frame: bool,
                         vm: &VirtualMachine,
-                    ) -> FrameResult {
-                        // 1. Extract traceback from exception's '__traceback__' attr.
-                        // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
-                        // 3. First, try to find handler in exception table
+                    ) {
+                        // Check if the exception already has traceback entries before
+                        // we add ours. If it does, it was propagated from a callee
+                        // function and we should not re-contextualize it.
+                        let had_prior_traceback = exception.traceback().is_some();
 
-                        // RERAISE instructions should not add traceback entries - they're just
-                        // re-raising an already-processed exception
-                        if !is_reraise {
-                            // Check if the exception already has traceback entries before
-                            // we add ours. If it does, it was propagated from a callee
-                            // function and we should not re-contextualize it.
-                            let had_prior_traceback = exception.traceback().is_some();
+                        // PyTraceBack_Here always adds a new entry without
+                        // checking for duplicates. Each time an exception passes through
+                        // a frame (e.g., in a loop with repeated raise statements),
+                        // a new traceback entry is added.
+                        if complete_frame
+                            && let Some((loc, _end_loc)) = frame.code.locations.get(idx)
+                        {
+                            let next = exception.traceback();
 
-                            // PyTraceBack_Here always adds a new entry without
-                            // checking for duplicates. Each time an exception passes through
-                            // a frame (e.g., in a loop with repeated raise statements),
-                            // a new traceback entry is added.
-                            if complete_frame
-                                && let Some((loc, _end_loc)) = frame.code.locations.get(idx)
-                            {
-                                let next = exception.traceback();
-
-                                let new_traceback = PyTraceback::new(
-                                    next,
-                                    frame.frame_object(vm),
-                                    idx as i32 * 2,
-                                    loc.line,
-                                );
-                                vm_trace!(
-                                    "Adding to traceback: {:?} {:?}",
-                                    new_traceback,
-                                    loc.line
-                                );
-                                exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
-                            }
-
-                            // _PyErr_SetObject sets __context__ only when the exception
-                            // is first raised. When an exception propagates through frames,
-                            // __context__ must not be overwritten. We contextualize when:
-                            // - It's an explicit raise (raise/raise from)
-                            // - The exception had no prior traceback (originated here)
-                            if is_new_raise || !had_prior_traceback {
-                                vm.contextualize_exception(&exception);
-                            }
+                            let new_traceback = PyTraceback::new(
+                                next,
+                                frame.frame_object(vm),
+                                idx as i32 * 2,
+                                loc.line,
+                            );
+                            vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.line);
+                            exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                         }
 
-                        // Use exception table for zero-cost exception handling
-                        frame.unwind_blocks(
-                            vm,
-                            UnwindReason::Raising {
-                                exception,
-                                offset: idx as u32,
-                            },
-                        )
+                        // _PyErr_SetObject sets __context__ only when the exception
+                        // is first raised. When an exception propagates through frames,
+                        // __context__ must not be overwritten. We contextualize when:
+                        // - It's an explicit raise (raise/raise from)
+                        // - The exception had no prior traceback (originated here)
+                        if is_new_raise || !had_prior_traceback {
+                            vm.contextualize_exception(exception);
+                        }
+                    }
+
+                    #[cold]
+                    fn contextualize_observer_error(
+                        exception: PyBaseExceptionRef,
+                        vm: &VirtualMachine,
+                    ) -> PyBaseExceptionRef {
+                        // A callback can fail while binding its arguments, before
+                        // any Python frame has established the exception chain.
+                        if exception.traceback().is_none() && exception.__context__().is_none() {
+                            vm.contextualize_exception(&exception);
+                        }
+                        exception
                     }
 
                     // Check if this is a RERAISE instruction
@@ -4119,6 +4110,19 @@ impl ExecutingFrame<'_> {
                             )
                     );
 
+                    // CPython's error path attaches the original traceback before
+                    // notifying monitoring tools, then unwinds the resulting exception.
+                    if !is_reraise {
+                        prepare_exception(
+                            self,
+                            &exception,
+                            idx,
+                            is_new_raise,
+                            !PREPARE_GENERATOR && !self.iframe().is_incomplete(),
+                            vm,
+                        );
+                    }
+
                     // Fire RAISE or RERAISE monitoring event.
                     // If the callback raises, replace the original exception.
                     let exception = {
@@ -4139,29 +4143,37 @@ impl ExecutingFrame<'_> {
                             let exc_obj: PyObjectRef = exception.clone().into();
                             match monitoring::fire_raise(vm, self.code, offset, &exc_obj) {
                                 Ok(()) => exception,
-                                Err(monitor_exc) => monitor_exc,
+                                Err(monitor_exc) => contextualize_observer_error(monitor_exc, vm),
                             }
                         } else {
                             exception
                         }
                     };
 
-                    // Fire 'exception' trace event for sys.settrace.
-                    // Only for new raises, not re-raises (matching the
-                    // `error` label that calls _PyEval_MonitorRaise).
-                    if !is_reraise {
-                        self.fire_exception_trace(&exception, vm)?;
-                    }
+                    // Like monitoring, a failing trace callback replaces the
+                    // original exception without appending this frame a second time.
+                    let exception = if !is_reraise {
+                        match self.fire_exception_trace(&exception, vm) {
+                            Ok(()) => exception,
+                            Err(trace_exc) => contextualize_observer_error(trace_exc, vm),
+                        }
+                    } else {
+                        exception
+                    };
 
-                    match handle_exception(
-                        self,
-                        exception,
-                        idx,
-                        is_reraise,
-                        is_new_raise,
-                        !PREPARE_GENERATOR,
-                        vm,
-                    ) {
+                    // Keep instruction unwinding out of the dispatch loop, as
+                    // before traceback preparation moved ahead of callbacks.
+                    #[cold]
+                    #[inline(never)]
+                    fn unwind_instruction_exception(
+                        frame: &mut ExecutingFrame<'_>,
+                        exception: PyBaseExceptionRef,
+                        offset: u32,
+                        vm: &VirtualMachine,
+                    ) -> FrameResult {
+                        frame.unwind_blocks(vm, UnwindReason::Raising { exception, offset })
+                    }
+                    match unwind_instruction_exception(self, exception, idx as u32, vm) {
                         // The handler unwound to a new position, so the next
                         // index is whatever it left in the frame.
                         Ok(None) => next_idx = lasti_cell.load(Relaxed),
