@@ -1729,11 +1729,11 @@ Specialized indentation errors:
    IndentationError: expected an indented block after 'case' statement on line 4
 
 Make sure that the old "raise X, Y[, Z]" form is gone:
-   >>> raise X, Y  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> raise X, Y
    Traceback (most recent call last):
      ...
    SyntaxError: invalid syntax
-   >>> raise X, Y, Z  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> raise X, Y, Z
    Traceback (most recent call last):
      ...
    SyntaxError: invalid syntax

@@ -1938,10 +1938,20 @@ pub(crate) fn parse<E: From<CompileError> + From<crate::builtins::PyBaseExceptio
         {
             return Err(error.into());
         }
-        let parse_error = errors[0].clone();
-        if let Some(error) = barry_source.diagnostic(Some(&parse_error), &source_file) {
+        if let Some(error) = barry_source.diagnostic(Some(&errors[0]), &source_file) {
             return Err(error.into());
         }
+        if let Some(error) = rustpython_compiler::normalize_raise_parse_error(&parsed) {
+            let compile_mode = if interactive {
+                rustpython_compiler::Mode::Single
+            } else {
+                rustpython_compiler::Mode::Exec
+            };
+            return Err(
+                CompileError::from_ruff_parse_error(error, &source_file, compile_mode).into(),
+            );
+        }
+        let parse_error = errors[0].clone();
         let range = text_range_to_source_range(&source_file, parse_error.location);
         return Err(CompileError::from(ParseError {
             error: parse_error.error,
