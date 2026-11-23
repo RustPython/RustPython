@@ -217,9 +217,7 @@ with assert_raises(ZstdError) as caught:
 assert str(caught.exception).startswith("Unable to train the Zstandard dictionary: ")
 with assert_raises(ZstdError) as caught:
     _zstd.finalize_dict(b"", b"", (), 100, 1)
-assert str(caught.exception).startswith(
-    "Unable to finalize the Zstandard dictionary: "
-)
+assert str(caught.exception).startswith("Unable to finalize the Zstandard dictionary: ")
 
 # module functions take their arguments by keyword too, and is_compress is
 # any truth value
