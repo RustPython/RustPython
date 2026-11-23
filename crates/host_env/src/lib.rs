@@ -88,7 +88,7 @@ pub mod posix_unix_like;
 pub mod pwd;
 #[cfg(unix)]
 pub mod resource;
-#[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
+#[cfg(all(unix, not(target_os = "android")))]
 pub mod shm;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod signal;

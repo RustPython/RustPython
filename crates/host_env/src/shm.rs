@@ -1,18 +1,29 @@
 use core::ffi::CStr;
 use std::io;
 
-use crate::os::CheckLibcResult;
+use rustix::{
+    fd::{IntoRawFd, OwnedFd},
+    fs, shm,
+};
 
 pub use libc::mode_t;
 
-pub fn shm_open(name: &CStr, flags: libc::c_int, mode: libc::c_uint) -> io::Result<libc::c_int> {
-    #[cfg(target_os = "freebsd")]
-    let mode = mode.try_into().unwrap();
+pub fn shm_open(name: &CStr, flags: libc::c_int, mode: libc::mode_t) -> io::Result<libc::c_int> {
+    // FreeBSD implements shared memory differently from Linux so NO_FOLLOW isn't set or needed.
+    #[cfg(not(target_os = "linux"))]
+    let flags = shm::OFlags::from_bits_retain(flags as _);
 
-    unsafe { libc::shm_open(name.as_ptr(), flags, mode) }.check_libc_neg()
+    // Glibc and musl both set NOFOLLOW.
+    #[cfg(target_os = "linux")]
+    let flags = shm::OFlags::from_bits_retain(flags as u32 | fs::OFlags::NOFOLLOW.bits());
+
+    let mode = fs::Mode::from_bits_retain(mode);
+
+    shm::open(name, flags, mode)
+        .map(OwnedFd::into_raw_fd)
+        .map_err(Into::into)
 }
 
 pub fn shm_unlink(name: &CStr) -> io::Result<()> {
-    unsafe { libc::shm_unlink(name.as_ptr()) }.check_libc_neg()?;
-    Ok(())
+    shm::unlink(name).map_err(Into::into)
 }
