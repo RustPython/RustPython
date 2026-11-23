@@ -1951,6 +1951,16 @@ pub(crate) fn parse<E: From<CompileError> + From<crate::builtins::PyBaseExceptio
                 CompileError::from_ruff_parse_error(error, &source_file, compile_mode).into(),
             );
         }
+        if let Some(error) = rustpython_compiler::normalize_starred_slice_parse_error(&parsed) {
+            let compile_mode = match mode {
+                parser::Mode::Expression => rustpython_compiler::Mode::Eval,
+                _ if interactive => rustpython_compiler::Mode::Single,
+                _ => rustpython_compiler::Mode::Exec,
+            };
+            return Err(
+                CompileError::from_ruff_parse_error(error, &source_file, compile_mode).into(),
+            );
+        }
         let parse_error = errors[0].clone();
         if matches!(
             parse_error.error,
