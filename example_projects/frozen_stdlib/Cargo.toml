@@ -2,6 +2,7 @@
 name = "example_frozen_stdlib"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.99.0"
 
 [dependencies]
 rustpython = { path = "../../", default-features = false, features = ["freeze-stdlib"] }
@@ -9,5 +10,6 @@ rustpython-vm = { path = "../../crates/vm", default-features = false, features =
 rustpython-pylib = { path = "../../crates/pylib", default-features = false, features = ["freeze-stdlib"] }
 
 [workspace]
+resolver = "3"
 
 [patch.crates-io]
