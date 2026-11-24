@@ -39,12 +39,29 @@ from unittest.runner import registerResult, result
 from _colorize import decolor
 
 
-def _subtest_id(parent, subtest):
+def _case_id(test):
     try:
-        return subtest.id()
+        label = test.id()
+        if isinstance(label, str):
+            return label
+    except Exception:
+        pass
+    # Some tests use self.id for their own state. Keep unittest's default
+    # label instead of allowing optional reporting metadata to stop execution.
+    if isinstance(test, unittest.TestCase):
+        return unittest.TestCase.id(test)
+    return str(test)
+
+
+def _subtest_id(case_id, subtest):
+    try:
+        if type(subtest) is unittest.case._SubTest:
+            # _SubTest.id calls the parent id again; this can change in setUp.
+            return f"{case_id} {subtest._subDescription()}"
+        return _case_id(subtest)
     except Exception as exc:
         # Parameter formatting must not change the test's outcome.
-        return f"{parent.id()} (<subtest id unavailable: {type(exc).__name__}>)"
+        return f"{case_id} (<subtest id unavailable: {type(exc).__name__}>)"
 
 
 def _get_method_dict(test):
@@ -336,7 +353,9 @@ class CustomTextTestResult(result.TestResult):
             else test.__class__.__name__,
         )
         self.current_test = test
-        self.case = getattr(test, "_testMethodName", test.id())
+        case_id = _case_id(test)
+        method_name = getattr(test, "_testMethodName", case_id)
+        self.case = method_name
         if not self.suite or self.suite != self.next_suite:
             if self.suite:
                 self.results["suites"][self.suite_map[self.suite]]["execution_time"] = (
@@ -359,7 +378,7 @@ class CustomTextTestResult(result.TestResult):
         self.case = name_override if name_override else self.case
         if self.show_test_info:
             # self.stream.writeln(self.separator2)
-            self.stream.write("CASE: %s" % test.id())
+            self.stream.write("CASE: %s" % case_id)
             if desc := test.shortDescription():
                 self.stream.write(" (Description: %s)" % desc)
             self.stream.write("... ")
@@ -390,8 +409,8 @@ class CustomTextTestResult(result.TestResult):
             self.case_number
         ] = {
             "name": self.case,
-            "method": getattr(test, "_testMethodName", test.id()),
-            "id": test.id(),
+            "method": method_name,
+            "id": case_id,
             "subtests": [],
             "result": None,
             "description": test.shortDescription(),
@@ -491,7 +510,7 @@ class CustomTextTestResult(result.TestResult):
         case = self.results["suites"][self.suite_map[self.suite]]["cases"][
             self.current_case_number
         ]
-        subtest_id = _subtest_id(test, subtest)
+        subtest_id = _subtest_id(case["id"], subtest)
         status = "passed"
         traceback_text = None
         if err is not None:
@@ -567,20 +586,18 @@ class CustomTextTestResult(result.TestResult):
         if fixture:
             self._start_case(test)
         super(CustomTextTestResult, self).addSkip(test, reason)
+        case = self.results["suites"][self.suite_map[self.suite]]["cases"][
+            self.current_case_number
+        ]
         if test is not self.current_test:
-            self.results["suites"][self.suite_map[self.suite]]["cases"][
-                self.current_case_number
-            ]["subtests"].append(
+            case["subtests"].append(
                 {
-                    "id": _subtest_id(self.current_test, test),
+                    "id": _subtest_id(case["id"], test),
                     "result": "skipped",
                     "reason": reason,
                 }
             )
             return
-        case = self.results["suites"][self.suite_map[self.suite]]["cases"][
-            self.current_case_number
-        ]
         if case["result"] in ("failed", "error"):
             case["note"] = reason
             return
