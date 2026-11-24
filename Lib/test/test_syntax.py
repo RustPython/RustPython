@@ -353,7 +353,7 @@ SyntaxError: invalid syntax. Perhaps you forgot a comma?
 # Make sure soft keywords constructs don't raise specialized
 # errors regarding missing commas or other spezialiced errors
 
->>> match x:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> match x:
 ...     y = 3
 Traceback (most recent call last):
 SyntaxError: invalid syntax
@@ -896,7 +896,7 @@ SyntaxError: 'None' is an illegal expression for augmented assignment
 >>> __debug__ += 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
->>> f() += 1 # TODO: RUSTPYTHON; Raises an exception # doctest: +SKIP
+>>> f() += 1
 Traceback (most recent call last):
 SyntaxError: 'function call' is an illegal expression for augmented assignment
 

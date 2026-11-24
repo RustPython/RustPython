@@ -386,11 +386,15 @@ fn cpython_parse_diagnostic_override(
     // CPython's PEG parser collapses a bare "expected an expression" failure
     // into the generic "invalid syntax" message. rustpython-vm's `vm_new.rs`
     // does this same collapse for its own callers; rustpython-compiler has no
-    // vm dependency, so mirror it here.
+    // vm dependency, so mirror it here. CPython also uses the generic
+    // diagnostic when an indented match suite does not begin with a case.
     if matches!(
         &error.error,
         parser::ParseErrorType::ExpectedExpression
             | parser::ParseErrorType::UnexpectedExpressionToken
+    ) || matches!(
+        &error.error,
+        parser::ParseErrorType::OtherError(message) if message == "expected `case` block"
     ) {
         let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
         return Some(NormalizedParseDiagnostic::new(
