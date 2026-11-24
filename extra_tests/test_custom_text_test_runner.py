@@ -324,6 +324,113 @@ class RunnerResultTests(unittest.TestCase):
             self.assertIn("RuntimeError: original error", decolor(log.getvalue()))
             self.assertIn("AssertionError: original failure", decolor(log.getvalue()))
 
+    def test_subtests_keep_outcomes_when_setup_shadows_id(self):
+        class Cases(unittest.TestCase):
+            def setUp(self):
+                self.id = 7
+
+            def test_mix(self):
+                outcomes = ("passed", "passed", "failed", "error", "skipped")
+                for outcome in outcomes:
+                    with self.subTest("ordinary", outcome=outcome):
+                        if outcome == "failed":
+                            self.fail("original assertion")
+                        if outcome == "error":
+                            raise ValueError("original exception")
+                        if outcome == "skipped":
+                            self.skipTest("original skip")
+
+            def test_skip_only(self):
+                with self.subTest(number=1):
+                    self.skipTest("only skip")
+
+        loader = unittest.TestLoader()
+        expected = unittest.TestResult()
+        loader.loadTestsFromTestCase(Cases).run(expected)
+        with tempfile.TemporaryDirectory() as temp:
+            path = pathlib.Path(temp) / "results.json"
+            log = io.StringIO()
+            result = CustomTextTestRunner(
+                stream=log, verbosity=2, results_file_path=str(path)
+            ).run(loader.loadTestsFromTestCase(Cases))
+            self.assertEqual(result.testsRun, expected.testsRun)
+            self.assertEqual(
+                [len(getattr(result, k)) for k in ("failures", "errors", "skipped")],
+                [len(getattr(expected, k)) for k in ("failures", "errors", "skipped")],
+            )
+            data = json.loads(path.read_text())
+            cases = {
+                case["method"]: case
+                for suite in data["suites"].values()
+                for case in suite["cases"].values()
+            }
+        case = cases["test_mix"]
+        self.assertEqual(case["id"], Cases("test_mix").id())
+        self.assertEqual(case["result"], "error")
+        records = case["subtests"]
+        self.assertEqual(
+            [record["result"] for record in records],
+            ["passed", "passed", "failed", "error", "skipped"],
+        )
+        self.assertEqual(records[0]["id"], records[1]["id"])
+        self.assertIn("[ordinary] (outcome='passed')", records[0]["id"])
+        self.assertIn(records[2]["id"], log.getvalue())
+        self.assertIn("AssertionError: original assertion", records[2]["traceback"])
+        self.assertIn("ValueError: original exception", records[3]["traceback"])
+        self.assertEqual(records[4]["reason"], "original skip")
+        self.assertEqual(cases["test_skip_only"]["result"], "skipped")
+        self.assertEqual((data["num_failed"], data["num_skipped"]), (1, 1))
+
+    def test_case_id_falls_back_only_for_invalid_labels(self):
+        class Case(unittest.TestCase):
+            def test_body(self):
+                with self.subTest(case="first"):
+                    pass
+
+        class Shadowed(Case):
+            id = 7
+
+        class Throwing(Case):
+            def id(self):
+                raise RuntimeError("optional metadata")
+
+        class NonString(Case):
+            def id(self):
+                return None
+
+        id_calls = []
+
+        class Qualified(Case):
+            def id(self):
+                id_calls.append(self)
+                return "custom.qualified"
+
+        types = (Shadowed, Throwing, NonString, Qualified)
+        suite = unittest.TestSuite(cls("test_body") for cls in types)
+        with tempfile.TemporaryDirectory() as temp:
+            path = pathlib.Path(temp) / "results.json"
+            result = CustomTextTestRunner(
+                stream=io.StringIO(), results_file_path=str(path)
+            ).run(suite)
+            data = json.loads(path.read_text())
+        cases = [
+            case
+            for group in data["suites"].values()
+            for case in group["cases"].values()
+        ]
+        expected_ids = [
+            *(unittest.TestCase.id(cls("test_body")) for cls in types[:-1]),
+            "custom.qualified",
+        ]
+        self.assertEqual(result.testsRun, 4)
+        self.assertEqual(data["num_passed"], 4)
+        self.assertEqual(len(id_calls), 1)
+        self.assertEqual([case["id"] for case in cases], expected_ids)
+        self.assertEqual(
+            [case["subtests"][0]["id"] for case in cases],
+            [label + " (case='first')" for label in expected_ids],
+        )
+
     def test_discovery_preserves_qualified_names_and_import_errors(self):
         from jsontests import loadTestsOrSkip
 
