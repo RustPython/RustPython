@@ -76,12 +76,8 @@ mod _codecs {
     #[derive(FromArgs)]
     struct CodeArgs {
         obj: PyObjectRef,
-        // None is replaced with utf-8 before the codec runs.
-        #[pyarg(any, optional, py_default = "'utf-8'")]
-        encoding: Option<PyUtf8StrRef>,
-        // None is replaced with strict before the codec runs.
-        #[pyarg(any, optional, py_default = "'strict'")]
-        errors: Option<PyUtf8StrRef>,
+        #[pyarg(flatten)]
+        names: codecs::TextCodecArgs,
     }
 
     impl CodeArgs {
@@ -96,17 +92,11 @@ mod _codecs {
                 &VirtualMachine,
             ) -> PyResult,
         ) -> PyResult {
-            let encoding = self
-                .encoding
+            let (encoding, errors) = self.names.into_parts();
+            let encoding = encoding
                 .as_deref()
                 .map_or(codecs::DEFAULT_ENCODING, |s| s.as_str());
-            f(
-                &vm.state.codec_registry,
-                self.obj,
-                encoding,
-                self.errors,
-                vm,
-            )
+            f(&vm.state.codec_registry, self.obj, encoding, errors, vm)
         }
     }
 

@@ -8481,16 +8481,9 @@ impl ExecutingFrame<'_> {
                     }
                 }
 
-                // Removing the last LINE layer changes its saved opcode in CPython.
-                // That redispatch skips nested INSTRUCTION once, not on later visits.
-                let line_removed = line_active
-                    && !monitoring::is_event_active_at(
-                        vm,
-                        self.code,
-                        offset,
-                        MonitoringEvent::Line,
-                    );
-                if also_instruction && !line_removed {
+                // Disabling LINE does not disable the nested INSTRUCTION event.
+                // fire_instruction still checks its current subscriptions.
+                if also_instruction {
                     monitoring::fire_instruction(vm, self.code, offset)?;
                 }
 
