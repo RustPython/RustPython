@@ -114,9 +114,11 @@ pub mod tz {
         }
 
         let year_start = (super::current_time_t() / YEAR) * YEAR;
+        // `checked_add`: with a 32-bit `time_t`, the July sample can overflow.
+        let july_start = year_start.checked_add(YEAR / 2);
         let (Some((jan_zone, jan_name)), Some((july_zone, july_name))) = (
             offset_and_name(year_start),
-            offset_and_name(year_start + YEAR / 2),
+            july_start.and_then(offset_and_name),
         ) else {
             return TzInfo {
                 timezone: timezone(),

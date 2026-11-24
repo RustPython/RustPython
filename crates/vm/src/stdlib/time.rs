@@ -255,7 +255,7 @@ mod decl {
         let module = module
             .downcast::<crate::builtins::PyModule>()
             .map_err(|_| {
-                vm.new_system_error("PyModule_AddObjectRef() first argument must be a module")
+                vm.new_type_error("PyModule_AddObjectRef() first argument must be a module")
             })?;
         crate::host_env::time::tz::tzset();
         let info = crate::host_env::time::tz::tz_info();
