@@ -4059,3 +4059,82 @@ def test_readonly_datetime_descriptors():
 
 
 test_readonly_datetime_descriptors()
+
+
+def test_calendar_c_int_conversion():
+    from _datetime import date, datetime, time, timezone
+
+    events = []
+
+    class Index:
+        def __init__(self, name, value):
+            self.name = name
+            self.value = value
+
+        def __index__(self):
+            events.append(self.name)
+            if isinstance(self.value, BaseException):
+                raise self.value
+            return self.value
+
+    class Date(date):
+        def __new__(cls, *args):
+            events.append(("constructor", args))
+            return super().__new__(cls, *args)
+
+    got = Date.fromordinal(Index("ordinal", 737425))
+    assert type(got) is Date
+    assert got == date(2020, 1, 1)
+    assert events == ["ordinal", ("constructor", (2020, 1, 1))]
+    events.clear()
+
+    got = Date.fromisocalendar(
+        day=Index("day", 3), week=Index("week", 1), year=Index("year", 2020)
+    )
+    assert type(got) is Date
+    assert got == date(2020, 1, 1)
+    assert events == ["year", "week", "day", ("constructor", (2020, 1, 1))]
+    events.clear()
+
+    # The argument exception belongs to __index__, not calendar validation.
+    failure = OverflowError("calendar index failed")
+    with assert_raises(OverflowError) as caught:
+        date.fromisocalendar(Index("year", failure), Index("week", 1), Index("day", 1))
+    assert caught.exception is failure
+    assert events == ["year"]
+    events.clear()
+
+    message = "Python int too large to convert to C int"
+    leap_date = date(2020, 2, 29)
+    aware_time = time(1, 2, tzinfo=timezone.utc, fold=1)
+    aware_datetime = datetime.combine(leap_date, aware_time)
+    for value in (1 << 40, -(1 << 40)):
+        for call in (
+            lambda: date.fromordinal(value),
+            lambda: datetime.fromisocalendar(2020, value, 3),
+            lambda: date(value, 2, 29),
+            lambda: time(fold=value),
+            lambda: datetime(2020, 2, 29, minute=value),
+            lambda: leap_date.replace(day=value),
+            lambda: aware_time.replace(hour=value),
+            lambda: aware_datetime.replace(fold=value),
+            lambda: leap_date.__replace__(month=value),
+        ):
+            with assert_raises(OverflowError) as caught:
+                call()
+            assert str(caught.exception) == message
+
+    # Binding converts later supplied arguments before enforcing domain bounds.
+    with assert_raises(OverflowError) as caught:
+        datetime(0, 2, 1, minute=Index("minute", 1 << 40))
+    assert str(caught.exception) == message
+    assert events == ["minute"]
+
+    assert aware_time.replace() == aware_time
+    assert aware_time.replace().fold == 1
+    assert aware_datetime.replace(tzinfo=None).tzinfo is None
+    assert aware_datetime.replace(tzinfo=None).fold == 1
+    assert_raises(TypeError, aware_time.replace, minute=None)
+
+
+test_calendar_c_int_conversion()
