@@ -190,7 +190,7 @@ impl PyLazyImport {
     }
 }
 
-#[pyclass(with(Constructor, GetAttr, Representable))]
+#[pyclass(with(Constructor, GetAttr, Representable), flags(IMMUTABLETYPE))]
 impl Py<PyLazyImport> {
     /// Resolve this import and return its value without changing a containing dictionary.
     #[pymethod]

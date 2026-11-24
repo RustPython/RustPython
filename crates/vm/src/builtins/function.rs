@@ -1714,7 +1714,7 @@ impl PyCell {
     }
 }
 
-#[pyclass(with(Constructor, Representable))]
+#[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
 impl Py<PyCell> {
     #[pyslot]
     fn slot_richcompare(

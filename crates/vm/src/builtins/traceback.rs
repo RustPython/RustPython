@@ -45,7 +45,7 @@ impl PyTraceback {
     }
 }
 
-#[pyclass(with(Constructor))]
+#[pyclass(with(Constructor), flags(IMMUTABLETYPE))]
 impl Py<PyTraceback> {
     #[pygetset]
     fn tb_lineno(&self) -> usize {

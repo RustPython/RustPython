@@ -2580,7 +2580,10 @@ mod _datetime {
         }
     }
 
-    #[pyclass(with(Constructor, Comparable, Hashable, Representable))]
+    #[pyclass(
+        with(Constructor, Comparable, Hashable, Representable),
+        flags(IMMUTABLETYPE)
+    )]
     impl PyTimeZone {
         #[pymethod]
         fn tzname(zelf: &Py<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {

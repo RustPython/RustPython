@@ -7,7 +7,7 @@ mod _contextvars {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         atomic_func,
         builtins::{PyGenericAlias, PyList, PyStr, PyStrRef, PyType, PyTypeRef},
-        class::StaticType,
+        class::{PyClassImpl, StaticType},
         class_or_notimplemented,
         common::{
             hash::PyHash,
@@ -178,7 +178,10 @@ mod _contextvars {
         }
     }
 
-    #[pyclass(with(Constructor, AsMapping, AsSequence, Iterable, Comparable))]
+    #[pyclass(
+        with(Constructor, AsMapping, AsSequence, Iterable, Comparable),
+        flags(IMMUTABLETYPE)
+    )]
     impl PyContext {
         #[pymethod]
         fn run(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -438,7 +441,7 @@ mod _contextvars {
         }
     }
 
-    #[pyclass(with(Constructor, Hashable, Representable))]
+    #[pyclass(with(Constructor, Hashable, Representable), flags(IMMUTABLETYPE))]
     impl ContextVar {
         #[pymethod]
         fn get(
@@ -632,8 +635,13 @@ mod _contextvars {
         used: AtomicBool,
     }
 
-    #[pyclass(with(Constructor, Representable))]
+    #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
     impl ContextToken {
+        #[pyattr(name = "MISSING")]
+        fn missing(_ctx: &crate::vm::Context) -> PyObjectRef {
+            ContextTokenMissing::make_static_type().into()
+        }
+
         #[pygetset]
         fn var(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyRef<ContextVar> {
             zelf.var.clone()
@@ -718,18 +726,5 @@ mod _contextvars {
     #[pyfunction]
     fn copy_context(vm: &VirtualMachine) -> PyContext {
         PyContext::copy(&PyContext::current(vm), vm)
-    }
-
-    // Set Token.MISSING attribute
-    pub(crate) fn module_exec(
-        vm: &VirtualMachine,
-        module: &Py<crate::vm::builtins::PyModule>,
-    ) -> PyResult<()> {
-        __module_exec(vm, module);
-
-        let token_type = module.get_attr("Token", vm)?;
-        token_type.set_attr("MISSING", ContextTokenMissing::static_type().to_owned(), vm)?;
-
-        Ok(())
     }
 }

@@ -1734,7 +1734,7 @@ pub mod sys {
     #[pystruct_sequence(name = "asyncgen_hooks", data = "AsyncgenHooksData")]
     pub(super) struct PyAsyncgenHooks;
 
-    #[pyclass(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence), flags(IMMUTABLETYPE))]
     impl PyAsyncgenHooks {}
 
     #[pyfunction]
@@ -1821,7 +1821,7 @@ pub mod sys {
     #[pystruct_sequence(name = "flags", data = "FlagsData", no_attr)]
     pub(super) struct PyFlags;
 
-    #[pyclass(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence), flags(IMMUTABLETYPE))]
     impl Py<PyFlags> {
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -1873,7 +1873,7 @@ pub mod sys {
     pub(super) struct PyThreadInfo;
 
     #[cfg(feature = "threading")]
-    #[pyclass(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence), flags(IMMUTABLETYPE))]
     impl PyThreadInfo {}
 
     #[pystruct_sequence_data]
@@ -1910,7 +1910,7 @@ pub mod sys {
     #[pystruct_sequence(name = "float_info", data = "FloatInfoData", no_attr)]
     pub(super) struct PyFloatInfo;
 
-    #[pyclass(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence), flags(IMMUTABLETYPE))]
     impl PyFloatInfo {}
 
     #[pystruct_sequence_data]
@@ -1946,7 +1946,7 @@ pub mod sys {
     #[pystruct_sequence(name = "hash_info", data = "HashInfoData", no_attr)]
     pub(super) struct PyHashInfo;
 
-    #[pyclass(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence), flags(IMMUTABLETYPE))]
     impl PyHashInfo {}
 
     #[pystruct_sequence_data]
@@ -1969,7 +1969,7 @@ pub mod sys {
     #[pystruct_sequence(name = "int_info", data = "IntInfoData", no_attr)]
     pub(super) struct PyIntInfo;
 
-    #[pyclass(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence), flags(IMMUTABLETYPE))]
     impl PyIntInfo {}
 
     #[derive(Default, Debug)]
@@ -2003,7 +2003,7 @@ pub mod sys {
     #[pystruct_sequence(name = "version_info", data = "VersionInfoData", no_attr)]
     pub struct PyVersionInfo;
 
-    #[pyclass(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence), flags(IMMUTABLETYPE))]
     impl PyVersionInfo {
         #[pyslot]
         fn slot_new(
