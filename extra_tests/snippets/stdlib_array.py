@@ -445,3 +445,77 @@ def test_array_fromlist_exports():
 test_array_fromlist_callbacks()
 test_array_fromlist_rollback()
 test_array_fromlist_exports()
+
+
+def test_array_reconstructor_integer_abi():
+    from array import _array_reconstructor
+    from struct import pack
+
+    class SubArray(array):
+        pass
+
+    long_width = array("l").itemsize
+    other_width = 4 if long_width == 8 else 8
+    expected_recode = {"l": "i", "L": "I"} if other_width == 4 else {"l": "q", "L": "Q"}
+    native_width_codes = {
+        4: {"l": (8, "i"), "L": (6, "I")},
+        8: {"l": (12, "q"), "L": (10, "Q")},
+    }
+    for code, mid in (("l", -123), ("L", 123)):
+        sign_bit = int(code == "l")
+        foreign_values = (mid, 2 ** (8 * other_width - sign_bit) - 1)
+        foreign_fmt, foreign_struct_code = native_width_codes[other_width][code]
+        for fmt, endian in ((foreign_fmt, "<"), (foreign_fmt + 1, ">")):
+            data = pack(endian + foreign_struct_code * 2, *foreign_values)
+            restored = _array_reconstructor(SubArray, code, fmt, data)
+            assert type(restored) is SubArray
+            assert restored.typecode == expected_recode[code]
+            assert restored.itemsize == other_width
+            assert restored.tolist() == list(foreign_values)
+            assert restored.tobytes() == pack(
+                "=" + foreign_struct_code * 2, *foreign_values
+            )
+
+        values = (mid, 2 ** (8 * long_width - sign_bit) - 1)
+        native_fmt, native_struct_code = native_width_codes[long_width][code]
+        if sys.byteorder == "big":
+            native_fmt += 1
+        data = pack("=" + native_struct_code * 2, *values)
+        restored = _array_reconstructor(array, code, native_fmt, data)
+        # An already native format must preserve even the aliased type code.
+        assert restored.typecode == code
+        assert restored.tobytes() == data
+
+        # Endianness alone takes the slow path and its last-descriptor rule.
+        opposite = ">" if sys.byteorder == "little" else "<"
+        foreign = pack(opposite + native_struct_code * 2, *values)
+        restored = _array_reconstructor(array, code, native_fmt ^ 1, foreign)
+        assert restored.typecode == (
+            {"l": "q", "L": "Q"}[code] if long_width == 8 else code
+        )
+        assert restored.tobytes() == data
+
+
+def test_array_reconstructor_index():
+    from array import _array_reconstructor
+    from struct import pack
+
+    calls = []
+
+    class Format:
+        def __index__(self):
+            calls.append("index")
+            return 8 if sys.byteorder == "little" else 9
+
+    data = pack("=i", 177)
+    assert _array_reconstructor(array, "i", Format(), data).tolist() == [177]
+    assert calls == ["index"]
+
+    # Clinic converts the index before the implementation checks the class.
+    with assert_raises(TypeError):
+        _array_reconstructor(object(), "i", Format(), data)
+    assert calls == ["index", "index"]
+
+
+test_array_reconstructor_integer_abi()
+test_array_reconstructor_index()
