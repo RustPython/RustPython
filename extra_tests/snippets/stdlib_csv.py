@@ -770,3 +770,123 @@ _csv.register_dialect("__signature_default")
 _csv.unregister_dialect("__signature_default")
 with assert_raises(_csv.Error):
     _csv.register_dialect("__signature_default", "excel")
+
+
+def test_writerow_streams_field_conversion():
+    events = []
+    callback_error = LookupError("field conversion")
+    iterator_error = ValueError("row iteration")
+    result = object()
+
+    class Sink:
+        def write(self, text):
+            events.append(("write", text))
+            return result
+
+    class Field:
+        def __init__(self, name, value):
+            self.name = name
+            self.value = value
+
+        def __str__(self):
+            events.append(("str", self.name))
+            if self.value is callback_error:
+                raise callback_error
+            return self.value
+
+    def row(*fields, error=None):
+        for index, field in enumerate(fields):
+            events.append(("next", index))
+            yield field
+        events.append(("next", "end"))
+        if error is not None:
+            raise error
+
+    writer = csv.writer(Sink())
+    assert writer.writerow(row(Field("a", "a"), Field("b", "b"))) is result
+    assert events == [
+        ("next", 0),
+        ("str", "a"),
+        ("next", 1),
+        ("str", "b"),
+        ("next", "end"),
+        ("write", "a,b\r\n"),
+    ]
+
+    events.clear()
+    with assert_raises(LookupError) as error:
+        writer.writerow(row(Field("bad", callback_error), error=iterator_error))
+    assert error.exception is callback_error
+    assert events == [("next", 0), ("str", "bad")]
+
+    events.clear()
+    with assert_raises(ValueError) as error:
+        writer.writerow(row(Field("first", "ok"), error=iterator_error))
+    assert error.exception is iterator_error
+    assert events == [("next", 0), ("str", "first"), ("next", "end")]
+
+    events.clear()
+    assert writer.writerow(row(Field("ok", "ok"))) is result
+    assert events == [("next", 0), ("str", "ok"), ("next", "end"), ("write", "ok\r\n")]
+
+    # Classification occurs before __str__, which can alter the type's slots.
+    class BecomesNumeric:
+        def __str__(self):
+            type(self).__int__ = lambda self: 1
+            return "first"
+
+    quoting = csv.writer(Sink(), quoting=csv.QUOTE_NONNUMERIC)
+    value = BecomesNumeric()
+    assert quoting.writerow([value]) is result
+    assert events[-1] == ("write", '"first"\r\n')
+    assert quoting.writerow([value]) is result
+    assert events[-1] == ("write", "first\r\n")
+
+
+def test_writerow_streams_dialect_validation():
+    events = []
+    buffer = io.StringIO()
+    later = ValueError("late iterator error")
+
+    def row(value, fail_at_end):
+        events.append("field")
+        yield value
+        events.append("end")
+        if fail_at_end:
+            raise later
+
+    quote_none = csv.writer(buffer, quoting=csv.QUOTE_NONE)
+    with assert_raises(csv.Error) as error:
+        quote_none.writerow(row("needs,escape", True))
+    assert str(error.exception) == "need to escape, but no escapechar set"
+    assert events == ["field"]
+    assert buffer.getvalue() == ""
+
+    # The single empty field check, unlike a field's escape/space check,
+    # cannot happen until the iterator has successfully completed.
+    events.clear()
+    with assert_raises(ValueError) as error:
+        quote_none.writerow(row("", True))
+    assert error.exception is later
+    assert events == ["field", "end"]
+    events.clear()
+    with assert_raises(csv.Error) as error:
+        quote_none.writerow(row("", False))
+    assert str(error.exception) == "single empty field record must be quoted"
+    assert events == ["field", "end"]
+
+    space = csv.writer(
+        buffer, delimiter=" ", skipinitialspace=True, quoting=csv.QUOTE_NONE
+    )
+    events.clear()
+    with assert_raises(csv.Error) as error:
+        space.writerow(row("", True))
+    assert str(error.exception) == (
+        "empty field must be quoted if delimiter is a space and skipinitialspace is true"
+    )
+    assert events == ["field"]
+    assert buffer.getvalue() == ""
+
+
+test_writerow_streams_field_conversion()
+test_writerow_streams_dialect_validation()

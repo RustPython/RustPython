@@ -16,7 +16,6 @@ mod _csv {
     use itertools::Itertools;
     use parking_lot::Mutex;
     use rustpython_common::{lock::LazyLock, wtf8::Wtf8Buf};
-    use rustpython_vm::match_class;
     use std::collections::HashMap;
 
     #[pyattr]
@@ -1083,84 +1082,73 @@ mod _csv {
                     error
                 }
             })?;
-            let fields = iter
-                .into_iter::<PyObjectRef>(vm)
-                .collect::<PyResult<Vec<_>>>()?;
-            let single_field = fields.len() == 1;
+            let dialect = &zelf.dialect;
             let mut output = String::new();
+            let mut has_fields = false;
+            let mut empty_must_be_unquoted = false;
 
-            for (index, field) in fields.into_iter().enumerate() {
-                if index > 0 {
-                    output.push(zelf.dialect.delimiter);
+            for field in iter.into_iter::<PyObjectRef>(vm) {
+                let field = field?;
+                if has_fields {
+                    output.push(dialect.delimiter);
                 }
+                has_fields = true;
 
-                let stringified;
-                let (data, is_str, is_none): (&str, bool, bool) = match_class!(match field {
-                    ref s @ PyStr => (utf8_data(s, vm)?, true, false),
-                    crate::builtins::PyNone => ("", false, true),
-                    ref obj => {
-                        stringified = obj.str(vm)?;
-                        (utf8_data(&stringified, vm)?, false, false)
-                    }
-                });
+                // Numeric classification precedes __str__, which may alter the type.
+                let quote_nonnumeric =
+                    dialect.quoting == QuoteStyle::Nonnumeric && !PyNumber::check(&field);
+                let (text, is_none, is_str) = match field.downcast::<PyStr>() {
+                    Ok(text) => (Some(text), false, true),
+                    Err(field) if vm.is_none(&field) => (None, true, false),
+                    Err(field) => (Some(field.str(vm)?), false, false),
+                };
+                let data = match &text {
+                    Some(text) => utf8_data(text, vm)?,
+                    None => "",
+                };
 
-                if single_field
-                    && data.is_empty()
-                    && (zelf.dialect.quoting == QuoteStyle::None
-                        || (is_none
-                            && matches!(
-                                zelf.dialect.quoting,
-                                QuoteStyle::Strings | QuoteStyle::Notnull
-                            )))
-                {
-                    return Err(new_csv_error(
-                        vm,
-                        "single empty field record must be quoted",
-                    ));
-                }
-
-                if data.is_empty()
-                    && zelf.dialect.delimiter == ' '
-                    && zelf.dialect.skipinitialspace
-                    && (zelf.dialect.quoting == QuoteStyle::None
-                        || (is_none
-                            && matches!(
-                                zelf.dialect.quoting,
-                                QuoteStyle::Strings | QuoteStyle::Notnull
-                            )))
-                {
+                empty_must_be_unquoted = dialect.quoting == QuoteStyle::None
+                    || (is_none
+                        && matches!(dialect.quoting, QuoteStyle::Strings | QuoteStyle::Notnull));
+                let space_requires_quote =
+                    data.is_empty() && dialect.delimiter == ' ' && dialect.skipinitialspace;
+                if space_requires_quote && empty_must_be_unquoted {
                     return Err(new_csv_error(
                         vm,
                         "empty field must be quoted if delimiter is a space and skipinitialspace is true",
                     ));
                 }
 
-                let mut should_quote = match zelf.dialect.quoting {
+                let should_quote = match dialect.quoting {
                     QuoteStyle::All => true,
-                    QuoteStyle::Nonnumeric => !PyNumber::check(&field),
+                    QuoteStyle::Nonnumeric => quote_nonnumeric,
                     QuoteStyle::Strings => is_str,
                     QuoteStyle::Notnull => !is_none,
                     QuoteStyle::Minimal | QuoteStyle::None => false,
                 };
 
-                if zelf.dialect.quoting != QuoteStyle::None
-                    && ((data.is_empty()
-                        && zelf.dialect.delimiter == ' '
-                        && zelf.dialect.skipinitialspace)
-                        || (single_field && data.is_empty())
-                        || (!should_quote && field_needs_quotes(data, &zelf.dialect)))
+                if dialect.quoting != QuoteStyle::None
+                    && (should_quote || space_requires_quote || field_needs_quotes(data, dialect))
                 {
-                    should_quote = true;
-                }
-
-                if should_quote {
-                    write_quoted_field(&mut output, data, &zelf.dialect, vm)?;
+                    write_quoted_field(&mut output, data, dialect, vm)?;
                 } else {
-                    write_unquoted_field(&mut output, data, &zelf.dialect, vm)?;
+                    write_unquoted_field(&mut output, data, dialect, vm)?;
                 }
             }
 
-            output.push_str(&zelf.dialect.lineterminator);
+            // With no separator or field text, the record has exactly one empty field.
+            // Do this after iterating so a late iterator error still wins.
+            if has_fields && output.is_empty() {
+                if empty_must_be_unquoted {
+                    return Err(new_csv_error(
+                        vm,
+                        "single empty field record must be quoted",
+                    ));
+                }
+                write_quoted_field(&mut output, "", dialect, vm)?;
+            }
+
+            output.push_str(&dialect.lineterminator);
             zelf.write.call((output,), vm)
         }
 
