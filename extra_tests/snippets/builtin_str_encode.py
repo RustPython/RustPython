@@ -1,3 +1,7 @@
+import _codecs
+import codecs
+import inspect
+
 from testutils import assert_raises
 
 try:
@@ -56,3 +60,51 @@ for spelling in ["latin-1", "latin1", "iso-8859-1", "l1"]:
 with assert_raises(UnicodeEncodeError) as cm:
     "é".encode("ascii")
 assert str(cm.exception).startswith("'ascii' codec"), str(cm.exception)
+
+
+# The public Codec Clinic defaults apply to omitted arguments, not to None.
+# The same conversion also rejects NUL before lookup or encoding starts.
+class CodecName(str):
+    pass
+
+
+codec_calls = (
+    (b"x".decode, (), "x"),
+    (bytearray(b"x").decode, (), "x"),
+    ("x".encode, (), b"x"),
+    (_codecs.decode, (b"x",), "x"),
+    (_codecs.encode, ("x",), b"x"),
+    (codecs.decode, (b"x",), "x"),
+    (codecs.encode, ("x",), b"x"),
+)
+for codec_call, args, result in codec_calls:
+    method = codec_call.__name__
+    assert codec_call(*args) == result
+    assert codec_call(*args, CodecName("UTF8"), CodecName("strict")) == result
+    default_controls = "(encoding='utf-8', errors='strict')"
+    if args:
+        default_controls = "(obj, " + default_controls[1:]
+    assert str(inspect.signature(codec_call)) == default_controls
+
+    for values, kwargs, invalid, actual in (
+        ((None,), {}, "encoding", "None"),
+        ((), {"encoding": None}, "encoding", "None"),
+        (("utf-8", None), {}, "errors", "None"),
+        ((), {"errors": None}, "errors", "None"),
+        ((None, 42), {}, "encoding", "None"),
+        ((42, None), {}, "encoding", "int"),
+        (("not_a_registered_encoding", None), {}, "errors", "None"),
+    ):
+        with assert_raises(TypeError) as caught:
+            codec_call(*args, *values, **kwargs)
+        assert str(caught.exception) == (
+            f"{method}() argument '{invalid}' must be str, not {actual}"
+        )
+
+    for values, kwargs in (
+        (("utf-8\0", 42), {}),
+        ((), {"errors": "strict\0"}),
+    ):
+        with assert_raises(ValueError) as caught:
+            codec_call(*args, *values, **kwargs)
+        assert str(caught.exception) == "embedded null character"
