@@ -244,17 +244,26 @@ mod decl {
     /// Initialize, or reinitialize, the local timezone to the value stored in
     /// `os.environ["TZ"]`.
     #[cfg(unix)]
+    #[cfg(not(target_os = "freebsd"))]
     #[cfg(not(target_arch = "wasm32"))]
     #[pyfunction]
     fn tzset(vm: &VirtualMachine) -> PyResult<()> {
         // Import first so a failing importer leaves the libc timezone state untouched.
-        let module = vm.import("time", 0)?;
+        let module = crate::import::import_module(vm, vm.ctx.intern_str("time"))?;
+        // Like `PyModule_AddObjectRef`, write straight to the module dict so a
+        // module subclass cannot intercept the update through `__setattr__`.
+        let module = module
+            .downcast::<crate::builtins::PyModule>()
+            .map_err(|_| {
+                vm.new_system_error("PyModule_AddObjectRef() first argument must be a module")
+            })?;
         crate::host_env::time::tz::tzset();
-        module.set_attr("timezone", vm.ctx.new_int(timezone(vm)), vm)?;
-        module.set_attr("altzone", vm.ctx.new_int(altzone(vm)), vm)?;
-        #[cfg(not(target_os = "freebsd"))]
-        module.set_attr("daylight", vm.ctx.new_int(daylight(vm)), vm)?;
-        module.set_attr("tzname", tzname(vm), vm)?;
+        let info = crate::host_env::time::tz::tz_info();
+        let dict = module.dict();
+        dict.set_item("timezone", vm.ctx.new_int(info.timezone).into(), vm)?;
+        dict.set_item("altzone", vm.ctx.new_int(info.altzone).into(), vm)?;
+        dict.set_item("daylight", vm.ctx.new_int(info.daylight).into(), vm)?;
+        dict.set_item("tzname", tzname(vm).into(), vm)?;
         Ok(())
     }
 
@@ -262,7 +271,7 @@ mod decl {
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
     fn altzone(_vm: &VirtualMachine) -> core::ffi::c_long {
-        crate::host_env::time::tz::altzone()
+        crate::host_env::time::tz::tz_info().altzone
     }
 
     #[cfg(target_env = "msvc")]
@@ -278,7 +287,7 @@ mod decl {
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
     fn timezone(_vm: &VirtualMachine) -> core::ffi::c_long {
-        crate::host_env::time::tz::timezone()
+        crate::host_env::time::tz::tz_info().timezone
     }
 
     #[cfg(target_env = "msvc")]
@@ -295,7 +304,7 @@ mod decl {
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
     fn daylight(_vm: &VirtualMachine) -> core::ffi::c_int {
-        crate::host_env::time::tz::daylight()
+        crate::host_env::time::tz::tz_info().daylight
     }
 
     #[cfg(target_env = "msvc")]
@@ -312,7 +321,7 @@ mod decl {
     #[pyattr]
     fn tzname(vm: &VirtualMachine) -> crate::builtins::PyTupleRef {
         use crate::builtins::tuple::IntoPyTuple;
-        crate::host_env::time::tz::tzname_strings().into_pytuple(vm)
+        crate::host_env::time::tz::tz_info().tzname.into_pytuple(vm)
     }
 
     #[cfg(target_env = "msvc")]
