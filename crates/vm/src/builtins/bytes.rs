@@ -11,10 +11,11 @@ use crate::{
     bytes_inner::{
         ByteInnerBuffer, ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions,
         ByteInnerPaddingOptions, ByteInnerReplaceOptions, ByteInnerSplitOptions,
-        ByteInnerStripOptions, ByteInnerSub, ByteInnerTranslateOptions, BytesJoin, DecodeArgs,
-        PyBytesInner, bytes_decode,
+        ByteInnerStripOptions, ByteInnerSub, ByteInnerTranslateOptions, BytesJoin, PyBytesInner,
+        bytes_decode,
     },
     class::{PyClassDef, PyClassImpl},
+    codecs::TextCodecArgs,
     common::hash::PyHash,
     convert::{ToPyObject, ToPyResult},
     function::{ArgBytesLike, ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
@@ -634,7 +635,7 @@ impl PyRef<PyBytes> {
 
     // currently, only 'utf-8' and 'ascii' implemented
     #[pymethod]
-    fn decode(self, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn decode(self, args: TextCodecArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         bytes_decode(self.into(), args, vm)
     }
 }

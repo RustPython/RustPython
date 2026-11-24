@@ -11,6 +11,7 @@ use crate::{
     bytes_inner::{swapcase_ascii, title_ascii},
     cformat::cformat_string,
     class::{PyClassDef, PyClassImpl},
+    codecs::TextCodecArgs,
     common::{
         lock::LazyLock,
         str::{PyKindStr, StrData, StrKind},
@@ -1665,8 +1666,13 @@ impl Py<PyStr> {
     }
 
     #[pymethod]
-    fn encode(zelf: PyRef<PyStr>, args: EncodeArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-        encode_string(zelf, args.encoding.as_deref(), args.errors, vm)
+    fn encode(
+        zelf: PyRef<PyStr>,
+        args: TextCodecArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesRef> {
+        let (encoding, errors) = args.into_parts();
+        encode_string(zelf, encoding.as_deref(), errors, vm)
     }
 
     #[pymethod]
@@ -1842,16 +1848,6 @@ impl AsSequence for PyStr {
         });
         &AS_SEQUENCE
     }
-}
-
-#[derive(FromArgs)]
-struct EncodeArgs {
-    // None is filled in as utf-8 when encoding.
-    #[pyarg(any, optional, py_default = "'utf-8'")]
-    encoding: Option<PyUtf8StrRef>,
-    // None is filled in as strict when encoding.
-    #[pyarg(any, optional, py_default = "'strict'")]
-    errors: Option<PyUtf8StrRef>,
 }
 
 #[derive(FromArgs)]

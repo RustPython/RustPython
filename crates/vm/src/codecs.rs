@@ -23,7 +23,7 @@ use crate::{
         PyTuple, PyTupleRef, PyUtf8Str, PyUtf8StrRef,
     },
     convert::ToPyObject,
-    function::{ArgBytesLike, PyMethodDef},
+    function::{ArgBytesLike, ArgNulFreeStr, OptionalArg, PyMethodDef},
     protocol::{BufferFlags, PyBuffer},
     types::AsBuffer,
 };
@@ -39,6 +39,28 @@ struct RegistryInner {
 }
 
 pub(crate) const DEFAULT_ENCODING: &str = "utf-8";
+
+/// The two optional Clinic string arguments shared by the public codec APIs.
+/// Omitting either argument selects its default; passing None is not allowed.
+#[derive(FromArgs)]
+pub(crate) struct TextCodecArgs {
+    #[pyarg(any, optional, py_default = "'utf-8'")]
+    encoding: OptionalArg<ArgNulFreeStr>,
+    #[pyarg(any, optional, py_default = "'strict'")]
+    errors: OptionalArg<ArgNulFreeStr>,
+}
+
+impl TextCodecArgs {
+    #[inline]
+    pub(crate) fn into_parts(self) -> (Option<PyUtf8StrRef>, Option<PyUtf8StrRef>) {
+        (
+            self.encoding
+                .into_option()
+                .map(ArgNulFreeStr::into_utf8_ref),
+            self.errors.into_option().map(ArgNulFreeStr::into_utf8_ref),
+        )
+    }
+}
 
 #[derive(Clone)]
 #[repr(transparent)]
