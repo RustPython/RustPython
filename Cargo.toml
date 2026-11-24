@@ -178,7 +178,7 @@ exclude = ["pymath"]
 version = "0.6.1"
 authors = ["RustPython Team"]
 edition = "2024"
-rust-version = "1.99.0"
+rust-version = "1.100.0"
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
@@ -260,9 +260,9 @@ lz4_flex = "0.14"
 nix = { version = "0.32", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
 mac_address = "1.2.1"
 mach2 = "0.7.0"
-malachite-bigint = "0.14.0"
-malachite-q = "0.14.0"
-malachite-base = "0.14.0"
+malachite-bigint = "0.15.0"
+malachite-q = "0.15.0"
+malachite-base = "0.15.0"
 md-5 = "0.11"
 memchr = { version = "2.8.1", default-features = false, features = ["alloc"] }
 memmap2 = "0.9.10"
