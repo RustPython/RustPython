@@ -8,6 +8,7 @@ use crate::{
     types::PyComparisonOp,
 };
 use num_traits::ToPrimitive;
+use rustpython_common::wtf8::wtf8_concat;
 
 /// [CPython `method_is_overloaded`](https://github.com/python/cpython/blob/v3.14.3/Objects/typeobject.c#L9849-L9879)
 fn method_is_overloaded(
@@ -126,36 +127,35 @@ impl VirtualMachine {
                 }
             }
         }
-        let hint = match self.get_method(iter, identifier!(self, __length_hint__)) {
-            Some(hint) => hint?,
-            None => return Ok(None),
+        let result = {
+            let Some(hint) = iter.lookup_special(identifier!(self, __length_hint__), self)? else {
+                return Ok(None);
+            };
+            // Release the bound method before checking the result.
+            hint.call((), self)
         };
-        let result = match hint.call((), self) {
-            Ok(res) => {
-                if res.is(&self.ctx.not_implemented) {
-                    return Ok(None);
-                }
-                res
-            }
-            Err(e) => {
-                return if e.fast_isinstance(self.ctx.exceptions.type_error) {
-                    Ok(None)
-                } else {
-                    Err(e)
-                };
-            }
+        let hint = {
+            let result = match result {
+                Ok(result) if !result.is(&self.ctx.not_implemented) => result,
+                Ok(_) => return Ok(None),
+                Err(e) if e.fast_isinstance(self.ctx.exceptions.type_error) => return Ok(None),
+                Err(e) => return Err(e),
+            };
+            let Some(hint) = result.downcast_ref::<PyInt>() else {
+                return Err(self.new_type_error(wtf8_concat!(
+                    iter.class().fully_qualified_name(self)?,
+                    ".__length_hint__() must return an int, not ",
+                    result.class().fully_qualified_name(self)?,
+                )));
+            };
+            // Release the integer before formatting a negative-size error.
+            hint.as_ssize_t(self)?
         };
-        let hint = result
-            .downcast_ref::<PyInt>()
-            .ok_or_else(|| {
-                self.new_type_error(format!(
-                    "'{}' object cannot be interpreted as an integer",
-                    result.class().name()
-                ))
-            })?
-            .try_to_primitive::<isize>(self)?;
         if hint.is_negative() {
-            Err(self.new_value_error("__length_hint__() should return >= 0"))
+            Err(self.new_value_error(wtf8_concat!(
+                iter.class().fully_qualified_name(self)?,
+                ".__length_hint__() must return a non-negative int",
+            )))
         } else {
             Ok(Some(hint as usize))
         }

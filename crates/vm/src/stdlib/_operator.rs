@@ -7,7 +7,8 @@ mod _operator {
         builtins::{PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
         common::wtf8::{Wtf8, Wtf8Buf},
         function::{
-            ArgBytesLike, ArgumentError, Either, FromArgs, FuncArgs, OptionalArg, Param, PosArgs,
+            ArgBytesLike, ArgIndex, ArgumentError, Either, FromArgs, FuncArgs, OptionalArg, Param,
+            PosArgs,
         },
         protocol::PyIter,
         recursion::ReprGuard,
@@ -228,13 +229,17 @@ mod _operator {
     struct LengthHintArgs {
         #[pyarg(positional)]
         obj: PyObjectRef,
-        #[pyarg(positional, default = 0)]
-        default: isize,
+        #[pyarg(positional, optional, py_default = "0")]
+        default: OptionalArg<ArgIndex>,
     }
 
     #[pyfunction]
     fn length_hint(args: LengthHintArgs, vm: &VirtualMachine) -> PyResult<isize> {
         let LengthHintArgs { obj, default } = args;
+        let default = match default {
+            OptionalArg::Present(index) => index.as_ref().as_ssize_t(vm)?,
+            OptionalArg::Missing => 0,
+        };
         Ok(vm
             .length_hint_opt(obj)?
             .map_or(default, |hint| hint as isize))
