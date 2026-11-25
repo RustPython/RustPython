@@ -366,3 +366,120 @@ for original in ("/nonexistent/x", b"/nonexistent/x"):
 
 with FileIO(__file__, "rbb") as rbb:
     assert rbb.mode == "rb"
+
+
+def test_buffered_stream_capabilities():
+    from _io import BufferedRandom, BufferedReader, BufferedRWPair, BufferedWriter
+
+    events = []
+    result = object()
+
+    class Raw(BytesIO):
+        def __init__(self, label):
+            super().__init__(b"data")
+            self.label = label
+            self.can_read = True
+            self.can_write = True
+
+        def readable(self):
+            events.append((self.label, "readable"))
+            return self.can_read
+
+        def writable(self):
+            events.append((self.label, "writable"))
+            return self.can_write
+
+    for wrapper, forwards_read, forwards_write in (
+        (BufferedReader, True, False),
+        (BufferedWriter, False, True),
+        (BufferedRandom, True, True),
+        (BufferedRWPair, True, True),
+    ):
+        reader = Raw("reader")
+        writer = Raw("writer") if wrapper is BufferedRWPair else reader
+        args = (reader, writer) if wrapper is BufferedRWPair else (reader,)
+        with wrapper(*args) as stream:
+            # Change the raw capabilities after initialization.
+            reader.can_read = result
+            writer.can_write = 0
+            events.clear()
+            assert stream.readable() is (result if forwards_read else False)
+            assert stream.writable() is (writer.can_write if forwards_write else False)
+            assert events == [
+                (label, method)
+                for flag, label, method in (
+                    (forwards_read, reader.label, "readable"),
+                    (forwards_write, writer.label, "writable"),
+                )
+                if flag
+            ]
+
+        plain_raw = BytesIO()
+        args = (plain_raw, BytesIO()) if wrapper is BufferedRWPair else (plain_raw,)
+        closed = wrapper(*args)
+        closed.close()
+        for forwarded, operation in (
+            (forwards_read, closed.readable),
+            (forwards_write, closed.writable),
+        ):
+            if forwarded:
+                assert_raises(ValueError, operation)
+            else:
+                assert operation() is False
+
+    with BytesIO() as raw:
+        detached = BufferedRandom(raw)
+        assert detached.detach() is raw
+        for operation in (detached.readable, detached.writable):
+            with assert_raises(ValueError) as error:
+                operation()
+            assert str(error.exception) == "raw stream has been detached"
+
+
+def test_buffered_pair_isatty_forwarding():
+    from _io import BufferedRWPair
+
+    events = []
+    failure = LookupError("isatty failure")
+
+    class NotABoolean:
+        def __bool__(self):
+            raise AssertionError("BufferedRWPair must not truth-test the result")
+
+    class Raw(BytesIO):
+        def __init__(self, label):
+            super().__init__()
+            self.label = label
+            self.result = False
+
+        def isatty(self):
+            events.append(self.label)
+            if self.result is failure:
+                raise failure
+            return self.result
+
+    reader, writer = Raw("reader"), Raw("writer")
+    with BufferedRWPair(reader, writer) as pair:
+        reader.result = failure
+        for value in (True, 0, NotABoolean()):
+            events.clear()
+            writer.result = value
+            assert pair.isatty() is value
+            assert events == ["writer"]
+
+        reader.result = NotABoolean()
+        writer.result = False
+        events.clear()
+        assert pair.isatty() is reader.result
+        assert events == ["writer", "reader"]
+
+        events.clear()
+        writer.result = failure
+        with assert_raises(LookupError) as error:
+            pair.isatty()
+        assert error.exception is failure
+        assert events == ["writer"]
+
+
+test_buffered_stream_capabilities()
+test_buffered_pair_isatty_forwarding()
