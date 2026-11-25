@@ -1331,18 +1331,92 @@ fn first_parse_error(
     )
     .or_else(|| call_argument_unpacking_diagnostic(&parsed, prepared_source, parser_options))
     .or_else(|| unfinished_dict_comprehension_diagnostic(&parsed, parser_options))
-    .map_or_else(
-        || first.clone(),
-        |diagnostic| parser::ParseError {
-            error: ParseErrorType::OtherError(diagnostic.message),
-            location: diagnostic.range,
-        },
-    );
+    .map(|diagnostic| parser::ParseError {
+        error: ParseErrorType::OtherError(diagnostic.message),
+        location: diagnostic.range,
+    })
+    .or_else(|| normalize_raise_parse_error(&parsed))
+    .unwrap_or_else(|| first.clone());
     let mut error = CompileError::from_ruff_parse_error(normalized, source_file, mode);
     if after_syntax_error && let CompileError::Parse(error) = &mut error {
         error.is_unclosed_string = false;
     }
     Err(error)
+}
+
+/// Convert the sole parser error for an unparenthesized raise operand to
+/// CPython's generic syntax error at the comma. Other tuple roles and recovery
+/// involving more than one error retain the parser's original diagnostics.
+pub fn normalize_raise_parse_error(
+    parsed: &parser::Parsed<ast::Mod>,
+) -> Option<parser::ParseError> {
+    use ast::visitor::Visitor;
+
+    let [error] = parsed.errors() else {
+        return None;
+    };
+    if !matches!(error.error, ParseErrorType::UnparenthesizedTupleExpression)
+        || !parsed.unsupported_syntax_errors().is_empty()
+    {
+        return None;
+    }
+    let ast::Mod::Module(module) = parsed.syntax() else {
+        return None;
+    };
+
+    struct Statements<'a> {
+        range: ruff_text_size::TextRange,
+        pending: Vec<&'a ast::Stmt>,
+    }
+
+    impl<'a> Visitor<'a> for Statements<'a> {
+        fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
+            if stmt.range().contains_range(self.range) {
+                self.pending.push(stmt);
+            }
+        }
+
+        fn visit_expr(&mut self, _: &'a ast::Expr) {}
+
+        fn visit_pattern(&mut self, _: &'a ast::Pattern) {}
+    }
+
+    // The recovered tree has not reached AST depth validation, so only collect
+    // immediate child statements per iteration and never recurse into operands.
+    let mut statements = Statements {
+        range: error.location,
+        pending: Vec::new(),
+    };
+    statements.visit_body(&module.body);
+    while let Some(stmt) = statements.pending.pop() {
+        let ast::Stmt::Raise(raise) = stmt else {
+            ast::visitor::walk_stmt(&mut statements, stmt);
+            continue;
+        };
+        let first_end = [raise.exc.as_deref(), raise.cause.as_deref()]
+            .into_iter()
+            .flatten()
+            .find_map(|expr| match expr {
+                ast::Expr::Tuple(tuple)
+                    if !tuple.parenthesized && tuple.range() == error.location =>
+                {
+                    tuple.elts.first().map(Ranged::end)
+                }
+                _ => None,
+            });
+        if let Some(first_end) = first_end {
+            let comma = parsed
+                .tokens()
+                .iter()
+                .take_while(|token| token.start() < error.location.end())
+                .find(|token| token.start() >= first_end && token.kind() == TokenKind::Comma)?;
+            return Some(parser::ParseError {
+                error: ParseErrorType::OtherError("invalid syntax".to_owned()),
+                location: comma.range(),
+            });
+        }
+    }
+    None
 }
 
 // A recovered call never parsed its comprehension clauses. For a narrowly owned
