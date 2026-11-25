@@ -456,6 +456,21 @@ pub fn warn(
     warn_with_skip(message, category, stack_level, source, None, vm)
 }
 
+/// Emit a resource warning with the original object as its source.
+pub fn warn_resource(
+    message: impl Into<rustpython_common::wtf8::Wtf8Buf>,
+    source: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    warn(
+        vm.ctx.new_str(message.into()).into(),
+        Some(vm.ctx.exceptions.resource_warning.to_owned()),
+        1,
+        Some(source.to_owned()),
+        vm,
+    )
+}
+
 /// Warn that `coro` was never awaited.
 ///
 /// Prefer `warnings._warn_unawaited_coroutine` so origin tracking can

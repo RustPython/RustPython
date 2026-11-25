@@ -483,3 +483,29 @@ def test_buffered_pair_isatty_forwarding():
 
 test_buffered_stream_capabilities()
 test_buffered_pair_isatty_forwarding()
+
+
+def test_fileio_warning_preserves_source():
+    import tempfile
+    import warnings
+    from io import BufferedWriter
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as directory:
+        with FileIO(Path(directory) / "resource", "wb") as raw:
+            # Buffered I/O forwards the outer stream as the warning source.
+            with BufferedWriter(raw) as buffered:
+                for source in (raw, buffered):
+                    with warnings.catch_warnings(record=True) as records:
+                        warnings.simplefilter("always", ResourceWarning)
+                        raw._dealloc_warn(source)
+                    assert len(records) == 1
+                    assert records[0].category is ResourceWarning
+                    assert records[0].source is source
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always", ResourceWarning)
+            raw._dealloc_warn(raw)
+        assert records == []
+
+
+test_fileio_warning_preserves_source()
