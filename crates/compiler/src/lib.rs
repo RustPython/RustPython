@@ -35,6 +35,7 @@ impl parser::ParseRuntime for UnicodeNames {}
 /// Parse with the same Unicode names as the Unicode escape codec, without
 /// importing modules or executing any other interpreter effects.
 #[doc(hidden)]
+#[must_use]
 pub fn parse_with_unicode_names(
     source: &str,
     options: parser::ParseOptions,
@@ -43,6 +44,7 @@ pub fn parse_with_unicode_names(
 }
 
 #[doc(hidden)]
+#[must_use]
 pub fn parse_with_name_runtime(
     source: &str,
     options: parser::ParseOptions,

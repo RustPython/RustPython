@@ -3178,12 +3178,12 @@ mod escape_warnings {
 
     #[derive(Default)]
     pub(super) struct DeferredLiteralWarnings(
-        core::cell::RefCell<std::collections::BTreeMap<usize, ParserWarning>>,
+        core::cell::RefCell<alloc::collections::BTreeMap<usize, ParserWarning>>,
     );
 
     impl DeferredLiteralWarnings {
         fn from_warnings(warnings: impl IntoIterator<Item = ParserWarning>) -> Self {
-            let mut sorted = std::collections::BTreeMap::new();
+            let mut sorted = alloc::collections::BTreeMap::new();
             for warning in warnings {
                 sorted.entry(warning.offset()).or_insert(warning);
             }
