@@ -372,7 +372,7 @@ jobs:
         if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: cargo build --locked
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: env.RUN_RUST_TESTS != 'true' && env.RUN_UPDATE_LIB_TESTS == 'true' && runner.os == 'Linux'
         with:
           python-version-file: .python-version
@@ -586,7 +586,7 @@ jobs:
         # Windows runners randomly crashes, https://github.com/actions/cache/issues/1754
         continue-on-error: true
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
 
       - name: Install macOS dependencies
         uses: ./.github/actions/install-macos-deps
@@ -799,7 +799,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -959,7 +959,7 @@ jobs:
           mkdir geckodriver
           tar -xzf geckodriver-v0.36.0-linux64.tar.gz -C geckodriver
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
 
       - run: python -m pip install -r requirements.txt
         working-directory: ./wasm/tests
@@ -1245,7 +1245,7 @@ jobs:
             --wasi-module target/wasm32-wasip1/wasm-release/rustpython.wasm
       - name: Setup Python for the snippet harness
         if: env.RUN_WASM_WASI == 'true'
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version-file: .python-version
 
