@@ -50,7 +50,10 @@ impl Constructor for PyNone {
     }
 }
 
-#[pyclass(with(Constructor, AsNumber, Comparable, Hashable, Representable))]
+#[pyclass(
+    with(Constructor, AsNumber, Comparable, Hashable, Representable),
+    flags(IMMUTABLETYPE)
+)]
 impl PyNone {}
 
 impl Representable for PyNone {
