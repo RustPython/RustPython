@@ -17,15 +17,15 @@ pub mod array {
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             atomic_func,
             builtins::{
-                PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat,
-                PyGenericAlias, PyInt, PyListRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef,
-                PyUtf8Str, PyUtf8StrRef, builtins_iter, locked_next,
+                PositionIterInternal, PyByteArray, PyBytes, PyDictRef, PyFloat, PyGenericAlias,
+                PyInt, PyListRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef,
+                builtins_iter, locked_next,
             },
             class_or_notimplemented,
-            convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
+            convert::{ToPyObject, ToPyResult, TryFromObject},
             function::{
-                ArgBytesLike, ArgIndex, ArgIntoComplex, ArgIntoFloat, ArgIterable, KwArgs,
-                OptionalArg, PyComparisonValue,
+                ArgBytesLike, ArgCInt, ArgIndex, ArgIntoComplex, ArgIntoFloat, ArgIterable,
+                ArgNulFreeStr, KwArgs, OptionalArg, PyComparisonValue,
             },
             protocol::{
                 BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer,
@@ -48,7 +48,7 @@ pub mod array {
     use half::f16;
     use itertools::Itertools;
     use num_complex::{Complex32, Complex64};
-    use num_traits::{Signed, ToPrimitive};
+    use num_traits::Signed;
     use rustpython_common::wtf8::{CodePoint, Wtf8, Wtf8Buf};
     use std::os::raw;
     macro_rules! def_array_enum {
@@ -1907,14 +1907,16 @@ pub mod array {
 
     #[derive(FromArgs)]
     struct ReconstructorArgs {
+        // Clinic converts only the typecode and machine format before
+        // entering the implementation; the object checks happen there.
         #[pyarg(positional)]
-        arraytype: PyTypeRef,
+        arraytype: PyObjectRef,
         #[pyarg(positional)]
-        typecode: PyUtf8StrRef,
+        typecode: ArgNulFreeStr,
         #[pyarg(positional)]
-        mformat_code: MachineFormatCode,
+        mformat_code: ArgCInt,
         #[pyarg(positional)]
-        items: PyBytesRef,
+        items: PyObjectRef,
     }
 
     #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -1984,25 +1986,6 @@ pub mod array {
         }
     }
 
-    impl<'a> TryFromBorrowedObject<'a> for MachineFormatCode {
-        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-            obj.try_to_ref::<PyInt>(vm)
-                .map_err(|_| {
-                    vm.new_type_error(format!(
-                        "an integer is required (got type {})",
-                        obj.class().name()
-                    ))
-                })?
-                .try_to_primitive::<i32>(vm)?
-                .to_u8()
-                .unwrap_or(u8::MAX)
-                .try_into()
-                .map_err(|_| {
-                    vm.new_value_error("third argument must be a valid machine format code.")
-                })
-        }
-    }
-
     impl MachineFormatCode {
         fn from_typecode(code: &str) -> Option<Self> {
             use core::mem::size_of;
@@ -2052,6 +2035,27 @@ pub mod array {
                 _ => None,
             }
         }
+        fn compatible_integer_typecode(self) -> Option<&'static str> {
+            let signed = match self {
+                Self::Int8 { signed }
+                | Self::Int16 { signed, .. }
+                | Self::Int32 { signed, .. }
+                | Self::Int64 { signed, .. } => signed,
+                _ => return None,
+            };
+            let size = self.item_size();
+            // CPython uses the last matching integer descriptor, not
+            // necessarily the original type code on an ABI mismatch.
+            let codes = if signed {
+                ["q", "l", "i", "h", "b"]
+            } else {
+                ["Q", "L", "I", "H", "B"]
+            };
+            codes
+                .into_iter()
+                .find(|code| ArrayContentType::itemsize_of_typecode(code) == Some(size))
+        }
+
         const fn item_size(self) -> usize {
             match self {
                 Self::Int8 { .. } => 1,
@@ -2074,8 +2078,7 @@ pub mod array {
         Ok(typ)
     }
 
-    fn check_type_code(spec: &Py<PyUtf8Str>, vm: &VirtualMachine) -> PyResult<ArrayContentType> {
-        let spec = spec.as_str();
+    fn check_type_code(spec: &str, vm: &VirtualMachine) -> PyResult<ArrayContentType> {
         ArrayContentType::from_typecode(spec)
             .map_err(|_| vm.new_value_error("second argument must be a valid type code"))
     }
@@ -2105,16 +2108,36 @@ pub mod array {
 
     #[pyfunction]
     fn _array_reconstructor(args: ReconstructorArgs, vm: &VirtualMachine) -> PyResult<PyArrayRef> {
-        let cls = check_array_type(args.arraytype, vm)?;
-        let mut array = check_type_code(&args.typecode, vm)?;
-        let format = args.mformat_code;
-        let bytes = args.items.as_bytes();
+        let cls = args.arraytype.downcast::<PyType>().map_err(|obj| {
+            vm.new_type_error(format!(
+                "first argument must be a type object, not {}",
+                obj.class().slot_name()
+            ))
+        })?;
+        let cls = check_array_type(cls, vm)?;
+        let mut array = check_type_code(args.typecode.as_str(), vm)?;
+        let format = u8::try_from(args.mformat_code.into_primitive())
+            .ok()
+            .and_then(|code| MachineFormatCode::try_from(code).ok())
+            .ok_or_else(|| {
+                vm.new_value_error("third argument must be a valid machine format code.")
+            })?;
+        let items = args.items.downcast::<PyBytes>().map_err(|obj| {
+            vm.new_type_error(format!(
+                "fourth argument should be bytes, not {}",
+                obj.class().slot_name()
+            ))
+        })?;
+        let bytes = items.as_bytes();
         if !bytes.len().is_multiple_of(format.item_size()) {
             return Err(vm.new_value_error("bytes length not a multiple of item size"));
         }
         if MachineFormatCode::from_typecode(array.typecode()) == Some(format) {
             array.frombytes(bytes);
             return PyArray::from(array).into_ref_with_type(vm, cls);
+        }
+        if let Some(typecode) = format.compatible_integer_typecode() {
+            array = check_type_code(typecode, vm)?;
         }
         if !matches!(
             format,
@@ -2168,7 +2191,7 @@ pub mod array {
                     vm.new_unicode_decode_error(
                         vm.ctx
                             .new_str(if big_endian { "utf-16-be" } else { "utf-16-le" }),
-                        args.items.clone(),
+                        items.clone(),
                         index * 2,
                         index * 2 + 2,
                         vm.ctx.new_str(reason),
