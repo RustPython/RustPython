@@ -1870,6 +1870,7 @@ fn empty_arguments_object(vm: &VirtualMachine) -> PyObjectRef {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn parse<E: From<CompileError> + From<crate::builtins::PyBaseExceptionRef>>(
     vm: &VirtualMachine,
+    runtime: Option<&crate::unicode_names::ParserUnicodeNames<'_>>,
     source: &str,
     filename: &str,
     mode: parser::Mode,
@@ -1896,7 +1897,12 @@ pub(crate) fn parse<E: From<CompileError> + From<crate::builtins::PyBaseExceptio
         explicit_future_features.contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
     );
     rustpython_compiler::pre_parse_source_error(&source_file)?;
-    let parsed = parser::parse_unchecked(barry_source.source(), options);
+    let parsed = rustpython_compiler::parse_with_name_runtime(
+        barry_source.source(),
+        options,
+        runtime.map(|runtime| runtime as &dyn parser::ParseRuntime),
+        interactive,
+    );
     let type_comment_source =
         type_comments.then(|| TypeCommentSource::new(source, parsed.tokens()));
     let mut type_comment_error = type_comment_source
@@ -2183,14 +2189,21 @@ pub(crate) fn parse_func_type<E: From<CompileError> + From<crate::builtins::PyBa
     let left = source[..split_at].trim();
     let right = source[split_at + 2..].trim();
 
-    let parse_expr = |expr_src: &str| -> Result<ast::Expr, CompileError> {
+    let runtime = crate::unicode_names::ParserUnicodeNames::new(vm);
+    let parse_expr = |expr_src: &str| -> Result<ast::Expr, E> {
         let source_file = SourceFileBuilder::new(filename.to_owned(), expr_src.to_owned()).finish();
         let options = parser::ParseOptions::from(parser::Mode::Expression)
             .with_target_version(target_version.unwrap_or(ast::PythonVersion::PY315));
-        let parsed = parser::parse(expr_src, options).map_err(|parse_error| {
+        let parsed = parser::parse_unchecked_with_runtime(expr_src, options, &runtime);
+        if let Some(parse_error) = parsed.errors().first() {
+            if let Some(exception) =
+                vm.format_spec_decode_error(&parse_error.error, parse_error.location, expr_src)
+            {
+                return Err(exception.into());
+            }
             let range = text_range_to_source_range(&source_file, parse_error.location);
-            CompileError::from(ParseError {
-                error: parse_error.error,
+            return Err(CompileError::from(ParseError {
+                error: parse_error.error.clone(),
                 raw_location: parse_error.location,
                 location: range.start,
                 end_location: range.end,
@@ -2199,7 +2212,8 @@ pub(crate) fn parse_func_type<E: From<CompileError> + From<crate::builtins::PyBa
                 is_unclosed_string: false,
                 eof_token: None,
             })
-        })?;
+            .into());
+        }
         rustpython_compiler::too_deeply_nested_error(
             parsed.syntax(),
             &source_file,
@@ -2228,10 +2242,16 @@ pub(crate) fn parse_func_type<E: From<CompileError> + From<crate::builtins::PyBa
         let source_file = SourceFileBuilder::new(filename.to_owned(), call_source.clone()).finish();
         let options = parser::ParseOptions::from(parser::Mode::Expression)
             .with_target_version(target_version.unwrap_or(ast::PythonVersion::PY315));
-        let parsed = parser::parse(&call_source, options).map_err(|parse_error| {
+        let parsed = parser::parse_unchecked_with_runtime(&call_source, options, &runtime);
+        if let Some(parse_error) = parsed.errors().first() {
+            if let Some(exception) =
+                vm.format_spec_decode_error(&parse_error.error, parse_error.location, &call_source)
+            {
+                return Err(exception.into());
+            }
             let range = text_range_to_source_range(&source_file, parse_error.location);
-            CompileError::from(ParseError {
-                error: parse_error.error,
+            return Err(CompileError::from(ParseError {
+                error: parse_error.error.clone(),
                 raw_location: parse_error.location,
                 location: range.start,
                 end_location: range.end,
@@ -2240,7 +2260,8 @@ pub(crate) fn parse_func_type<E: From<CompileError> + From<crate::builtins::PyBa
                 is_unclosed_string: false,
                 eof_token: None,
             })
-        })?;
+            .into());
+        }
         rustpython_compiler::too_deeply_nested_error(
             parsed.syntax(),
             &source_file,

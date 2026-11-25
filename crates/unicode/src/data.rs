@@ -136,7 +136,7 @@ impl AlgorithmicName {
         // `parse_hex_code` does not skip spaces around the digits.
         let hex = tail.strip_prefix('-')?;
         // `_getcode` / `parse_hex_code`: 4–6 digits, no leading zero.
-        if hex.len() < 4 || hex.len() > 6 || hex.starts_with('0') {
+        if hex.len() < 4 || hex.len() > 6 || hex.starts_with(['0', '+']) {
             return None;
         }
         let cp = u32::from_str_radix(hex, 16).ok()?;

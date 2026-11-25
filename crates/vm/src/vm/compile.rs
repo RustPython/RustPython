@@ -80,11 +80,90 @@ impl VmCompileError {
     ) -> PyBaseExceptionRef {
         match self {
             Self::Compile(err) => {
+                #[cfg(feature = "parser")]
+                if let CompileError::Parse(parse_error) = &err
+                    && let Some(source) = source
+                    && let Some(exception) = vm.format_spec_decode_error(
+                        &parse_error.error,
+                        parse_error.raw_location,
+                        source,
+                    )
+                {
+                    return exception;
+                }
                 vm.new_syntax_error_maybe_incomplete(&err, source, allow_incomplete)
             }
             Self::Warning(err) => err.into_pyexception(vm, source),
             Self::Exception(error) => error,
         }
+    }
+}
+
+#[cfg(feature = "parser")]
+impl VirtualMachine {
+    /// The format-spec grammar propagates decoder exceptions directly; unlike
+    /// the joined string's action it does not wrap them in SyntaxError.
+    pub(crate) fn format_spec_decode_error(
+        &self,
+        error: &ruff_python_parser::ParseErrorType,
+        range: ruff_text_size::TextRange,
+        source: &str,
+    ) -> Option<PyBaseExceptionRef> {
+        use core::fmt::Write as _;
+        use ruff_python_parser::{LexicalErrorType, ParseErrorType};
+
+        let ParseErrorType::Lexical(LexicalErrorType::FormatSpecDecodeError(error)) = error else {
+            return None;
+        };
+        if matches!(**error, LexicalErrorType::UnicodeNameProviderUnavailable) {
+            // The original decode has already tried importing unicodedata.
+            return Some(
+                self.new_exception_msg(
+                    self.ctx.exceptions.unicode_error.to_owned(),
+                    ruff_python_parser::UnicodeNameProviderUnavailable
+                        .to_string()
+                        .into(),
+                ),
+            );
+        }
+        let LexicalErrorType::UnicodeEscapeError { kind, start, end } = **error else {
+            return None;
+        };
+        let source = compiler::core::normalize_newlines(source);
+        let part = source.get(range.start().to_usize()..range.end().to_usize())?;
+        // Parser/string_parser.c, decode_unicode_with_escapes(): the decoder's
+        // exception object owns the expanded ASCII input, not UTF-8 bytes.
+        let mut encoded = String::with_capacity(part.len());
+        let mut chars = part.chars();
+        while let Some(mut ch) = chars.next() {
+            if ch == '\\' {
+                encoded.push(ch);
+                match chars.next() {
+                    Some(next) => {
+                        if !next.is_ascii() {
+                            encoded.push_str("u005c");
+                        }
+                        ch = next;
+                    }
+                    None => {
+                        encoded.push_str("u005c");
+                        break;
+                    }
+                }
+            }
+            if ch.is_ascii() {
+                encoded.push(ch);
+            } else {
+                write!(&mut encoded, "\\U{:08x}", u32::from(ch)).unwrap();
+            }
+        }
+        Some(self.new_unicode_decode_error(
+            self.ctx.new_str("unicodeescape"),
+            self.ctx.new_bytes(encoded.into_bytes()),
+            start as usize,
+            end as usize + 1,
+            self.ctx.new_str(kind.to_string()),
+        ))
     }
 }
 
@@ -557,7 +636,7 @@ impl VirtualMachine {
             None
         };
 
-        let emitted_parser_escapes = if is_ast_only {
+        let (emitted_parser_escapes, deferred) = if is_ast_only {
             self.emit_ast_parser_warnings(
                 source,
                 filename,
@@ -569,13 +648,14 @@ impl VirtualMachine {
                         .contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
                     type_comments,
                     require_relative_import: false,
+                    defer_literal_escapes: true,
                 },
             )
             .map_err(|warning| {
                 VmCompileError::Warning(warning).into_pyexception(self, Some(source))
             })?
         } else {
-            Vec::new()
+            Default::default()
         };
         let mut emit_ast_warning = |offset, ch| {
             if emitted_parser_escapes.binary_search(&offset).is_ok() {
@@ -611,24 +691,28 @@ impl VirtualMachine {
                 CompileStart::Eval => (ruff_python_parser::Mode::Expression, false),
                 CompileStart::FuncType => unreachable!(),
             };
-            let parsed = _ast::parse(
-                self,
-                source,
-                filename,
-                parser_mode,
-                optimize,
-                target_version,
-                type_comments,
-                optimized_ast,
-                interactive,
-                future_features,
-                dont_imply_dedent,
-                None,
-                &mut emit_ast_warning,
-            )
-            .map_err(|e| {
-                e.into_pyexception_maybe_incomplete(self, Some(source), allow_incomplete)
-            })?;
+            let parsed = deferred
+                .with_runtime(source, filename, None, module, self, |runtime| {
+                    _ast::parse(
+                        self,
+                        Some(runtime),
+                        source,
+                        filename,
+                        parser_mode,
+                        optimize,
+                        target_version,
+                        type_comments,
+                        optimized_ast,
+                        interactive,
+                        future_features,
+                        dont_imply_dedent,
+                        None,
+                        &mut emit_ast_warning,
+                    )
+                })
+                .map_err(|e| {
+                    e.into_pyexception_maybe_incomplete(self, Some(source), allow_incomplete)
+                })?;
             if start == CompileStart::Single {
                 return _ast::wrap_interactive(self, &parsed);
             }
@@ -643,27 +727,57 @@ impl VirtualMachine {
                 CompileStart::Eval => ruff_python_parser::Mode::Expression,
                 CompileStart::FuncType => ruff_python_parser::Mode::Module,
             };
-            let validation = _ast::parse(
-                self,
-                source,
-                filename,
-                parser_mode,
-                optimize,
-                None,
-                type_comments,
-                false,
-                start == CompileStart::Single,
-                future_features,
-                dont_imply_dedent,
-                Some(&mut type_comment_error_offset),
-                |offset, ch| {
-                    // Successful validation shares the ordinary collector's
-                    // tokenizer/parser order instead of emitting format specs
-                    // prematurely. Preserve reached callbacks if validation fails.
-                    pending_ast_warnings.push((offset, ch));
-                    Ok::<(), VmCompileError>(())
-                },
-            );
+            let runtime = crate::unicode_names::ParserUnicodeNames::new(self);
+            let validate = |runtime, warnings: &mut Vec<_>, error_offset: &mut Option<usize>| {
+                _ast::parse(
+                    self,
+                    runtime,
+                    source,
+                    filename,
+                    parser_mode,
+                    optimize,
+                    None,
+                    type_comments,
+                    false,
+                    start == CompileStart::Single,
+                    future_features,
+                    dont_imply_dedent,
+                    Some(error_offset),
+                    |offset, ch| {
+                        // Successful validation shares the ordinary collector's
+                        // tokenizer/parser order instead of emitting format specs
+                        // prematurely. Preserve reached callbacks if validation fails.
+                        warnings.push((offset, ch));
+                        Ok::<(), VmCompileError>(())
+                    },
+                )
+            };
+            // A successful type-comment check is speculative; do not load
+            // Unicode names before the real parser reaches earlier warnings.
+            let validation = if source.contains(r"\N") {
+                let checked = validate(
+                    None,
+                    &mut pending_ast_warnings,
+                    &mut type_comment_error_offset,
+                );
+                if checked.is_ok() {
+                    checked
+                } else {
+                    pending_ast_warnings.clear();
+                    type_comment_error_offset = None;
+                    validate(
+                        Some(&runtime),
+                        &mut pending_ast_warnings,
+                        &mut type_comment_error_offset,
+                    )
+                }
+            } else {
+                validate(
+                    Some(&runtime),
+                    &mut pending_ast_warnings,
+                    &mut type_comment_error_offset,
+                )
+            };
             if let Err(error) = validation {
                 // The raw grammar may have reached a relative-import action
                 // before validation failed. With no type-comment boundary,
@@ -681,11 +795,13 @@ impl VirtualMachine {
                                 .contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
                             type_comments: true,
                             require_relative_import: type_comment_error_offset.is_none(),
+                            defer_literal_escapes: false,
                         },
                     )
                     .map_err(|warning| {
                         VmCompileError::Warning(warning).into_pyexception(self, Some(source))
                     })?
+                    .0
                 } else {
                     Vec::new()
                 };
@@ -759,7 +875,7 @@ impl VirtualMachine {
         let source = compiler::core::normalize_newlines(source);
         let source = source.as_ref();
         #[cfg(feature = "parser")]
-        {
+        let deferred = {
             let start = match mode {
                 compiler::Mode::Exec | compiler::Mode::BlockExpr => CompileStart::File,
                 compiler::Mode::Eval => CompileStart::Eval,
@@ -767,18 +883,36 @@ impl VirtualMachine {
             };
             // A symbol table observes parser warnings, but does not compile
             // bytecode or emit code-generation and AST-preprocessing warnings.
-            self.emit_ast_parser_warnings(
-                source,
-                filename,
-                Some(original_filename),
-                module,
-                start,
-                escape_warnings::AstParserWarningOptions::default(),
-            )
-            .map_err(VmCompileError::Warning)?;
-        }
+            let (_, deferred) = self
+                .emit_ast_parser_warnings(
+                    source,
+                    filename,
+                    Some(original_filename),
+                    module,
+                    start,
+                    escape_warnings::AstParserWarningOptions {
+                        defer_literal_escapes: true,
+                        ..Default::default()
+                    },
+                )
+                .map_err(VmCompileError::Warning)?;
+            deferred
+        };
         #[cfg(not(feature = "parser"))]
         let _ = (module, original_filename);
+        #[cfg(feature = "parser")]
+        return deferred.with_runtime(
+            source,
+            filename,
+            Some(original_filename),
+            module,
+            self,
+            |runtime| {
+                compiler::compile_symtable_with_name_provider(source, mode, filename, Some(runtime))
+                    .map_err(VmCompileError::Compile)
+            },
+        );
+        #[cfg(not(feature = "parser"))]
         compiler::compile_symtable(source, mode, filename).map_err(VmCompileError::Compile)
     }
 
@@ -855,8 +989,8 @@ impl VirtualMachine {
         let source = compiler::core::normalize_newlines(source);
         let source = source.as_ref();
         #[cfg(feature = "parser")]
-        {
-            self.emit_standard_parser_warnings(
+        let pending = self
+            .emit_standard_parser_warnings(
                 source,
                 filename,
                 module,
@@ -866,8 +1000,15 @@ impl VirtualMachine {
                 emitted_escapes,
             )
             .map_err(VmCompileError::Warning)?;
-        }
-        self.compile_after_parser_warnings_object(source, mode, filename, opts, module)
+        self.compile_after_parser_warnings_object(
+            source,
+            mode,
+            filename,
+            opts,
+            module,
+            #[cfg(feature = "parser")]
+            pending,
+        )
     }
 
     pub(super) fn compile_after_parser_warnings(
@@ -884,6 +1025,8 @@ impl VirtualMachine {
             &self.ctx.new_str(source_path.into()),
             opts,
             module.map(AsObject::as_object),
+            #[cfg(feature = "parser")]
+            escape_warnings::DeferredLiteralWarnings::default(),
         )
     }
 
@@ -894,6 +1037,7 @@ impl VirtualMachine {
         filename: &Py<PyStr>,
         opts: CompileOpts,
         module: Option<&PyObject>,
+        #[cfg(feature = "parser")] pending: escape_warnings::DeferredLiteralWarnings,
     ) -> Result<PyRef<PyCode>, VmCompileError> {
         let source_path = filename.to_string_lossy();
         #[cfg(not(feature = "parser"))]
@@ -919,12 +1063,33 @@ impl VirtualMachine {
                         }
                     })
             };
-            let result = compiler::compile_with_syntax_warning_handler(
+            let warn = |range| {
+                pending
+                    .emit(
+                        range,
+                        source,
+                        &filename.to_string_lossy(),
+                        Some(filename),
+                        module,
+                        self,
+                    )
+                    .map_err(|warning| {
+                        escalated.set(Some(warning));
+                        ruff_python_parser::ParseError {
+                            error: ruff_python_parser::ParseErrorType::OtherError(String::new()),
+                            location: range,
+                        }
+                    })
+            };
+            let runtime =
+                crate::unicode_names::ParserUnicodeNames::new(self).with_literal_warning(&warn);
+            let result = compiler::compile_with_name_provider(
                 source,
                 mode,
                 &source_path,
                 opts,
                 &mut syntax_warning_handler,
+                Some(&runtime),
             );
             match escalated.take() {
                 Some(warning) => return Err(VmCompileError::Warning(warning)),
@@ -2762,11 +2927,31 @@ mod escape_warnings {
         warnings: Vec<ParserWarning>,
         tokenizer_recovery: bool,
         has_valid_syntax: bool,
+        failed_named_literal_start: Option<usize>,
         single_boundary: Option<compiler::SingleModeStatementBoundary>,
         type_comment_error_offset: Option<usize>,
     }
 
     impl CollectedParserWarnings {
+        fn can_defer_literal_escapes(&self, source: &str) -> bool {
+            (self.has_valid_syntax || self.failed_named_literal_start.is_some())
+                && self.type_comment_error_offset.is_none()
+                && source.contains(r"\N")
+                && self.warnings.iter().all(|warning| {
+                    matches!(
+                        warning,
+                        ParserWarning::Escape(_, EscapeOrigin::Parser, _, _)
+                    )
+                })
+        }
+
+        fn into_literal_escapes_reached(self) -> impl Iterator<Item = ParserWarning> {
+            let failed_start = self.failed_named_literal_start;
+            self.warnings
+                .into_iter()
+                .filter(move |warning| failed_start.is_none_or(|start| warning.offset() < start))
+        }
+
         fn has_relative_import(&self) -> bool {
             self.warnings
                 .iter()
@@ -2785,6 +2970,7 @@ mod escape_warnings {
     ) -> CollectedParserWarnings {
         let mut ast_tokenizer_recovery = true;
         let mut has_valid_syntax = false;
+        let mut failed_named_literal_start = None;
         let mut single_boundary = None;
         let mut type_comment_error_offset = None;
         let mut warnings = Vec::new();
@@ -2801,7 +2987,26 @@ mod escape_warnings {
                 options.clone(),
                 inherited_barry_as_flufl,
             );
-            let parsed = ruff_python_parser::parse_unchecked(barry_source.source(), options);
+            let parsed = compiler::parse_with_unicode_names(barry_source.source(), options);
+            if let [failure] = parsed.errors()
+                && let ruff_python_parser::ParseErrorType::Lexical(error) = &failure.error
+            {
+                use ruff_python_parser::{LexicalErrorType, UnicodeEscapeErrorKind};
+                let error = match error {
+                    LexicalErrorType::FormatSpecDecodeError(cause) => &**cause,
+                    error => error,
+                };
+                if matches!(
+                    error,
+                    LexicalErrorType::UnicodeEscapeError {
+                        kind: UnicodeEscapeErrorKind::MalformedName
+                            | UnicodeEscapeErrorKind::UnknownName,
+                        ..
+                    }
+                ) {
+                    failed_named_literal_start = Some(failure.location.start().to_usize());
+                }
+            }
             let first_error = parsed
                 .errors()
                 .iter()
@@ -2938,6 +3143,7 @@ mod escape_warnings {
             warnings,
             tokenizer_recovery: ast_tokenizer_recovery,
             has_valid_syntax,
+            failed_named_literal_start,
             single_boundary,
             type_comment_error_offset,
         }
@@ -2948,6 +3154,7 @@ mod escape_warnings {
         pub(super) inherited_barry_as_flufl: bool,
         pub(super) type_comments: bool,
         pub(super) require_relative_import: bool,
+        pub(super) defer_literal_escapes: bool,
     }
 
     #[derive(Default)]
@@ -2969,6 +3176,117 @@ mod escape_warnings {
         Interactive(&'a mut super::InteractiveWarnings),
     }
 
+    #[derive(Default)]
+    pub(super) struct DeferredLiteralWarnings(
+        core::cell::RefCell<std::collections::BTreeMap<usize, ParserWarning>>,
+    );
+
+    impl DeferredLiteralWarnings {
+        fn from_warnings(warnings: impl IntoIterator<Item = ParserWarning>) -> Self {
+            let mut sorted = std::collections::BTreeMap::new();
+            for warning in warnings {
+                sorted.entry(warning.offset()).or_insert(warning);
+            }
+            Self(core::cell::RefCell::new(sorted))
+        }
+
+        pub(super) fn with_runtime<T>(
+            &self,
+            source: &str,
+            filename: &str,
+            original_filename: Option<&Py<PyStr>>,
+            module: Option<&Py<PyStr>>,
+            vm: &VirtualMachine,
+            f: impl FnOnce(
+                &crate::unicode_names::ParserUnicodeNames<'_>,
+            ) -> Result<T, super::VmCompileError>,
+        ) -> Result<T, super::VmCompileError> {
+            let runtime = crate::unicode_names::ParserUnicodeNames::new(vm);
+            if self.0.borrow().is_empty() {
+                return f(&runtime);
+            }
+            let escalated = core::cell::Cell::new(None);
+            let warn = |range| {
+                self.emit(
+                    range,
+                    source,
+                    filename,
+                    original_filename,
+                    module.map(AsObject::as_object),
+                    vm,
+                )
+                .map_err(|warning| {
+                    escalated.set(Some(warning));
+                    ruff_python_parser::ParseError {
+                        error: ruff_python_parser::ParseErrorType::OtherError(String::new()),
+                        location: range,
+                    }
+                })
+            };
+            let result = f(&runtime.with_literal_warning(&warn));
+            match escalated.take() {
+                Some(warning) => Err(super::VmCompileError::Warning(warning)),
+                None => result,
+            }
+        }
+
+        pub(super) fn emit(
+            &self,
+            range: TextRange,
+            source: &str,
+            filename: &str,
+            original_filename: Option<&Py<PyStr>>,
+            module: Option<&PyObject>,
+            vm: &VirtualMachine,
+        ) -> Result<(), CompileWarningError> {
+            loop {
+                let next = {
+                    let mut queue = self.0.borrow_mut();
+                    let key = queue
+                        .range(range.start().to_usize()..range.end().to_usize())
+                        .next()
+                        .map(|(&offset, _)| offset);
+                    key.and_then(|offset| queue.remove(&offset))
+                };
+                // Never hold the borrow while warning code can reenter Python.
+                let Some(warning) = next else {
+                    return Ok(());
+                };
+                vm.emit_parser_warning_batch(
+                    source,
+                    filename,
+                    module,
+                    vec![warning],
+                    ParserWarningBoundaries::default(),
+                    WarningEmission::Ast {
+                        tokenizer_recovery: false,
+                        original_filename,
+                    },
+                )?;
+            }
+        }
+    }
+
+    // Single mode uses the module parser, which can parse past its first
+    // logical statement. Do not defer effects if there can be more code.
+    fn single_deferral_safe(
+        source: &str,
+        boundary: Option<compiler::SingleModeStatementBoundary>,
+    ) -> bool {
+        if !source.trim_end_matches(['\r', '\n']).contains(['\r', '\n']) {
+            return true;
+        }
+        let Some(compiler::SingleModeStatementBoundary::Simple { end, .. }) = boundary else {
+            return false;
+        };
+        source.get(end.to_usize()..).is_some_and(|tail| {
+            tail.lines().all(|line| {
+                let line = line.trim_start_matches([' ', '\t', '\r', '\x0c']);
+                line.is_empty() || line.starts_with('#')
+            })
+        })
+    }
+
     impl VirtualMachine {
         pub(super) fn emit_standard_parser_warnings(
             &self,
@@ -2978,7 +3296,7 @@ mod escape_warnings {
             mode: compiler::Mode,
             inherited_barry_as_flufl: bool,
             emitted_escapes: &[usize],
-        ) -> Result<(), CompileWarningError> {
+        ) -> Result<DeferredLiteralWarnings, CompileWarningError> {
             let filename = original_filename.to_string_lossy();
             let filename = filename.as_ref();
             let implicit_final_newline = matches!(mode, compiler::Mode::Exec);
@@ -3000,16 +3318,21 @@ mod escape_warnings {
                 is_single,
                 false,
             );
+            if (!is_single || single_deferral_safe(source, collected.single_boundary))
+                && collected.can_defer_literal_escapes(source)
+            {
+                let warnings = collected
+                    .into_literal_escapes_reached()
+                    .filter(|warning| !emitted_escapes.contains(&warning.offset()));
+                return Ok(DeferredLiteralWarnings::from_warnings(warnings));
+            }
             if !collected.has_valid_syntax && !collected.has_relative_import() {
                 // Invalid source still needs the legacy recovery contract;
                 // a valid mixed batch already has separate tokenizer events.
                 self.emit_tokenizer_syntax_warnings(source, original_filename, module)?;
-                return self.emit_string_escape_warnings(
-                    source,
-                    original_filename,
-                    module,
-                    emitted_escapes,
-                );
+                return self
+                    .emit_string_escape_warnings(source, original_filename, module, emitted_escapes)
+                    .map(|()| DeferredLiteralWarnings::default());
             }
             self.emit_parser_warning_batch(
                 source,
@@ -3026,7 +3349,7 @@ mod escape_warnings {
                     original_filename,
                 },
             )
-            .map(|_| ())
+            .map(|_| DeferredLiteralWarnings::default())
         }
 
         // Preserve the existing invalid-source warning order and recovery surface.
@@ -3069,9 +3392,9 @@ mod escape_warnings {
                 return Ok(());
             }
             let mut warnings = Vec::new();
-            if let Ok(parsed) =
-                ruff_python_parser::parse(source, ruff_python_parser::Mode::Module.into())
-            {
+            let parsed =
+                compiler::parse_with_unicode_names(source, ruff_python_parser::Mode::Module.into());
+            if parsed.has_valid_syntax() {
                 let mut visitor = EscapeWarningVisitor {
                     source,
                     warnings: &mut warnings,
@@ -3124,7 +3447,7 @@ mod escape_warnings {
             module: Option<&Py<PyStr>>,
             start: CompileStart,
             options: AstParserWarningOptions,
-        ) -> Result<Vec<usize>, CompileWarningError> {
+        ) -> Result<(Vec<usize>, DeferredLiteralWarnings), CompileWarningError> {
             let mode = match start {
                 CompileStart::Single | CompileStart::File => Some(ruff_python_parser::Mode::Module),
                 CompileStart::Eval => Some(ruff_python_parser::Mode::Expression),
@@ -3143,7 +3466,32 @@ mod escape_warnings {
             );
             let has_relative_import = collected.has_relative_import();
             if options.require_relative_import && !has_relative_import {
-                return Ok(Vec::new());
+                return Ok(Default::default());
+            }
+            if options.defer_literal_escapes
+                && (matches!(start, CompileStart::File | CompileStart::Eval)
+                    || matches!(start, CompileStart::Single) && single_deferral_safe(source, collected.single_boundary))
+                // The collector has a validated type-comment boundary only
+                // after a successful pure parse. In the failure path defer
+                // only when there cannot be a type comment.
+                && (!options.type_comments || collected.has_valid_syntax || !source.contains('#'))
+                && collected.can_defer_literal_escapes(source)
+            {
+                // Reserve all offsets for AST callback deduplication. The
+                // failed literal cannot emit, even if recovery visits it.
+                let mut offsets: Vec<_> = collected
+                    .warnings
+                    .iter()
+                    .map(ParserWarning::offset)
+                    .collect();
+                offsets.sort_unstable();
+                offsets.dedup();
+                return Ok((
+                    offsets,
+                    DeferredLiteralWarnings::from_warnings(
+                        collected.into_literal_escapes_reached(),
+                    ),
+                ));
             }
             let tokenizer_recovery = collected.tokenizer_recovery || has_relative_import;
             let single = collected.single_boundary.filter(|_| tokenizer_recovery);
@@ -3169,6 +3517,7 @@ mod escape_warnings {
                     original_filename,
                 },
             )
+            .map(|offsets| (offsets, DeferredLiteralWarnings::default()))
         }
 
         /// Emit the tokenizer warnings for the interactive input read so far.

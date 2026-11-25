@@ -163,8 +163,8 @@ mod _symtable {
             )
             .map_err(|err| match err {
                 VmCompileError::Exception(error) => error,
-                VmCompileError::Compile(err) => {
-                    let err = vm.new_syntax_error(&err, Some(&source));
+                compile @ VmCompileError::Compile(_) => {
+                    let err = compile.into_pyexception(vm, Some(&source));
                     set_syntax_error_filename(err, &filename_obj, vm)
                 }
                 // Warning hooks may raise their own exception, including a

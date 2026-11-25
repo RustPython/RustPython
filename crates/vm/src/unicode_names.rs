@@ -55,6 +55,74 @@ impl VirtualMachine {
     }
 }
 
+#[cfg(feature = "parser")]
+mod parser {
+    use super::VirtualMachine;
+    use core::{cell::OnceCell, fmt};
+    use ruff_python_parser::{ParseRuntime, UnicodeNameProvider, UnicodeNameProviderUnavailable};
+
+    type LiteralWarning<'a> =
+        dyn Fn(ruff_text_size::TextRange) -> Result<(), ruff_python_parser::ParseError> + 'a;
+
+    pub(crate) struct ParserUnicodeNames<'a> {
+        vm: &'a VirtualMachine,
+        loaded: OnceCell<Result<(), UnicodeNameProviderUnavailable>>,
+        warn_literal: Option<&'a LiteralWarning<'a>>,
+    }
+
+    impl<'a> ParserUnicodeNames<'a> {
+        pub(crate) const fn new(vm: &'a VirtualMachine) -> Self {
+            Self {
+                vm,
+                loaded: OnceCell::new(),
+                warn_literal: None,
+            }
+        }
+
+        pub(crate) fn with_literal_warning(mut self, warn: &'a LiteralWarning<'a>) -> Self {
+            self.warn_literal = Some(warn);
+            self
+        }
+    }
+
+    impl fmt::Debug for ParserUnicodeNames<'_> {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("ParserUnicodeNames").finish_non_exhaustive()
+        }
+    }
+
+    impl UnicodeNameProvider for ParserUnicodeNames<'_> {
+        fn prepare(&self) -> Result<(), UnicodeNameProviderUnavailable> {
+            *self.loaded.get_or_init(|| {
+                self.vm
+                    .load_unicode_names()
+                    .map_err(|_| UnicodeNameProviderUnavailable)
+            })
+        }
+
+        fn lookup(&self, name: &[u8]) -> Option<u32> {
+            rustpython_unicode::lookup_character(core::str::from_utf8(name).ok()?).map(u32::from)
+        }
+    }
+
+    impl ParseRuntime for ParserUnicodeNames<'_> {
+        fn literal_decoded(
+            &self,
+            _source: &str,
+            _flags: ruff_python_ast::AnyStringFlags,
+            range: ruff_text_size::TextRange,
+        ) -> Result<(), ruff_python_parser::ParseError> {
+            if let Some(warn) = self.warn_literal {
+                warn(range)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+pub(crate) use parser::ParserUnicodeNames;
+
 #[cfg(test)]
 mod tests {
     use super::*;

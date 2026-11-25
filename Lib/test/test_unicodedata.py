@@ -1119,7 +1119,6 @@ class UnicodeMiscTest(unittest.TestCase):
         # Ensure that the type disallows instantiation (bpo-43916)
         check_disallow_instantiation(self, unicodedata.UCD)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ---
     @force_not_colorized
     def test_failed_import_during_compiling(self):
         # Issue 4367
