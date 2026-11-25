@@ -266,9 +266,11 @@ fn enumerate_preopens() -> Vec<(i32, Vec<u8>)> {
         let mut prestat = Prestat::default();
         // SAFETY: `prestat` is a valid out-buffer in this guest's linear memory.
         let errno = unsafe { fd_prestat_get(fd, guest_ptr(core::ptr::addr_of_mut!(prestat))) };
-        if errno == ERRNO_BADF {
+        if errno == ERRNO_BADF && fdstat(fd).is_err() {
             break;
         }
+        // A valid lent socket has no directory prestat. Keep scanning so a
+        // socket preceding a directory does not hide that directory preopen.
         if errno == ERRNO_SUCCESS && prestat.tag == PRESTAT_DIR {
             let mut name = vec![0u8; prestat.pr_name_len as usize];
             // SAFETY: `name` is `pr_name_len` bytes of guest linear memory.

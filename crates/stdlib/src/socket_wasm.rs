@@ -1,9 +1,11 @@
 //! Wasm `_socket` surface so `Lib/socket.py` and `Lib/ssl.py` can import.
 //!
 //! There are no BSD sockets on wasm32-unknown-unknown, and WASI does not
-//! expose the host_env socket engine yet. Constants, address conversion,
-//! timeouts, and a constructible `socket` type are provided; connect-side
-//! operations raise `OSError`.
+//! expose a supported descriptor engine in this configuration. Threaded p2
+//! also uses this shim until concurrent descriptor ownership is safe.
+//! Constants, address conversion,
+//! timeouts, and the `socket` type are provided for imports. Until a real
+//! descriptor backend is available, construction and OS operations fail.
 
 pub(crate) use _socket::module_def;
 
@@ -19,6 +21,7 @@ mod _socket {
     use std::net::{Ipv4Addr, Ipv6Addr};
     use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 
+    #[cfg(not(all(target_os = "wasi", target_env = "p2")))]
     #[pyattr]
     use rustpython_host_env::socket::{
         AF_INET, AF_INET6, AF_UNIX, AF_UNSPEC, AI_ADDRCONFIG, AI_CANONNAME, AI_NUMERICHOST,
@@ -29,6 +32,16 @@ mod _socket {
         SO_RCVBUF, SO_REUSEADDR, SO_SNDBUF, SO_TYPE, SOCK_DGRAM, SOCK_RAW, SOCK_STREAM, SOL_SOCKET,
         SOL_TCP, TCP_NODELAY,
     };
+    #[cfg(all(target_os = "wasi", target_env = "p2"))]
+    #[pyattr]
+    use rustpython_host_env::socket::{
+        AF_INET, AF_INET6, AF_UNSPEC, AI_ADDRCONFIG, AI_CANONNAME, AI_NUMERICHOST, AI_NUMERICSERV,
+        AI_PASSIVE, INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE, IPPROTO_IP,
+        IPPROTO_IPV6, IPPROTO_TCP, IPPROTO_TCP as SOL_TCP, IPPROTO_UDP, MSG_PEEK, NI_DGRAM,
+        NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV, SHUT_RD, SHUT_RDWR, SHUT_WR,
+        SO_BROADCAST, SO_ERROR, SO_KEEPALIVE, SO_RCVBUF, SO_REUSEADDR, SO_SNDBUF, SO_TYPE,
+        SOCK_DGRAM, SOCK_STREAM, SOL_SOCKET, TCP_NODELAY,
+    };
     #[pyattr(name = "has_ipv6")]
     const HAS_IPV6: bool = true;
 
@@ -38,7 +51,11 @@ mod _socket {
         vm: &VirtualMachine,
         op: &str,
     ) -> PyRef<rustpython_vm::builtins::PyBaseException> {
-        vm.new_os_error(format!("{op} is not available"))
+        vm.new_errno_error(
+            rustpython_host_env::errno::errors::ENOTSUP,
+            format!("{op} is not available"),
+        )
+        .upcast()
     }
 
     #[pyattr]
@@ -220,11 +237,11 @@ mod _socket {
     impl Default for PySocket {
         fn default() -> Self {
             Self {
-                family: AtomicI32::new(AF_INET),
-                kind: AtomicI32::new(SOCK_STREAM),
+                family: AtomicI32::new(0),
+                kind: AtomicI32::new(0),
                 proto: AtomicI32::new(0),
                 timeout: PyMutex::new(None),
-                closed: PyMutex::new(false),
+                closed: PyMutex::new(true),
             }
         }
     }
@@ -233,14 +250,19 @@ mod _socket {
     impl PySocket {
         fn ensure_open(&self, vm: &VirtualMachine) -> PyResult<()> {
             if *self.closed.lock() {
-                return Err(vm.new_os_error("Bad file descriptor"));
+                return Err(vm
+                    .new_errno_error(
+                        rustpython_host_env::errno::errors::EBADF,
+                        "Bad file descriptor",
+                    )
+                    .upcast());
             }
             Ok(())
         }
 
         #[pymethod]
-        fn fileno(zelf: &Py<Self>) -> i32 {
-            if *zelf.closed.lock() { -1 } else { 0 }
+        fn fileno(_zelf: &Py<Self>) -> i32 {
+            -1
         }
 
         #[pymethod]
@@ -278,12 +300,13 @@ mod _socket {
                     Some(value)
                 }
             };
-            Ok(())
+            zelf.ensure_open(vm)
         }
 
         #[pymethod]
-        fn setblocking(zelf: &Py<Self>, blocking: bool) {
+        fn setblocking(zelf: &Py<Self>, blocking: bool, vm: &VirtualMachine) -> PyResult<()> {
             *zelf.timeout.lock() = if blocking { None } else { Some(0.0) };
+            zelf.ensure_open(vm)
         }
 
         #[pymethod]
@@ -294,17 +317,11 @@ mod _socket {
         #[pymethod]
         fn getsockopt(
             zelf: &Py<Self>,
-            level: i32,
-            optname: i32,
+            _level: i32,
+            _optname: i32,
             vm: &VirtualMachine,
         ) -> PyResult<i32> {
             zelf.ensure_open(vm)?;
-            if level == SOL_SOCKET && optname == SO_TYPE {
-                return Ok(zelf.kind.load(Ordering::Relaxed));
-            }
-            if level == SOL_SOCKET && optname == SO_ERROR {
-                return Ok(0);
-            }
             Err(unsupported(vm, "getsockopt").into())
         }
 
@@ -317,7 +334,7 @@ mod _socket {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             zelf.ensure_open(vm)?;
-            Ok(())
+            Err(unsupported(vm, "setsockopt").into())
         }
 
         #[pymethod]
@@ -369,7 +386,7 @@ mod _socket {
         #[pymethod]
         fn getsockname(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<(String, i32)> {
             zelf.ensure_open(vm)?;
-            Ok(("0.0.0.0".to_owned(), 0))
+            Err(unsupported(vm, "getsockname").into())
         }
 
         #[pymethod]
@@ -390,18 +407,18 @@ mod _socket {
     impl Initializer for PySocket {
         type Args = SocketInitArgs;
 
-        fn init(zelf: &Py<Self>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
-            let family = args.family.unwrap_or(AF_INET);
-            let kind = args.r#type.unwrap_or(SOCK_STREAM);
-            let proto = args.proto.unwrap_or(0);
-            let _ = args.fileno;
-            zelf.family.store(family, Ordering::Relaxed);
-            zelf.kind.store(kind, Ordering::Relaxed);
-            zelf.proto.store(proto, Ordering::Relaxed);
-            *zelf.closed.lock() = false;
-            let default = f64::from_bits(DEFAULT_TIMEOUT.load(Ordering::Relaxed));
-            *zelf.timeout.lock() = (default >= 0.0).then_some(default);
-            Ok(())
+        fn init(_zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            // Do not adopt an arbitrary integer as a socket, or return a fake fd.
+            // Lent descriptors need a backend that validates their file type and
+            // takes ownership only after initialization succeeds.
+            let _ = (args.family, args.r#type, args.proto);
+            if let Some(fd) = args.fileno.filter(|fd| !vm.is_none(fd)) {
+                let fd = fd.try_index(vm)?.try_to_primitive::<i32>(vm)?;
+                if fd < 0 {
+                    return Err(vm.new_value_error("negative file descriptor"));
+                }
+            }
+            Err(unsupported(vm, "socket"))
         }
     }
 }

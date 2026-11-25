@@ -2,6 +2,16 @@
 
 pub(crate) use _socket::module_def;
 
+// A direct VM dependency may enable threading without the stdlib feature.
+// Reject that mismatched p2 configuration rather than exposing recyclable fd
+// snapshots to concurrent close/reuse. Enabling stdlib threading selects the
+// fail-closed shim instead.
+#[cfg(all(target_os = "wasi", target_env = "p2"))]
+const _: () = assert!(
+    !rustpython_vm::THREADING_ENABLED,
+    "threaded WASI p2 sockets are unsupported; enable rustpython-stdlib/threading to select the fail-closed shim"
+);
+
 #[cfg(feature = "ssl")]
 pub(super) use _socket::{PySocket, timeout_error_msg};
 #[cfg(any(
@@ -23,20 +33,20 @@ mod _socket {
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyListRef, PyModule, PyOSError, PyStrRef, PyTupleRef, PyTypeRef,
-            PyUtf8StrRef,
+            PyBaseExceptionRef, PyModule, PyOSError, PyStrRef, PyTupleRef, PyTypeRef, PyUtf8StrRef,
         },
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
             ArgBytesLike, ArgIndex, ArgIntoFloat, ArgMemoryBuffer, ArgSpec, ArgStrOrBytesLike,
-            FsPath, FuncArgs, OptionalArg,
+            FuncArgs, OptionalArg,
         },
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
-        utils::ToCString,
     };
+    #[cfg(not(target_os = "wasi"))]
+    use crate::vm::{builtins::PyListRef, function::FsPath, utils::ToCString};
     use rustpython_common::wtf8::wtf8_concat;
     use rustpython_host_env::os::ErrorExt;
-    #[cfg(any(unix, windows))]
+    #[cfg(any(unix, windows, all(target_os = "wasi", target_env = "p2")))]
     use rustpython_host_env::socket as host_socket;
     #[cfg(windows)]
     use rustpython_host_env::windows as host_windows;
@@ -74,6 +84,8 @@ mod _socket {
         time::Instant,
     };
 
+    #[cfg(all(target_os = "wasi", target_env = "p2"))]
+    use host_socket as c;
     #[cfg(unix)]
     use libc as c;
     #[cfg(windows)]
@@ -87,11 +99,26 @@ mod _socket {
             WSAEWOULDBLOCK, getprotobyname, getservbyname, getservbyport,
         };
     }
+    // Export only the WASI SDK surface. These are not Linux ABI numbers.
+    #[cfg(all(target_os = "wasi", target_env = "p2"))]
+    #[pyattr]
+    use host_socket::{
+        AF_INET, AF_INET6, AF_UNSPEC, AI_ADDRCONFIG, AI_ALL, AI_CANONNAME, AI_NUMERICHOST,
+        AI_NUMERICSERV, AI_PASSIVE, AI_V4MAPPED, EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY,
+        EAI_MEMORY, EAI_NONAME, EAI_OVERFLOW, EAI_SERVICE, EAI_SOCKTYPE, EAI_SYSTEM, IPPROTO_IP,
+        IPPROTO_IPV6, IPPROTO_TCP, IPPROTO_TCP as SOL_TCP, IPPROTO_UDP, MSG_NOSIGNAL, MSG_PEEK,
+        MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV,
+        SHUT_RD, SHUT_RDWR, SHUT_WR, SO_ACCEPTCONN, SO_BROADCAST, SO_DOMAIN, SO_ERROR,
+        SO_KEEPALIVE, SO_LINGER, SO_PROTOCOL, SO_RCVBUF, SO_RCVTIMEO, SO_REUSEADDR, SO_SNDBUF,
+        SO_SNDTIMEO, SO_TYPE, SOCK_DGRAM, SOCK_NONBLOCK, SOCK_STREAM, SOL_SOCKET, TCP_NODELAY,
+    };
+
     // constants
     #[pyattr(name = "has_ipv6")]
     const HAS_IPV6: bool = true;
-    #[pyattr]
     // put IPPROTO_MAX later
+    #[cfg(not(target_os = "wasi"))]
+    #[pyattr]
     use host_socket::{
         AF_INET, AF_INET6, AF_UNSPEC, INADDR_ANY, INADDR_LOOPBACK, INADDR_NONE, IPPROTO_ICMP,
         IPPROTO_ICMPV6, IPPROTO_IP, IPPROTO_IPV6, IPPROTO_TCP, IPPROTO_TCP as SOL_TCP, IPPROTO_UDP,
@@ -101,7 +128,7 @@ mod _socket {
         SO_SNDBUF, SO_TYPE, SOCK_DGRAM, SOCK_STREAM, SOL_SOCKET, TCP_NODELAY,
     };
 
-    #[cfg(not(target_os = "redox"))]
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
     #[pyattr]
     use host_socket::{
         AF_APPLETALK, AF_DECnet, AF_IPX, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP,
@@ -113,10 +140,11 @@ mod _socket {
     #[pyattr]
     use host_socket::{AF_UNIX, SO_REUSEPORT};
 
+    #[cfg(not(target_os = "wasi"))]
     #[pyattr]
     use host_socket::{AI_ADDRCONFIG, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE};
 
-    #[cfg(not(target_os = "redox"))]
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
     #[pyattr]
     use host_socket::{SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET};
 
@@ -199,10 +227,11 @@ mod _socket {
         SO_EXCLUSIVEADDRUSE,
     };
 
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "wasi")))]
     #[pyattr]
     use host_socket::IPPORT_RESERVED;
 
+    #[cfg(not(target_os = "wasi"))]
     #[pyattr]
     use host_socket::IPPORT_USERRESERVED;
 
@@ -278,7 +307,12 @@ mod _socket {
     //     c::_IO(7, 0xb9)
     // }
 
-    #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "wasi"
+    )))]
     #[pyattr]
     use host_socket::{SOL_IP, SOL_UDP};
 
@@ -652,6 +686,7 @@ mod _socket {
         target_vendor = "apple",
         windows
     )))]
+    #[cfg(not(target_os = "wasi"))]
     #[pyattr]
     use host_socket::SOMAXCONN;
 
@@ -1021,12 +1056,12 @@ mod _socket {
         u16::from_be(integer)
     }
 
-    #[cfg(unix)]
-    type RawSocket = std::os::unix::io::RawFd;
+    #[cfg(any(unix, all(target_os = "wasi", target_env = "p2")))]
+    type RawSocket = std::os::fd::RawFd;
     #[cfg(windows)]
     type RawSocket = std::os::windows::raw::SOCKET;
 
-    #[cfg(unix)]
+    #[cfg(any(unix, all(target_os = "wasi", target_env = "p2")))]
     macro_rules! errcode {
         ($e:ident) => {
             c::$e
@@ -1041,7 +1076,7 @@ mod _socket {
 }
 
     fn get_raw_sock(obj: &PyObject, vm: &VirtualMachine) -> PyResult<RawSocket> {
-        #[cfg(unix)]
+        #[cfg(any(unix, all(target_os = "wasi", target_env = "p2")))]
         type CastFrom = core::ffi::c_long;
         #[cfg(windows)]
         type CastFrom = core::ffi::c_longlong;
@@ -1188,7 +1223,7 @@ mod _socket {
 
     #[cfg(windows)]
     const CLOSED_ERR: i32 = c::WSAENOTSOCK;
-    #[cfg(unix)]
+    #[cfg(any(unix, all(target_os = "wasi", target_env = "p2")))]
     const CLOSED_ERR: i32 = c::EBADF;
 
     impl Read for &PySocket {
@@ -1324,7 +1359,10 @@ mod _socket {
                 target_os = "openbsd",
                 target_os = "redox"
             )))]
+            #[cfg(not(target_os = "wasi"))]
             let masked_kind = socket_kind;
+            #[cfg(all(target_os = "wasi", target_env = "p2"))]
+            let masked_kind = socket_kind & !c::SOCK_NONBLOCK;
             self.kind.store(masked_kind, Ordering::Relaxed);
             self.proto.store(proto, Ordering::Relaxed);
             let mut s = self.sock.write();
@@ -1368,7 +1406,14 @@ mod _socket {
                 target_os = "openbsd",
                 target_os = "redox"
             )))]
+            #[cfg(not(target_os = "wasi"))]
             let timeout = DEFAULT_TIMEOUT.load();
+            #[cfg(all(target_os = "wasi", target_env = "p2"))]
+            let timeout = if socket_kind & c::SOCK_NONBLOCK != 0 {
+                0.0
+            } else {
+                DEFAULT_TIMEOUT.load()
+            };
             self.timeout.store(timeout);
             if timeout >= 0.0 {
                 sock.set_nonblocking(true)
@@ -1418,7 +1463,14 @@ mod _socket {
                     // Start the clock after the snapshot so lock/scheduling
                     // delay is not subtracted from a short timeout before poll.
                     if deadline.is_none() {
-                        *deadline = timeout.map(Deadline::new);
+                        #[cfg(not(target_os = "wasi"))]
+                        {
+                            *deadline = timeout.map(Deadline::new);
+                        }
+                        #[cfg(all(target_os = "wasi", target_env = "p2"))]
+                        {
+                            *deadline = timeout.map(Deadline::new).transpose()?;
+                        }
                     }
                     sock_wait_deadline(&sock, wait_kind, deadline.as_ref(), vm)?;
                 }
@@ -1850,7 +1902,7 @@ mod _socket {
                 vm.check_signals()?;
                 self.timeout.load() != 0.0
             } else {
-                #[cfg(unix)]
+                #[cfg(any(unix, all(target_os = "wasi", target_env = "p2")))]
                 use c::EINPROGRESS;
                 #[cfg(windows)]
                 use c::WSAEWOULDBLOCK as EINPROGRESS;
@@ -2917,11 +2969,16 @@ mod _socket {
             let timeout = match object {
                 Some(t) => {
                     let f = t.into_float();
-                    if f.is_nan() {
-                        return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-                    }
-                    if f < 0.0 || !f.is_finite() {
-                        return Err(vm.new_value_error("Timeout value out of range"));
+                    #[cfg(all(target_os = "wasi", target_env = "p2"))]
+                    let f = validate_wasi_timeout(f, vm)?;
+                    #[cfg(not(target_os = "wasi"))]
+                    {
+                        if f.is_nan() {
+                            return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+                        }
+                        if f < 0.0 || !f.is_finite() {
+                            return Err(vm.new_value_error("Timeout value out of range"));
+                        }
                     }
                     Some(f)
                 }
@@ -3187,6 +3244,10 @@ mod _socket {
         fn from_tuple(tuple: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<Self> {
             let host = PyStrRef::try_from_object(vm, tuple[0].clone())?;
             let host = host.try_into_utf8(vm)?;
+            #[cfg(all(target_os = "wasi", target_env = "p2"))]
+            if host.as_str().contains('\0') {
+                return Err(vm.new_type_error("host name must not contain null character"));
+            }
             let port = i32::try_from_borrowed_object(vm, &tuple[1])?;
             let port = port
                 .to_u16()
@@ -3481,6 +3542,7 @@ mod _socket {
         (String::new(), 0).to_pyobject(vm)
     }
 
+    #[cfg(not(target_os = "wasi"))]
     #[pyfunction(signature_from_flags)]
     fn gethostname(vm: &VirtualMachine) -> PyResult<PyStrRef> {
         vm.audit("socket.gethostname", || ())?;
@@ -3512,10 +3574,12 @@ mod _socket {
         Ok(vm.ctx.new_str(inet::ntoa(packed_ip)))
     }
 
+    #[cfg(not(target_os = "wasi"))]
     fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const core::ffi::c_char {
         x.as_ref().map_or_else(core::ptr::null, |s| s.as_ptr())
     }
 
+    #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
     fn getservbyname(
         servicename: PyStrRef,
@@ -3536,6 +3600,7 @@ mod _socket {
         Ok(u16::from_be(port as u16))
     }
 
+    #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
     fn getservbyport(
         port: i32,
@@ -3661,7 +3726,14 @@ mod _socket {
         timeout: Option<Duration>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        match sock_wait_deadline(sock, wait_kind, timeout.map(Deadline::new).as_ref(), vm) {
+        #[cfg(not(target_os = "wasi"))]
+        let deadline = timeout.map(Deadline::new);
+        #[cfg(all(target_os = "wasi", target_env = "p2"))]
+        let deadline = timeout
+            .map(Deadline::new)
+            .transpose()
+            .map_err(|error| error.into_pyexception(vm))?;
+        match sock_wait_deadline(sock, wait_kind, deadline.as_ref(), vm) {
             Ok(()) => Ok(false),
             Err(IoOrPyException::Timeout) => Ok(true),
             Err(e) => Err(e.into_pyexception(vm)),
@@ -3798,6 +3870,11 @@ mod _socket {
             (None, None) => None,
         };
         let port = port_encoded.as_deref();
+        #[cfg(all(target_os = "wasi", target_env = "p2"))]
+        let (host, port) = (
+            host.map(|value| value.split('\0').next().unwrap_or_default()),
+            port.map(|value| value.split('\0').next().unwrap_or_default()),
+        );
 
         let addrs = host_socket::dns::getaddrinfo(host, port, Some(hints))
             .map_err(|err| convert_socket_error(vm, err, SocketError::GaiError))?;
@@ -3819,6 +3896,8 @@ mod _socket {
         Ok(list)
     }
 
+    // The resolver adapter does not provide hostent aliases or h_errno.
+    #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
     fn gethostbyaddr(
         addr: PyUtf8StrRef,
@@ -3837,6 +3916,14 @@ mod _socket {
 
     #[pyfunction]
     fn gethostbyname(name: PyUtf8StrRef, vm: &VirtualMachine) -> Result<String, IoOrPyException> {
+        #[cfg(all(target_os = "wasi", target_env = "p2"))]
+        if name.as_str().contains('\0') {
+            return Err(vm
+                .new_type_error(
+                    "gethostbyname() argument 1 must be encoded string without null bytes, not str",
+                )
+                .into());
+        }
         let addr = get_addr(vm, name, c::AF_INET)?;
         match addr {
             SocketAddr::V4(ip) => Ok(ip.ip().to_string()),
@@ -3844,6 +3931,8 @@ mod _socket {
         }
     }
 
+    // The resolver adapter does not provide hostent aliases or h_errno.
+    #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
     fn gethostbyname_ex(
         name: PyUtf8StrRef,
@@ -3895,6 +3984,7 @@ mod _socket {
         }
     }
 
+    #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
     fn getprotobyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let cstr = name.to_cstring(vm)?;
@@ -3918,6 +4008,13 @@ mod _socket {
                 return Err(vm.new_type_error("illegal sockaddr argument").into());
             }
         }
+        // CPython's `s` parser rejects NUL before converting later tuple fields.
+        #[cfg(all(target_os = "wasi", target_env = "p2"))]
+        if let Some(host) = address.as_slice()[0].downcast_ref::<crate::vm::builtins::PyStr>()
+            && host.as_wtf8().as_bytes().contains(&0)
+        {
+            return Err(vm.new_value_error("embedded null character").into());
+        }
         let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(address.as_slice(), vm)?;
         let hints = host_socket::dns::AddrInfoHints {
             address: c::AF_UNSPEC,
@@ -3928,9 +4025,11 @@ mod _socket {
         let service = addr.port.to_string();
         let host_str = addr.host.as_str();
         let mut res = host_socket::dns::getaddrinfo(Some(host_str), Some(&service), Some(hints))
-            .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?
-            .filter_map(Result::ok);
-        let mut ainfo = res.next().unwrap();
+            .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
+        let mut ainfo = res
+            .next()
+            .transpose()?
+            .ok_or_else(|| vm.new_os_error("sockaddr resolved to no addresses"))?;
         if res.next().is_some() {
             return Err(vm
                 .new_os_error("sockaddr resolved to multiple addresses")
@@ -3974,7 +4073,7 @@ mod _socket {
     #[cfg(windows)]
     type IfIndex = u32; // NET_IFINDEX but windows-sys 0.59 doesn't have it
 
-    #[cfg(not(target_os = "redox"))]
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
     #[pyfunction]
     fn if_nametoindex(oname: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
         #[cfg(windows)]
@@ -3996,7 +4095,7 @@ mod _socket {
         }
     }
 
-    #[cfg(not(target_os = "redox"))]
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
     #[pyfunction]
     fn if_indextoname(if_index: IfIndex, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         #[cfg(windows)]
@@ -4072,7 +4171,10 @@ mod _socket {
             };
             let mut res = host_socket::dns::getaddrinfo(None, Some("0"), Some(hints))
                 .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
-            let ainfo = res.next().unwrap()?;
+            let ainfo = res
+                .next()
+                .transpose()?
+                .ok_or_else(|| vm.new_os_error("wildcard resolved to no addresses"))?;
             if res.next().is_some() {
                 return Err(vm
                     .new_os_error("wildcard resolved to multiple address")
@@ -4110,7 +4212,11 @@ mod _socket {
         let name = encode_hostname(pyname.as_wtf8(), vm)?;
         let mut res = host_socket::dns::getaddrinfo(Some(&name), None, Some(hints))
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
-        Ok(res.next().unwrap().map(|ainfo| ainfo.sockaddr)?)
+        Ok(res
+            .next()
+            .transpose()?
+            .ok_or_else(|| vm.new_os_error("host resolved to no addresses"))?
+            .sockaddr)
     }
 
     fn encode_hostname(name: &crate::common::wtf8::Wtf8, vm: &VirtualMachine) -> PyResult<String> {
@@ -4143,9 +4249,9 @@ mod _socket {
     }
     /// SAFETY: fileno must not be equal to INVALID_SOCKET
     unsafe fn sock_from_raw_unchecked(fileno: RawSocket) -> Socket {
-        #[cfg(unix)]
+        #[cfg(any(unix, all(target_os = "wasi", target_env = "p2")))]
         {
-            use std::os::unix::io::FromRawFd;
+            use std::os::fd::FromRawFd;
             unsafe { Socket::from_raw_fd(fileno) }
         }
         #[cfg(windows)]
@@ -4155,9 +4261,9 @@ mod _socket {
         }
     }
     pub(super) fn sock_fileno(sock: &Socket) -> RawSocket {
-        #[cfg(unix)]
+        #[cfg(any(unix, all(target_os = "wasi", target_env = "p2")))]
         {
-            use std::os::unix::io::AsRawFd;
+            use std::os::fd::AsRawFd;
             sock.as_raw_fd()
         }
         #[cfg(windows)]
@@ -4167,9 +4273,9 @@ mod _socket {
         }
     }
     fn into_sock_fileno(sock: Socket) -> RawSocket {
-        #[cfg(unix)]
+        #[cfg(any(unix, all(target_os = "wasi", target_env = "p2")))]
         {
-            use std::os::unix::io::IntoRawFd;
+            use std::os::fd::IntoRawFd;
             sock.into_raw_fd()
         }
         #[cfg(windows)]
@@ -4202,9 +4308,14 @@ mod _socket {
             {
                 "getaddrinfo failed".to_owned()
             }
+            #[cfg(all(target_os = "wasi", target_env = "p2"))]
+            {
+                host_socket::dns::gai_error_string(err.error_num())
+            }
         };
         let exception_cls = match err_kind {
             SocketError::GaiError => gaierror(vm),
+            #[cfg(not(target_os = "wasi"))]
             SocketError::HError => herror(vm),
         };
         vm.new_os_subtype_error(exception_cls, Some(err.error_num()), strerr)
@@ -4224,14 +4335,47 @@ mod _socket {
     }
 
     impl Deadline {
+        #[cfg(not(target_os = "wasi"))]
         fn new(timeout: Duration) -> Self {
             Self {
                 deadline: Instant::now() + timeout,
             }
         }
+        #[cfg(all(target_os = "wasi", target_env = "p2"))]
+        fn new(timeout: Duration) -> io::Result<Self> {
+            Instant::now()
+                .checked_add(timeout)
+                .map(|deadline| Self { deadline })
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "socket deadline overflow")
+                })
+        }
         fn instant(&self) -> Instant {
             self.deadline
         }
+    }
+
+    /// Match CPython's PyTime nanosecond conversion with ROUND_TIMEOUT:
+    /// round away from zero, check signed range, then reject negative timeouts.
+    #[cfg(all(target_os = "wasi", target_env = "p2"))]
+    fn validate_wasi_timeout(seconds: f64, vm: &VirtualMachine) -> PyResult<f64> {
+        if seconds.is_nan() {
+            return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+        }
+        let nanos = seconds * 1_000_000_000.0;
+        let nanos = if nanos >= 0.0 {
+            nanos.ceil()
+        } else {
+            nanos.floor()
+        };
+        let minimum = i64::MIN as f64;
+        if !(minimum <= nanos && nanos < -minimum) {
+            return Err(vm.new_overflow_error("timestamp out of range for C PyTime_t"));
+        }
+        if nanos < 0.0 {
+            return Err(vm.new_value_error("Timeout value out of range"));
+        }
+        Ok(nanos / 1_000_000_000.0)
     }
 
     static DEFAULT_TIMEOUT: AtomicCell<f64> = AtomicCell::new(-1.0);
@@ -4247,11 +4391,16 @@ mod _socket {
         let val = match object {
             Some(t) => {
                 let f = t.into_float();
-                if f.is_nan() {
-                    return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-                }
-                if f < 0.0 || !f.is_finite() {
-                    return Err(vm.new_value_error("Timeout value out of range"));
+                #[cfg(all(target_os = "wasi", target_env = "p2"))]
+                let f = validate_wasi_timeout(f, vm)?;
+                #[cfg(not(target_os = "wasi"))]
+                {
+                    if f.is_nan() {
+                        return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+                    }
+                    if f < 0.0 || !f.is_finite() {
+                        return Err(vm.new_value_error("Timeout value out of range"));
+                    }
                 }
                 f
             }
@@ -4261,6 +4410,7 @@ mod _socket {
         Ok(())
     }
 
+    #[cfg(not(target_os = "wasi"))]
     #[pyfunction(signature_from_flags)]
     fn dup(object: PyObjectRef, vm: &VirtualMachine) -> Result<RawSocket, IoOrPyException> {
         let sock = get_raw_sock(&object, vm)?;
@@ -4282,6 +4432,7 @@ mod _socket {
     }
 
     enum SocketError {
+        #[cfg(not(target_os = "wasi"))]
         HError,
         GaiError,
     }

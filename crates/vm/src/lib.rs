@@ -40,6 +40,10 @@ extern crate self as rustpython_vm;
 
 pub use rustpython_derive::*;
 
+/// Whether Cargo feature unification enabled threads in this VM.
+/// Dependent backends must not infer this from their own feature flags.
+pub const THREADING_ENABLED: bool = cfg!(feature = "threading");
+
 //extern crate eval; use eval::eval::*;
 // use py_code_object::{Function, NativeType, PyCodeObject};
 

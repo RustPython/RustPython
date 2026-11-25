@@ -22,7 +22,8 @@ pub const SIG_IGN: libc::sighandler_t = 1;
 pub const SIG_ERR: libc::sighandler_t = -1 as _;
 
 /// wasi-libc's userspace emulation of `signal()`/`raise()`, linked from
-/// `libwasi-emulated-signal` (see `crates/host_env/vendor/wasm32-wasip1`).
+/// `libwasi-emulated-signal` (see the target-specific archives under
+/// `crates/host_env/vendor`).
 /// WebAssembly has no asynchronous signal delivery, so this is a
 /// synchronous, in-process handler table: a handler only runs when this
 /// process's own code calls `raise()`, never from an outside interrupt.
