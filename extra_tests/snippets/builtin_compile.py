@@ -298,6 +298,32 @@ for source in ('"""a\r\\q"""', '"""a\r\\q""" + )', "1\r+", '"a\rb"'):
             results.append((result, [(str(w.message), w.lineno) for w in captured]))
     assert results[0] == results[1], (source, results)
 
+# A restricted expression position is diagnosed at its keyword rather than
+# at the entire expression recovered by the parser.
+for line, keyword in (
+    ("return yield 42", "yield"),
+    ("raise yield from values", "yield"),
+    ("return café + yield 42", "yield"),
+    ("consume(yield 42)", "yield"),
+    ("return 1 + lambda x: x", "lambda"),
+    ("return not lambda: None", "lambda"),
+):
+    source = f"def f():\n    {line}\n"
+    start = line.index(keyword) + 5
+    for flags in (0, ast.PyCF_ONLY_AST):
+        try:
+            compile(source, "<test>", "exec", flags=flags)
+        except SyntaxError as exc:
+            assert exc.msg == "invalid syntax", (source, exc)
+            assert (exc.lineno, exc.offset, exc.end_lineno, exc.end_offset) == (
+                2,
+                start,
+                2,
+                start + len(keyword),
+            ), (source, exc)
+        else:
+            raise AssertionError(source)
+
 # Audit hooks see the caller's bytes, not the parser's translated buffer.
 import sys
 

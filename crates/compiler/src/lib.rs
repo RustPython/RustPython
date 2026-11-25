@@ -383,6 +383,29 @@ fn cpython_parse_diagnostic_override(
         return None;
     }
 
+    // The PEG grammar declines a bare yield or lambda in a restricted
+    // expression position at the keyword. Ruff recovers by parsing the
+    // complete expression and reports its entire range.
+    let rejected_keyword = match error.error {
+        ParseErrorType::InvalidYieldExpressionUsage => Some("yield"),
+        ParseErrorType::InvalidLambdaExpressionUsage => Some("lambda"),
+        _ => None,
+    };
+    if let Some(keyword) = rejected_keyword
+        && let Some(expression) =
+            source_text.get(error.location.start().to_usize()..error.location.end().to_usize())
+        && expression.starts_with(keyword)
+    {
+        let start = error.location.start();
+        let (location, end_location) =
+            source_locations(source_file, start, start + TextSize::of(keyword));
+        return Some(NormalizedParseDiagnostic::new(
+            ParseErrorType::OtherError("invalid syntax".into()),
+            location,
+            end_location,
+        ));
+    }
+
     // CPython's PEG parser collapses a bare "expected an expression" failure
     // into the generic "invalid syntax" message. rustpython-vm's `vm_new.rs`
     // does this same collapse for its own callers; rustpython-compiler has no
