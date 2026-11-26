@@ -9,6 +9,7 @@ use num_traits::{Signed, cast::ToPrimitive};
 use rustpython_literal::float;
 use rustpython_literal::format::Case;
 
+use crate::str::char_to_decimal;
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
 /// Locale information for 'n' format specifier.
@@ -214,15 +215,6 @@ pub struct FormatSpec {
     format_type: Option<FormatType>,
 }
 
-fn get_num_digits(text: &Wtf8) -> usize {
-    for (index, character) in text.code_point_indices() {
-        if !character.is_char_and(|c| c.is_ascii_digit()) {
-            return index;
-        }
-    }
-    text.len()
-}
-
 fn parse_fill_and_align(text: &Wtf8) -> (Option<CodePoint>, Option<FormatAlign>, &Wtf8) {
     let char_indices: Vec<(usize, CodePoint)> = text.code_point_indices().take(3).collect();
     if char_indices.is_empty() {
@@ -242,16 +234,26 @@ fn parse_fill_and_align(text: &Wtf8) -> (Option<CodePoint>, Option<FormatAlign>,
 }
 
 fn parse_number(text: &Wtf8) -> Result<(Option<usize>, &Wtf8), FormatSpecError> {
-    let num_digits: usize = get_num_digits(text);
-    if num_digits == 0 {
-        return Ok((None, text));
-    }
-    if let Some(num) = parse_usize(&text[..num_digits]) {
-        Ok((Some(num), &text[num_digits..]))
-    } else {
+    let mut number = None;
+    let mut rest = text;
+    let mut chars = text.code_points();
+    while let Some(digit) = chars.next().and_then(CodePoint::to_char).and_then(|c| {
+        if c.is_ascii() {
+            c.to_digit(10)
+        } else {
+            char_to_decimal(c).map(u32::from)
+        }
+    }) {
         // NOTE: this condition is different from CPython
-        Err(FormatSpecError::DecimalDigitsTooMany)
+        let value = number
+            .unwrap_or(0usize)
+            .checked_mul(10)
+            .and_then(|value| value.checked_add(digit as usize))
+            .ok_or(FormatSpecError::DecimalDigitsTooMany)?;
+        number = Some(value);
+        rest = chars.as_wtf8();
     }
+    Ok((number, rest))
 }
 
 fn parse_alternate_form(text: &Wtf8) -> (bool, &Wtf8) {

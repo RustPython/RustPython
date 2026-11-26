@@ -1,3 +1,4 @@
+mod distrusted;
 // spell-checker:disable
 
 mod cert;
@@ -43,6 +44,7 @@ pub(crate) use _ssl::module_def;
     #[cfg(ossl111)] ossl111,
     #[cfg(windows)] windows))]
 mod _ssl {
+    use crate::vm::function::PySetterValue;
     use core::hint::cold_path;
 
     use super::bio;
@@ -79,8 +81,8 @@ mod _ssl {
             convert::ToPyException,
             exceptions,
             function::{
-                ArgBytesLike, ArgIntoBool, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike,
-                Either, FsPath, OptionalArg, PyComparisonValue,
+                ArgBytesLike, ArgIndex, ArgIntoBool, ArgIntoFloat, ArgMemoryBuffer,
+                ArgStrOrBytesLike, Either, FsPath, OptionalArg, PyComparisonValue,
             },
             object::{Traverse, TraverseFn},
             stdlib::_warnings,
@@ -876,11 +878,14 @@ mod _ssl {
             android::load_client_ca_list(vm, &mut builder)?;
 
             let check_hostname = proto == SslVersion::TlsClient;
-            builder.set_verify(if check_hostname {
-                SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT
-            } else {
-                SslVerifyMode::NONE
-            });
+            builder.set_verify_callback(
+                if check_hostname {
+                    SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT
+                } else {
+                    SslVerifyMode::NONE
+                },
+                super::distrusted::verify,
+            );
 
             // Start with OP_ALL but remove options that CPython doesn't include by default
             let mut options = SslOptions::ALL & !SslOptions::DONT_INSERT_EMPTY_FRAGMENTS;
@@ -986,11 +991,13 @@ mod _ssl {
         #[pygetset(setter)]
         fn set_post_handshake_auth(
             zelf: &Py<Self>,
-            value: Option<PyObjectRef>,
+            value: PySetterValue<ArgIntoBool>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let value = value.ok_or_else(|| vm.new_attribute_error("cannot delete attribute"))?;
-            *zelf.post_handshake_auth.lock() = value.is_true(vm)?;
+            let value = value.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'post_handshake_auth' cannot be deleted")
+            })?;
+            *zelf.post_handshake_auth.lock() = value.into_bool();
             Ok(())
         }
 
@@ -1229,7 +1236,13 @@ mod _ssl {
             zelf.ctx.read().options().bits() as _
         }
         #[pygetset(setter)]
-        fn set_options(zelf: &Py<Self>, new_opts: i64, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_options(
+            zelf: &Py<Self>,
+            new_opts: PySetterValue<i64>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let new_opts = new_opts
+                .ok_or_else(|| vm.new_attribute_error("attribute 'options' cannot be deleted"))?;
             if new_opts < 0 {
                 return Err(vm.new_value_error("invalid options value"));
             }
@@ -1291,7 +1304,14 @@ mod _ssl {
             }
         }
         #[pygetset(setter)]
-        fn set_verify_mode(zelf: &Py<Self>, cert: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_verify_mode(
+            zelf: &Py<Self>,
+            cert: PySetterValue<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let cert = cert.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'verify_mode' cannot be deleted")
+            })?;
             let mut ctx = zelf.builder();
             let cert_req = CertRequirements::try_from(cert)
                 .map_err(|_| vm.new_value_error("invalid value for verify_mode"))?;
@@ -1307,7 +1327,7 @@ mod _ssl {
                     SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT
                 }
             };
-            ctx.set_verify(mode);
+            ctx.set_verify_callback(mode, super::distrusted::verify);
             Ok(())
         }
         #[pygetset]
@@ -1321,9 +1341,12 @@ mod _ssl {
         #[pygetset(setter)]
         fn set_verify_flags(
             zelf: &Py<Self>,
-            new_flags: core::ffi::c_ulong,
+            new_flags: PySetterValue<core::ffi::c_ulong>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            let new_flags = new_flags.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'verify_flags' cannot be deleted")
+            })?;
             unsafe {
                 let ctx_ptr = zelf.ctx().as_ptr();
                 let param = sys::SSL_CTX_get0_param(ctx_ptr);
@@ -1344,14 +1367,48 @@ mod _ssl {
         fn check_hostname(zelf: &Py<Self>) -> bool {
             zelf.check_hostname.load()
         }
+
+        #[pygetset]
+        fn _host_flags(zelf: &Py<Self>) -> u32 {
+            unsafe { X509_VERIFY_PARAM_get_hostflags(sys::SSL_CTX_get0_param(zelf.ctx().as_ptr())) }
+        }
+
         #[pygetset(setter)]
-        fn set_check_hostname(zelf: &Py<Self>, ch: ArgIntoBool) {
+        fn set__host_flags(
+            zelf: &Py<Self>,
+            flags: PySetterValue<ArgIndex>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let flags = flags.ok_or_else(|| {
+                vm.new_attribute_error("attribute '_host_flags' cannot be deleted")
+            })?;
+            let flags = flags.as_unsigned_bitfield::<32>(vm)? as u32;
+            let ctx = zelf.builder();
+            unsafe {
+                sys::X509_VERIFY_PARAM_set_hostflags(sys::SSL_CTX_get0_param(ctx.as_ptr()), flags);
+            }
+            Ok(())
+        }
+
+        #[pygetset(setter)]
+        fn set_check_hostname(
+            zelf: &Py<Self>,
+            ch: PySetterValue<ArgIntoBool>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let ch = ch.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'check_hostname' cannot be deleted")
+            })?;
             let ch = ch.into_bool();
             let mut ctx = zelf.builder();
             if ch && builder_as_ctx(&ctx).verify_mode() == SslVerifyMode::NONE {
-                ctx.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
+                ctx.set_verify_callback(
+                    SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT,
+                    super::distrusted::verify,
+                );
             }
             zelf.check_hostname.store(ch);
+            Ok(())
         }
 
         // PY_PROTO_MINIMUM_SUPPORTED = -2, PY_PROTO_MAXIMUM_SUPPORTED = -1
@@ -1372,7 +1429,14 @@ mod _ssl {
             }
         }
         #[pygetset(setter)]
-        fn set_minimum_version(zelf: &Py<Self>, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_minimum_version(
+            zelf: &Py<Self>,
+            value: PySetterValue<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let value = value.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'minimum_version' cannot be deleted")
+            })?;
             if !matches!(
                 zelf.protocol,
                 SslVersion::Tls | SslVersion::TlsClient | SslVersion::TlsServer
@@ -1424,7 +1488,14 @@ mod _ssl {
             }
         }
         #[pygetset(setter)]
-        fn set_maximum_version(zelf: &Py<Self>, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_maximum_version(
+            zelf: &Py<Self>,
+            value: PySetterValue<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let value = value.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'maximum_version' cannot be deleted")
+            })?;
             if !matches!(
                 zelf.protocol,
                 SslVersion::Tls | SslVersion::TlsClient | SslVersion::TlsServer
@@ -1469,7 +1540,14 @@ mod _ssl {
             }
         }
         #[pygetset(setter)]
-        fn set_num_tickets(zelf: &Py<Self>, value: isize, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_num_tickets(
+            zelf: &Py<Self>,
+            value: PySetterValue<isize>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let value = value.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'num_tickets' cannot be deleted")
+            })?;
             // Check for negative values
             if value < 0 {
                 return Err(vm.new_value_error("num_tickets must be a non-negative integer"));
@@ -1833,9 +1911,12 @@ mod _ssl {
         #[pygetset(setter)]
         fn set_sni_callback(
             zelf: &Py<Self>,
-            value: Option<PyObjectRef>,
+            value: PySetterValue<Option<PyObjectRef>>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            let value = value.ok_or_else(|| {
+                vm.new_attribute_error("attribute 'sni_callback' cannot be deleted")
+            })?;
             // Check if this is a server context
             if zelf.protocol == SslVersion::TlsClient {
                 return Err(vm.new_value_error("sni_callback cannot be set on TLS_CLIENT context"));
@@ -1890,7 +1971,7 @@ mod _ssl {
             callback: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            Self::set_sni_callback(zelf, callback, vm)
+            Self::set_sni_callback(zelf, PySetterValue::Assign(callback), vm)
         }
 
         #[pygetset]
@@ -1901,9 +1982,12 @@ mod _ssl {
         #[pygetset(setter)]
         fn set__msg_callback(
             zelf: &Py<Self>,
-            value: Option<PyObjectRef>,
+            value: PySetterValue<Option<PyObjectRef>>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            let value = value.ok_or_else(|| {
+                vm.new_attribute_error("attribute '_msg_callback' cannot be deleted")
+            })?;
             let mut callback_guard = zelf.msg_callback.lock();
 
             if let Some(callback_obj) = value {
@@ -2185,10 +2269,9 @@ mod _ssl {
                         // Only in combination with SSL_VERIFY_PEER
                         let mode = sys::SSL_get_verify_mode(ssl.as_ptr());
                         if (mode & sys::SSL_VERIFY_PEER as core::ffi::c_int) != 0 {
-                            sys::SSL_set_verify(
-                                ssl.as_ptr(),
-                                mode | SSL_VERIFY_POST_HANDSHAKE,
-                                None,
+                            ssl.set_verify_callback(
+                                SslVerifyMode::from_bits_retain(mode | SSL_VERIFY_POST_HANDSHAKE),
+                                super::distrusted::verify,
                             );
                         }
                     } else {
@@ -2271,7 +2354,7 @@ mod _ssl {
             if let Some(session) = args.session
                 && !vm.is_none(&session)
             {
-                PySslSocket::set_session(&py_ref, session, vm)?;
+                PySslSocket::set_session(&py_ref, PySetterValue::Assign(session), vm)?;
             }
 
             Ok(py_ref.into())
@@ -2341,7 +2424,7 @@ mod _ssl {
             if let Some(session) = args.session
                 && !vm.is_none(&session)
             {
-                PySslSocket::set_session(&py_ref, session, vm)?;
+                PySslSocket::set_session(&py_ref, PySetterValue::Assign(session), vm)?;
             }
 
             Ok(py_ref.into())
@@ -3531,7 +3614,13 @@ mod _ssl {
             zelf.owner.read().as_ref().and_then(|weak| weak.upgrade())
         }
         #[pygetset(setter)]
-        fn set_owner(zelf: &Py<Self>, owner: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_owner(
+            zelf: &Py<Self>,
+            owner: PySetterValue<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let owner = owner
+                .ok_or_else(|| vm.new_attribute_error("attribute 'owner' cannot be deleted"))?;
             let mut lock = zelf.owner.write();
             lock.take();
             *lock = Some(owner.downgrade(None, vm)?);
@@ -3548,9 +3637,11 @@ mod _ssl {
         #[pygetset(setter)]
         fn set_context(
             zelf: &Py<Self>,
-            value: PyRef<PySslContext>,
+            value: PySetterValue<PyRef<PySslContext>>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            let value = value
+                .ok_or_else(|| vm.new_attribute_error("attribute 'context' cannot be deleted"))?;
             with_ssl_pointer_mut(&zelf.connection, |ssl_ptr| {
                 unsafe {
                     let result = SSL_set_SSL_CTX(ssl_ptr, value.ctx().as_ptr());
@@ -3612,13 +3703,24 @@ mod _ssl {
         ) -> PyResult<Option<PyListRef>> {
             with_ssl_pointer(&zelf.connection, |ssl_ptr| {
                 let ssl = unsafe { ssl::SslRef::from_ptr(ssl_ptr) };
-                let Some(chain) = ssl.peer_cert_chain() else {
-                    return Ok(None);
+                let chain = ssl.peer_cert_chain();
+                // Resumed server sessions retain the peer certificate, not its chain.
+                let peer = if matches!(zelf.socket_type, SslServerOrClient::Server) {
+                    let Some(peer) = ssl.peer_certificate() else {
+                        return Ok(None);
+                    };
+                    Some(peer)
+                } else {
+                    if chain.is_none() {
+                        return Ok(None);
+                    }
+                    None
                 };
 
                 // Return Certificate objects
                 let mut certs: Vec<PyObjectRef> = chain
-                    .iter()
+                    .into_iter()
+                    .flat_map(|chain| chain.iter())
                     .map(|cert| unsafe {
                         sys::X509_up_ref(cert.as_ptr());
                         let owned = X509::from_ptr(cert.as_ptr());
@@ -3628,9 +3730,7 @@ mod _ssl {
 
                 // SSL_get_peer_cert_chain does not include peer cert for server-side sockets
                 // Add it manually at the beginning
-                if matches!(zelf.socket_type, SslServerOrClient::Server)
-                    && let Some(peer_cert) = ssl.peer_certificate()
-                {
+                if let Some(peer_cert) = peer {
                     let peer_obj = cert_to_certificate(vm, peer_cert)?;
                     certs.insert(0, peer_obj);
                 }
@@ -3701,6 +3801,10 @@ mod _ssl {
             {
                 let _ = vm;
                 Ok(with_ssl_pointer(&zelf.connection, |ssl_ptr| {
+                    // OpenSSL can dereference a missing session in SSL_get0_group_name.
+                    if unsafe { sys::SSL_get_session(ssl_ptr) }.is_null() {
+                        return None;
+                    }
                     let name = unsafe { SSL_get0_group_name(ssl_ptr) };
                     (!name.is_null())
                         .then(|| unsafe { CStr::from_ptr(name).to_string_lossy().into_owned() })
@@ -4173,7 +4277,13 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_session(zelf: &Py<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_session(
+            zelf: &Py<Self>,
+            value: PySetterValue<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let value = value
+                .ok_or_else(|| vm.new_attribute_error("attribute 'session' cannot be deleted"))?;
             // Check if value is SSLSession type
             let session = value
                 .downcast_ref::<PySslSession>()
@@ -4477,6 +4587,9 @@ mod _ssl {
     unsafe extern "C" {
         // X509_check_ca returns 1 for CA certificates, 0 otherwise
         fn X509_check_ca(x: *const sys::X509) -> core::ffi::c_int;
+        fn X509_VERIFY_PARAM_get_hostflags(
+            param: *const sys::X509_VERIFY_PARAM,
+        ) -> core::ffi::c_uint;
     }
 
     unsafe extern "C" {

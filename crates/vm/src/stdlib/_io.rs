@@ -2044,15 +2044,16 @@ mod _io {
             vm.call_method(data.check_init(zelf.raw_cell(), vm)?, "fileno", ())
         }
 
-        // Payload helper. BufferedRWPair calls this on its embedded reader and writer.
-        fn isatty_impl(&self, vm: &VirtualMachine) -> PyResult {
-            let data = self.lock(vm)?;
-            vm.call_method(data.check_init(self.raw_cell(), vm)?, "isatty", ())
+        // Hold an owned snapshot of the raw stream, not the BufferedData lock,
+        // across these calls to Python.
+        fn call_raw_noargs(&self, name: &'static str, vm: &VirtualMachine) -> PyResult {
+            let raw = self.get_raw_unlocked(vm)?;
+            vm.call_method(&raw, name, ())
         }
 
         #[pymethod]
         fn isatty(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-            zelf.isatty_impl(vm)
+            zelf.call_raw_noargs("isatty", vm)
         }
 
         #[pyslot]
@@ -2107,13 +2108,21 @@ mod _io {
         }
 
         #[pymethod]
-        fn readable(_zelf: &Py<Self>) -> bool {
-            Self::READABLE
+        fn readable(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            if Self::READABLE {
+                zelf.call_raw_noargs("readable", vm)
+            } else {
+                Ok(vm.ctx.false_value.clone().into())
+            }
         }
 
         #[pymethod]
-        fn writable(_zelf: &Py<Self>) -> bool {
-            Self::WRITABLE
+        fn writable(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            if Self::WRITABLE {
+                zelf.call_raw_noargs("writable", vm)
+            } else {
+                Ok(vm.ctx.false_value.clone().into())
+            }
         }
 
         #[pymethod]
@@ -2671,12 +2680,13 @@ mod _io {
         }
 
         #[pymethod]
-        const fn readable(&self) -> bool {
-            true
+        fn readable(&self, vm: &VirtualMachine) -> PyResult {
+            self.read.call_raw_noargs("readable", vm)
         }
+
         #[pymethod]
-        const fn writable(&self) -> bool {
-            true
+        fn writable(&self, vm: &VirtualMachine) -> PyResult {
+            self.write.call_raw_noargs("writable", vm)
         }
 
         #[pygetset]
@@ -2686,12 +2696,11 @@ mod _io {
 
         #[pymethod]
         fn isatty(&self, vm: &VirtualMachine) -> PyResult {
-            // read.isatty() or write.isatty()
-            let res = self.read.isatty_impl(vm)?;
-            if res.try_to_bool(vm)? {
-                Ok(res)
+            let res = self.write.call_raw_noargs("isatty", vm)?;
+            if res.is(&vm.ctx.false_value) {
+                self.read.call_raw_noargs("isatty", vm)
             } else {
-                self.write.isatty_impl(vm)
+                Ok(res)
             }
         }
 
@@ -6998,12 +7007,9 @@ mod fileio {
                 let repr = source
                     .repr(vm)
                     .map_or_else(|_| Wtf8Buf::from("<file>"), |s| s.as_wtf8().to_owned());
-                if let Err(e) = crate::stdlib::_warnings::warn(
-                    vm.ctx.exceptions.resource_warning,
-                    format!("unclosed file {repr}"),
-                    1,
-                    vm,
-                ) {
+                if let Err(e) =
+                    crate::warn::warn_resource(format!("unclosed file {repr}"), source, vm)
+                {
                     vm.run_unraisable(e, None, zelf.as_object().to_owned());
                 }
             }

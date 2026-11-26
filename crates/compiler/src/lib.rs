@@ -383,14 +383,41 @@ fn cpython_parse_diagnostic_override(
         return None;
     }
 
+    // The PEG grammar declines a bare yield or lambda in a restricted
+    // expression position at the keyword. Ruff recovers by parsing the
+    // complete expression and reports its entire range.
+    let rejected_keyword = match error.error {
+        ParseErrorType::InvalidYieldExpressionUsage => Some("yield"),
+        ParseErrorType::InvalidLambdaExpressionUsage => Some("lambda"),
+        _ => None,
+    };
+    if let Some(keyword) = rejected_keyword
+        && let Some(expression) =
+            source_text.get(error.location.start().to_usize()..error.location.end().to_usize())
+        && expression.starts_with(keyword)
+    {
+        let start = error.location.start();
+        let (location, end_location) =
+            source_locations(source_file, start, start + TextSize::of(keyword));
+        return Some(NormalizedParseDiagnostic::new(
+            ParseErrorType::OtherError("invalid syntax".into()),
+            location,
+            end_location,
+        ));
+    }
+
     // CPython's PEG parser collapses a bare "expected an expression" failure
     // into the generic "invalid syntax" message. rustpython-vm's `vm_new.rs`
     // does this same collapse for its own callers; rustpython-compiler has no
-    // vm dependency, so mirror it here.
+    // vm dependency, so mirror it here. CPython also uses the generic
+    // diagnostic when an indented match suite does not begin with a case.
     if matches!(
         &error.error,
         parser::ParseErrorType::ExpectedExpression
             | parser::ParseErrorType::UnexpectedExpressionToken
+    ) || matches!(
+        &error.error,
+        parser::ParseErrorType::OtherError(message) if message == "expected `case` block"
     ) {
         let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
         return Some(NormalizedParseDiagnostic::new(
@@ -1327,18 +1354,205 @@ fn first_parse_error(
     )
     .or_else(|| call_argument_unpacking_diagnostic(&parsed, prepared_source, parser_options))
     .or_else(|| unfinished_dict_comprehension_diagnostic(&parsed, parser_options))
-    .map_or_else(
-        || first.clone(),
-        |diagnostic| parser::ParseError {
-            error: ParseErrorType::OtherError(diagnostic.message),
-            location: diagnostic.range,
-        },
-    );
+    .map(|diagnostic| parser::ParseError {
+        error: ParseErrorType::OtherError(diagnostic.message),
+        location: diagnostic.range,
+    })
+    .or_else(|| normalize_raise_parse_error(&parsed))
+    .or_else(|| normalize_starred_slice_parse_error(&parsed))
+    .unwrap_or_else(|| first.clone());
     let mut error = CompileError::from_ruff_parse_error(normalized, source_file, mode);
     if after_syntax_error && let CompileError::Parse(error) = &mut error {
         error.is_unclosed_string = false;
     }
     Err(error)
+}
+
+/// Recover CPython's invalid_starred_expression diagnostic when a grouped
+/// subscript operand fails and the parser then treats its colon as a slice.
+pub fn normalize_starred_slice_parse_error(
+    parsed: &parser::Parsed<ast::Mod>,
+) -> Option<parser::ParseError> {
+    let [first, star_error, rest @ ..] = parsed.errors() else {
+        return None;
+    };
+    if !matches!(
+        first.error,
+        ParseErrorType::ExpectedToken {
+            expected: TokenKind::Rpar,
+            found: TokenKind::Colon
+        } | ParseErrorType::ExpectedExpression
+    ) || !matches!(
+        star_error.error,
+        ParseErrorType::InvalidStarredExpressionUsage
+    ) || !parsed.unsupported_syntax_errors().is_empty()
+        || rest
+            .iter()
+            .any(|error| matches!(error.error, ParseErrorType::Lexical(_)))
+        || star_error.location.end() > first.location.start()
+    {
+        return None;
+    }
+
+    let tokens = parsed.tokens();
+    let star = tokens.partition_point(|token| token.start() < star_error.location.start());
+    if !tokens.get(star).is_some_and(|token| {
+        token.kind() == TokenKind::Star && token.range() == star_error.location
+    }) {
+        return None;
+    }
+    let significant = |token: &&ast::token::Token| !token.kind().is_trivia();
+    let mut before = tokens[..star].iter().rev().filter(significant);
+    let prior = before.next()?;
+    if !matches!(prior.kind(), TokenKind::Lsqb | TokenKind::Comma) {
+        return None;
+    }
+    // The star must begin the item, not be a failed right-hand operand.
+    // Mismatched delimiters are excluded by the lexical-error check above.
+    if prior.kind() == TokenKind::Comma {
+        let mut depth = 0;
+        loop {
+            match before.next()?.kind() {
+                TokenKind::Rsqb | TokenKind::Rpar | TokenKind::Rbrace => depth += 1,
+                TokenKind::Lsqb if depth == 0 => break,
+                TokenKind::Lsqb | TokenKind::Lpar | TokenKind::Lbrace => {
+                    depth = usize::checked_sub(depth, 1)?;
+                }
+                TokenKind::Newline => return None,
+                _ => {}
+            }
+        }
+    }
+    let primary = before.next()?.kind();
+    if !(matches!(
+        primary,
+        TokenKind::Identifier
+            | TokenKind::Int
+            | TokenKind::Float
+            | TokenKind::Complex
+            | TokenKind::String
+            | TokenKind::Ellipsis
+            | TokenKind::Rpar
+            | TokenKind::Rsqb
+            | TokenKind::Rbrace
+    ) || primary.is_soft_keyword()
+        || primary.is_singleton()
+        || primary.is_interpolated_string_end())
+    {
+        return None;
+    }
+
+    let mut after = tokens[star + 1..].iter().filter(significant);
+    if after.next()?.kind() != TokenKind::Lpar {
+        return None;
+    }
+    let mut depth = 1;
+    let mut previous = TokenKind::Lpar;
+    for token in after {
+        let kind = token.kind();
+        if token.range() == first.location && kind == TokenKind::Colon {
+            if matches!(first.error, ParseErrorType::ExpectedExpression)
+                && previous != TokenKind::Lpar
+            {
+                return None;
+            }
+            return Some(parser::ParseError {
+                error: ParseErrorType::OtherError("Invalid star expression".to_owned()),
+                location: first.location,
+            });
+        }
+        if token.start() >= first.location.start() {
+            return None;
+        }
+        match kind {
+            TokenKind::Lpar | TokenKind::Lsqb | TokenKind::Lbrace => depth += 1,
+            TokenKind::Rpar | TokenKind::Rsqb | TokenKind::Rbrace => {
+                depth -= 1;
+                if depth == 0 {
+                    return None;
+                }
+            }
+            TokenKind::Newline => return None,
+            _ => {}
+        }
+        previous = kind;
+    }
+    None
+}
+
+/// Convert the sole parser error for an unparenthesized raise operand to
+/// CPython's generic syntax error at the comma. Other tuple roles and recovery
+/// involving more than one error retain the parser's original diagnostics.
+pub fn normalize_raise_parse_error(
+    parsed: &parser::Parsed<ast::Mod>,
+) -> Option<parser::ParseError> {
+    use ast::visitor::Visitor;
+
+    let [error] = parsed.errors() else {
+        return None;
+    };
+    if !matches!(error.error, ParseErrorType::UnparenthesizedTupleExpression)
+        || !parsed.unsupported_syntax_errors().is_empty()
+    {
+        return None;
+    }
+    let ast::Mod::Module(module) = parsed.syntax() else {
+        return None;
+    };
+
+    struct Statements<'a> {
+        range: ruff_text_size::TextRange,
+        pending: Vec<&'a ast::Stmt>,
+    }
+
+    impl<'a> Visitor<'a> for Statements<'a> {
+        fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
+            if stmt.range().contains_range(self.range) {
+                self.pending.push(stmt);
+            }
+        }
+
+        fn visit_expr(&mut self, _: &'a ast::Expr) {}
+
+        fn visit_pattern(&mut self, _: &'a ast::Pattern) {}
+    }
+
+    // The recovered tree has not reached AST depth validation, so only collect
+    // immediate child statements per iteration and never recurse into operands.
+    let mut statements = Statements {
+        range: error.location,
+        pending: Vec::new(),
+    };
+    statements.visit_body(&module.body);
+    while let Some(stmt) = statements.pending.pop() {
+        let ast::Stmt::Raise(raise) = stmt else {
+            ast::visitor::walk_stmt(&mut statements, stmt);
+            continue;
+        };
+        let first_end = [raise.exc.as_deref(), raise.cause.as_deref()]
+            .into_iter()
+            .flatten()
+            .find_map(|expr| match expr {
+                ast::Expr::Tuple(tuple)
+                    if !tuple.parenthesized && tuple.range() == error.location =>
+                {
+                    tuple.elts.first().map(Ranged::end)
+                }
+                _ => None,
+            });
+        if let Some(first_end) = first_end {
+            let comma = parsed
+                .tokens()
+                .iter()
+                .take_while(|token| token.start() < error.location.end())
+                .find(|token| token.start() >= first_end && token.kind() == TokenKind::Comma)?;
+            return Some(parser::ParseError {
+                error: ParseErrorType::OtherError("invalid syntax".to_owned()),
+                location: comma.range(),
+            });
+        }
+    }
+    None
 }
 
 // A recovered call never parsed its comprehension clauses. For a narrowly owned

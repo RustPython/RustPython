@@ -1537,9 +1537,7 @@ impl Block {
             "CPython basicblock_addop requires 0 <= oparg < (1 << 30)"
         );
         let off = self.basicblock_next_instr()?;
-        let except_handler = self.instructions[off].except_handler;
         info.target = BlockIdx::NULL;
-        info.except_handler = except_handler;
         self.instructions[off] = info;
         Ok(())
     }
@@ -2186,10 +2184,12 @@ impl Blocks {
                 }
                 AnyInstruction::Real(Instruction::LoadGlobal { .. })
                     if matches!(nextop, Some(Instruction::PushNull))
-                        && (u32::from(inst.arg) & 1) == 0 =>
+                        && !oparg::LoadGlobal::from_u32(u32::from(inst.arg)).push_null() =>
                 {
+                    let name_idx = oparg::LoadGlobal::from_u32(u32::from(inst.arg)).name_idx();
+                    let load_global = oparg::LoadGlobal::new(name_idx, true);
                     self[block_idx].instructions[i]
-                        .instr_set_op1(inst.instr, OpArg::new(u32::from(inst.arg) | 1));
+                        .instr_set_op1(inst.instr, OpArg::new(load_global.as_u32()));
                     self[block_idx].instructions[i + 1].set_to_nop();
                 }
                 AnyInstruction::Real(Instruction::CompareOp { .. })
@@ -3227,7 +3227,7 @@ impl Blocks {
             target: BlockIdx::NULL,
             location: loc_source.location,
             end_location: loc_source.end_location,
-            except_handler: None,
+            except_handler: loc_source.except_handler,
             semantic_location: loc_source.semantic_location,
             lineno_override: loc_source.lineno_override,
         })?;
@@ -3325,7 +3325,7 @@ impl Blocks {
                 target: BlockIdx::NULL,
                 location: last_ins.location,
                 end_location: last_ins.end_location,
-                except_handler: None,
+                except_handler: last_ins.except_handler,
                 semantic_location: last_ins.semantic_location,
                 lineno_override: last_ins.lineno_override,
             };
@@ -3356,7 +3356,7 @@ impl Blocks {
             target: BlockIdx::NULL,
             location: loc,
             end_location: end_loc,
-            except_handler: None,
+            except_handler: last_ins.except_handler,
             semantic_location: last_ins.semantic_location,
             lineno_override: last_ins.lineno_override,
         })?;
@@ -3798,22 +3798,6 @@ fn instruction_sequence_label_map_resolve_label(
     })
 }
 
-fn instruction_sequence_label_map_resolve_label_to_block(
-    map: &InstructionSequenceLabelMap,
-    label: InstructionSequenceLabel,
-) -> BlockIdx {
-    if !is_label(label) {
-        return BlockIdx::NULL;
-    }
-    instruction_sequence_label_map_block_for_label(map, label).unwrap_or_else(|| {
-        debug_assert!(
-            false,
-            "CPython instruction-sequence label must map to a codegen CFG block"
-        );
-        BlockIdx::NULL
-    })
-}
-
 fn instruction_sequence_label_oparg(label: InstructionSequenceLabel) -> OpArg {
     debug_assert!(is_label(label));
     OpArg::new(label.idx() as u32)
@@ -3991,25 +3975,8 @@ impl CodeInfo {
         instruction_sequence_use_label(&mut self.instr_sequence, label)
     }
 
-    pub(crate) fn mark_cpython_cfg_label(&mut self, block: BlockIdx) -> crate::InternalResult<()> {
-        let label = instruction_sequence_label_map_ensure_label_for_block(
-            &mut self.instr_sequence_label_map,
-            &mut self.instr_sequence,
-            block,
-        )?;
-        self.blocks[block].cpython_label = label;
-        Ok(())
-    }
-
     pub(crate) fn resolve_instr_sequence_label(&self, block: BlockIdx) -> BlockIdx {
         instruction_sequence_label_map_resolve_label(&self.instr_sequence_label_map, block)
-    }
-
-    pub(crate) fn block_for_instr_sequence_label(
-        &self,
-        label: InstructionSequenceLabel,
-    ) -> BlockIdx {
-        instruction_sequence_label_map_resolve_label_to_block(&self.instr_sequence_label_map, label)
     }
 
     pub(crate) fn use_instr_sequence_label_at_block(
@@ -4261,8 +4228,29 @@ pub fn assemble_for_tests(
     blocks.mark_except_handlers();
     label_exception_targets(&mut blocks)?;
     let flags = CodeFlags::empty();
-    let (max_stackdepth, nlocalsplus, mut instr_sequence) =
+    let (max_stackdepth, nlocalsplus, instr_sequence) =
         optimized_cfg_to_instruction_sequence(&metadata, flags, &mut blocks)?;
+    assemble_code_object(
+        filename,
+        metadata,
+        flags,
+        max_stackdepth,
+        nlocalsplus,
+        instr_sequence,
+        debug_ranges,
+    )
+}
+
+/// assemble.c _PyAssemble_MakeCodeObject
+fn assemble_code_object(
+    source_path: String,
+    metadata: CodeUnitMetadata,
+    flags: CodeFlags,
+    max_stackdepth: u32,
+    nlocalsplus: usize,
+    mut instr_sequence: InstructionSequence,
+    debug_ranges: bool,
+) -> crate::InternalResult<CodeObject> {
     let localsplusinfo = compute_localsplus_info(&metadata, nlocalsplus, flags)?;
     let CodeUnitMetadata {
         name: obj_name,
@@ -4299,10 +4287,11 @@ pub fn assemble_for_tests(
         posonlyarg_count,
         arg_count: code_arg_count,
         kwonlyarg_count,
-        source_path: filename,
+        source_path,
         first_line_number: Some(first_line_number),
         obj_name: obj_name.clone(),
         qualname: qualname.unwrap_or(obj_name),
+        // Room for one value is always reserved, even where nothing is pushed.
         max_stackdepth: max_stackdepth.max(1),
         instructions: CodeUnits::from(assembled.instructions),
         locations,
@@ -4316,7 +4305,6 @@ pub fn assemble_for_tests(
         exceptiontable: assembled.exceptiontable,
     })
 }
-
 impl CodeInfo {
     pub fn finalize_code(
         mut self,
@@ -4332,85 +4320,17 @@ impl CodeInfo {
             nlocals,
             nparams,
         )?;
-        let (max_stackdepth, nlocalsplus, mut instr_sequence) =
+        let (max_stackdepth, nlocalsplus, instr_sequence) =
             optimized_cfg_to_instruction_sequence(&self.metadata, self.flags, &mut self.blocks)?;
-        let localsplusinfo = compute_localsplus_info(&self.metadata, nlocalsplus, self.flags)?;
-
-        let Self {
-            flags,
-            source_path,
-            private: _, // private is only used during compilation
-
-            blocks: _,
-            current_block: _,
-            instr_sequence: _,
-            instr_sequence_label_map: _,
-            annotations_instr_sequence: _,
-            metadata,
-            static_attributes: _,
-            in_inlined_comp: _,
-            fblock: _,
-            symbol_table_index: _,
-            nparams: _,
-            in_conditional_block: _,
-            next_conditional_annotation_index: _,
-        } = self;
-
-        let CodeUnitMetadata {
-            name: obj_name,
-            qualname,
-            consts: constants,
-            names: name_cache,
-            varnames: varname_cache,
-            cellvars: _,
-            freevars: freevar_cache,
-            fast_hidden: _,
-            fast_hidden_final: _,
-            argcount: arg_count,
-            posonlyargcount: posonlyarg_count,
-            kwonlyargcount: kwonlyarg_count,
-            firstlineno: first_line_number,
-        } = metadata;
-        let code_arg_count = posonlyarg_count
-            .checked_add(arg_count)
-            .ok_or(InternalError::MalformedControlFlowGraph)?;
-
-        resolve_unconditional_jumps(&mut instr_sequence);
-        resolve_jump_offsets(&mut instr_sequence);
-        let assembled = assemble_emit(
-            &mut instr_sequence,
-            first_line_number.get() as i32,
+        assemble_code_object(
+            self.source_path,
+            self.metadata,
+            self.flags,
+            max_stackdepth,
+            nlocalsplus,
+            instr_sequence,
             opts.debug_ranges,
-        )?;
-        let locations = rustpython_compiler_core::marshal::linetable_to_locations(
-            &assembled.linetable,
-            first_line_number.get() as i32,
-            assembled.instructions.len(),
-        );
-
-        Ok(CodeObject {
-            flags,
-            posonlyarg_count,
-            arg_count: code_arg_count,
-            kwonlyarg_count,
-            source_path,
-            first_line_number: Some(first_line_number),
-            obj_name: obj_name.clone(),
-            qualname: qualname.unwrap_or(obj_name),
-
-            // Room for one value is always reserved, even where nothing is pushed.
-            max_stackdepth: max_stackdepth.max(1),
-            instructions: CodeUnits::from(assembled.instructions),
-            locations,
-            constants: constants.into_iter().collect(),
-            names: name_cache.into_iter().collect(),
-            varnames: varname_cache.into_iter().collect(),
-            cellvars: localsplusinfo.cellvars,
-            freevars: freevar_cache.into_iter().collect(),
-            localspluskinds: localsplusinfo.kinds,
-            linetable: assembled.linetable,
-            exceptiontable: assembled.exceptiontable,
-        })
+        )
     }
 }
 
@@ -4898,38 +4818,11 @@ fn const_folding_safe_mod(left: &ConstantData, right: &ConstantData) -> Option<C
             Some(ConstantData::Integer { value })
         }
         (ConstantData::Float { value: l }, ConstantData::Float { value: r }) => {
-            let (_, modulo) = float_div_mod(*l, *r)?;
+            let (_, modulo) = rustpython_literal::float::divmod(*l, *r)?;
             Some(ConstantData::Float { value: modulo })
         }
         _ => None,
     }
-}
-
-fn float_div_mod(left: f64, right: f64) -> Option<(f64, f64)> {
-    if right == 0.0 {
-        return None;
-    }
-
-    let mut modulo = left % right;
-    let div = (left - modulo) / right;
-    let floordiv = if modulo != 0.0 {
-        let div = if (right < 0.0) != (modulo < 0.0) {
-            modulo += right;
-            div - 1.0
-        } else {
-            div
-        };
-        let mut floordiv = div.floor();
-        if div - floordiv > 0.5 {
-            floordiv += 1.0;
-        }
-        floordiv
-    } else {
-        modulo = 0.0f64.copysign(right);
-        0.0f64.copysign(left / right)
-    };
-
-    Some((floordiv, modulo))
 }
 
 /// flowgraph.c eval_const_binop complex result construction
@@ -4947,28 +4840,16 @@ fn eval_const_complex_binop(
 
     let value = match op {
         BinOp::Add => left + right,
-        BinOp::Subtract => {
-            let re = left.re - right.re;
-            // Preserve signed-zero behavior for real-zero
-            // minus zero-complex expressions such as `0 - 0j`.
-            let im = if left.re == 0.0
-                && left.im == 0.0
-                && right.re == 0.0
-                && right.im == 0.0
-                && !right.im.is_sign_negative()
-            {
-                -0.0
-            } else {
-                left.im - right.im
-            };
+        BinOp::Subtract => left - right,
+        BinOp::Multiply => {
+            let (re, im) =
+                rustpython_literal::complex::multiply((left.re, left.im), (right.re, right.im));
             Complex::new(re, im)
         }
-        BinOp::Multiply => left * right,
         BinOp::TrueDivide => {
-            if right == Complex::new(0.0, 0.0) {
-                return None;
-            }
-            left / right
+            let (re, im) =
+                rustpython_literal::complex::divide((left.re, left.im), (right.re, right.im))?;
+            Complex::new(re, im)
         }
         BinOp::Power => {
             if left == Complex::new(0.0, 0.0) {
@@ -4995,7 +4876,48 @@ fn eval_const_complex_binop(
         }
         _ => return None,
     };
-    eval_const_complex_const(value)
+    if matches!(op, BinOp::Power) {
+        eval_const_complex_const(value)
+    } else {
+        Some(ConstantData::Complex { value })
+    }
+}
+
+// Python keeps real/complex operands distinct; coercing the real operand to
+// a zero-imaginary complex changes signed zeros and nonfinite multiplication.
+fn eval_const_mixed_complex_binop(
+    real: f64,
+    value: Complex<f64>,
+    real_left: bool,
+    op: oparg::BinaryOperator,
+) -> Option<ConstantData> {
+    use oparg::BinaryOperator as BinOp;
+    let result = match op {
+        BinOp::Add if real_left => Complex::new(real + value.re, value.im),
+        BinOp::Add => Complex::new(value.re + real, value.im),
+        BinOp::Subtract if real_left => Complex::new(real - value.re, -value.im),
+        BinOp::Subtract => Complex::new(value.re - real, value.im),
+        BinOp::Multiply if real_left => Complex::new(real * value.re, real * value.im),
+        BinOp::Multiply => Complex::new(value.re * real, value.im * real),
+        BinOp::TrueDivide if real_left => {
+            let (re, im) = rustpython_literal::complex::real_divide(real, (value.re, value.im))?;
+            Complex::new(re, im)
+        }
+        BinOp::TrueDivide => {
+            if real == 0.0 {
+                return None;
+            }
+            Complex::new(value.re / real, value.im / real)
+        }
+        _ => {
+            return if real_left {
+                eval_const_complex_binop(Complex::new(real, 0.0), value, op)
+            } else {
+                eval_const_complex_binop(value, Complex::new(real, 0.0), op)
+            };
+        }
+    };
+    Some(ConstantData::Complex { value: result })
 }
 
 /// flowgraph.c eval_const_binop subscript index conversion
@@ -5237,9 +5159,13 @@ fn eval_const_binop(
                     if r.is_zero() {
                         return None;
                     }
-                    let l_f = l.to_f64()?;
-                    let r_f = r.to_f64()?;
-                    let result = l_f / r_f;
+                    // Python divides first and rounds the quotient once. Converting
+                    // large operands independently can change the rounded value.
+                    let result = if l.bits().max(r.bits()) <= u64::from(f64::MANTISSA_DIGITS) {
+                        l.to_f64()? / r.to_f64()?
+                    } else {
+                        rustpython_literal::float::true_div(l, r)
+                    };
                     if !result.is_finite() {
                         return None;
                     }
@@ -5283,7 +5209,7 @@ fn eval_const_binop(
                     l / r
                 }
                 BinOp::FloorDivide => {
-                    let (floordiv, _) = float_div_mod(*l, *r)?;
+                    let (floordiv, _) = rustpython_literal::float::divmod(*l, *r)?;
                     floordiv
                 }
                 BinOp::Remainder => return const_folding_safe_mod(left, right),
@@ -5313,16 +5239,26 @@ fn eval_const_binop(
             )
         }
         (ConstantData::Integer { value: l }, ConstantData::Complex { value: r }) => {
-            eval_const_complex_binop(Complex::new(l.to_f64()?, 0.0), *r, op)
+            eval_const_mixed_complex_binop(
+                l.to_f64().filter(|value| value.is_finite())?,
+                *r,
+                true,
+                op,
+            )
         }
         (ConstantData::Complex { value: l }, ConstantData::Integer { value: r }) => {
-            eval_const_complex_binop(*l, Complex::new(r.to_f64()?, 0.0), op)
+            eval_const_mixed_complex_binop(
+                r.to_f64().filter(|value| value.is_finite())?,
+                *l,
+                false,
+                op,
+            )
         }
         (ConstantData::Float { value: l }, ConstantData::Complex { value: r }) => {
-            eval_const_complex_binop(Complex::new(*l, 0.0), *r, op)
+            eval_const_mixed_complex_binop(*l, *r, true, op)
         }
         (ConstantData::Complex { value: l }, ConstantData::Float { value: r }) => {
-            eval_const_complex_binop(*l, Complex::new(*r, 0.0), op)
+            eval_const_mixed_complex_binop(*r, *l, false, op)
         }
         (ConstantData::Complex { value: l }, ConstantData::Complex { value: r }) => {
             eval_const_complex_binop(*l, *r, op)
@@ -5980,8 +5916,8 @@ impl InstrDisplayContext for CodeInfo {
         &self.metadata.consts[consti.as_usize()]
     }
 
-    fn get_name(&self, i: usize) -> &str {
-        self.metadata.names[i].as_ref()
+    fn get_name(&self, namei: oparg::NameIdx) -> &str {
+        self.metadata.names[namei.as_usize()].as_ref()
     }
 
     fn get_varname(&self, var_num: oparg::VarNum) -> &str {
@@ -7556,6 +7492,41 @@ mod tests {
     }
 
     #[test]
+    fn float_divmod_folds_quotient_and_remainder_independently() {
+        use oparg::BinaryOperator::{FloorDivide, Remainder};
+
+        let float = |value| ConstantData::Float { value };
+        let smallest = f64::from_bits(1);
+        for (left, right, quotient, remainder) in [
+            (2.0, 2.0, 1.0, 0.0),
+            (2.0, -2.0, -1.0, -0.0),
+            (-2.0, -2.0, 1.0, -0.0),
+            (-2.0, -3.0, 0.0, -2.0),
+            (-0.0, 2.0, -0.0, 0.0),
+            (smallest, smallest, 1.0, 0.0),
+            (1.0, 0.1, 9.0, f64::from_bits(0x3fb9_9999_9999_9996)),
+            (2.0, f64::NEG_INFINITY, -1.0, f64::NEG_INFINITY),
+            (f64::INFINITY, 2.0, f64::NAN, f64::NAN),
+            (f64::NAN, -2.0, f64::NAN, f64::NAN),
+        ] {
+            for (op, expected) in [(FloorDivide, quotient), (Remainder, remainder)] {
+                let Some(ConstantData::Float { value: result }) =
+                    eval_const_binop(&float(left), &float(right), op)
+                else {
+                    panic!("expected float constant");
+                };
+                if expected.is_nan() {
+                    assert!(result.is_nan());
+                } else {
+                    assert_eq!(result.to_bits(), expected.to_bits());
+                }
+            }
+        }
+        assert!(eval_const_binop(&float(2.0), &float(-0.0), FloorDivide).is_none());
+        assert!(eval_const_binop(&float(2.0), &float(0.0), Remainder).is_none());
+    }
+
+    #[test]
     fn get_stack_effects_rejects_cpython_deopt_opcodes() {
         match get_stack_effects(Instruction::BinaryOpAddInt.into(), OpArg::new(0), 0) {
             Err(InternalError::InvalidStackEffect) => {}
@@ -7788,30 +7759,36 @@ mod tests {
         blocks.normalize_jumps_in_block(BlockIdx::new(0)).unwrap();
         let not_taken = &blocks[0].instructions[1];
         assert_eq!(not_taken.instr.real_opcode(), Some(Opcode::NotTaken));
-        assert_eq!(not_taken.except_handler, None);
+        assert_eq!(not_taken.except_handler, Some(handler));
     }
 
     #[test]
-    fn basicblock_addop_reuses_cpython_spare_except_handler_slot() {
-        let handler = ExceptHandlerInfo {
+    fn basicblock_addop_overwrites_spare_exception_handler() {
+        let stale = ExceptHandlerInfo {
             handler_block: BlockIdx::new(7),
             preserve_lasti: true,
         };
-        let mut block = Block::default();
-        let mut stale = test_instr(Instruction::Nop, 11);
-        stale.except_handler = Some(handler);
-        test_block_push(&mut block, stale);
-        block.basicblock_clear();
+        let replacement = ExceptHandlerInfo {
+            handler_block: BlockIdx::new(8),
+            preserve_lasti: false,
+        };
+        for new_handler in [None, Some(replacement)] {
+            let mut block = Block::default();
+            let mut old = test_instr(Instruction::Nop, 11);
+            old.except_handler = Some(stale);
+            test_block_push(&mut block, old);
+            block.basicblock_clear();
 
-        block
-            .basicblock_addop(test_instr(Instruction::PopTop, 12))
-            .expect("basicblock_addop succeeds");
+            let mut new = test_instr(Instruction::PopTop, 12);
+            new.except_handler = new_handler;
+            block
+                .basicblock_addop(new)
+                .expect("basicblock_addop succeeds");
 
-        // CPython `basicblock_addop()` writes opcode/oparg/target/location into
-        // the reused `b_instr[b_iused]` slot, but does not clear `i_except`.
-        assert_eq!(block.instruction_used, 1);
-        assert_eq!(block.instructions[0].except_handler, Some(handler));
-        assert_eq!(block.instructions[0].target, BlockIdx::NULL);
+            assert_eq!(block.instruction_used, 1);
+            assert_eq!(block.instructions[0].except_handler, new_handler);
+            assert_eq!(block.instructions[0].target, BlockIdx::NULL);
+        }
     }
 
     #[test]
@@ -7854,64 +7831,6 @@ mod tests {
         // the provided instruction copy, including its `i_except` value.
         assert_eq!(block.instruction_used, 2);
         assert_eq!(block.instructions[0].except_handler, None);
-    }
-
-    #[test]
-    fn basicblock_clear_preserves_cpython_spare_slots() {
-        let handler = ExceptHandlerInfo {
-            handler_block: BlockIdx::new(3),
-            preserve_lasti: true,
-        };
-        let mut block = Block::default();
-        let mut stale = test_instr(Instruction::PopTop, 31);
-        stale.except_handler = Some(handler);
-        test_block_push(&mut block, stale);
-
-        block.basicblock_clear();
-        block
-            .basicblock_addop(test_instr(Instruction::Nop, 32))
-            .expect("basicblock_addop succeeds");
-
-        // CPython `remove_unreachable()` sets `b_iused = 0` without clearing the
-        // backing `b_instr` slot. A later `basicblock_addop()` reuses that slot
-        // and does not overwrite `i_except`.
-        assert_eq!(block.instruction_used, 1);
-        assert_eq!(block.instructions[0].except_handler, Some(handler));
-    }
-
-    #[test]
-    fn basicblock_clear_reuses_cpython_spare_slots_in_offset_order() {
-        let mut block = Block::default();
-        for i in 0..3 {
-            let mut stale = test_instr(Instruction::Nop, 35 + i);
-            stale.except_handler = Some(ExceptHandlerInfo {
-                handler_block: BlockIdx::new(i + 1),
-                preserve_lasti: false,
-            });
-            test_block_push(&mut block, stale);
-        }
-
-        block.basicblock_clear();
-        for i in 0..3 {
-            block
-                .basicblock_addop(test_instr(Instruction::PopTop, 38 + i))
-                .expect("basicblock_addop succeeds");
-        }
-
-        let handlers = block
-            .used_instructions()
-            .iter()
-            .map(|instr| {
-                instr
-                    .except_handler
-                    .expect("reused CPython slot")
-                    .handler_block
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            handlers,
-            [BlockIdx::new(1), BlockIdx::new(2), BlockIdx::new(3)]
-        );
     }
 
     #[test]
@@ -8140,6 +8059,47 @@ mod tests {
             code.blocks[0].instructions[0].instr.real(),
             Some(Instruction::LoadFastBorrow { .. })
         ));
+    }
+
+    #[test]
+    fn integer_true_division_folds_the_exact_quotient() {
+        use oparg::BinaryOperator::TrueDivide;
+
+        let ten_to_310 = BigInt::from(10_u8).pow(310_u32);
+        let ten_to_400 = BigInt::from(10_u8).pow(400_u32);
+        let integer = |value| ConstantData::Integer { value };
+        let cases = [
+            (
+                BigInt::from((1_u64 << 53) + 1),
+                BigInt::from(3),
+                Some(0x4325_5555_5555_5556),
+            ),
+            (
+                BigInt::from(1),
+                ten_to_310.clone(),
+                Some(0x0000_1268_8b70_e62b),
+            ),
+            (ten_to_310.clone(), ten_to_310, Some(1.0_f64.to_bits())),
+            (BigInt::from(0), -&ten_to_400, Some((-0.0_f64).to_bits())),
+            (
+                BigInt::from(-1),
+                ten_to_400.clone(),
+                Some((-0.0_f64).to_bits()),
+            ),
+            (ten_to_400, BigInt::from(2), None),
+            (BigInt::from(1), BigInt::from(0), None),
+        ];
+
+        for (numerator, denominator, expected) in cases {
+            let result = eval_const_binop(&integer(numerator), &integer(denominator), TrueDivide);
+            assert_eq!(
+                result.map(|result| match result {
+                    ConstantData::Float { value } => value.to_bits(),
+                    other => panic!("expected float, got {other:?}"),
+                }),
+                expected
+            );
+        }
     }
 
     #[test]

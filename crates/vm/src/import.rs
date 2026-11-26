@@ -53,9 +53,7 @@ pub fn import_module(vm: &VirtualMachine, module_name: &Py<PyStr>) -> PyResult {
         )?;
         drop(imported);
 
-        // RustPython currently exposes the registry through sys' dictionary;
-        // unlike CPython's interpreter-owned registry, reassignment is visible.
-        let modules = vm.sys_module.dict().get_item("modules", vm)?;
+        let modules = vm.sys_modules();
         let selected = match modules.get_item(module_name, vm) {
             Ok(module) => Ok(Some(module)),
             Err(err) if err.fast_isinstance(vm.ctx.exceptions.key_error) => Ok(None),
@@ -72,7 +70,7 @@ pub fn import_module(vm: &VirtualMachine, module_name: &Py<PyStr>) -> PyResult {
 /// the installed module. Dictionary subclasses retain their mapping callbacks;
 /// this does not extend the current dictionary-only `sys.modules` contract.
 pub fn add_module(vm: &VirtualMachine, name: &str) -> PyResult<PyRef<PyModule>> {
-    let sys_modules = vm.sys_module.get_attr(identifier!(vm, modules), vm)?;
+    let sys_modules = vm.sys_modules();
     let modules = sys_modules.try_downcast_ref::<PyDict>(vm)?;
 
     if !sys_modules.class().is(vm.ctx.types.dict_type) {
@@ -304,7 +302,7 @@ pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
 }
 
 pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+    let sys_modules = vm.sys_modules();
 
     // Check if already in sys.modules (handles recursive imports)
     if let Ok(module) = sys_modules.get_item(module_name, vm) {
@@ -440,7 +438,7 @@ pub fn import_code_obj(
     let module = vm.new_module(module_name, attrs.clone(), None);
 
     // Store module in cache to prevent infinite loop with mutual importing libs:
-    let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+    let sys_modules = vm.sys_modules();
     sys_modules.set_item(module_name, module.clone().into(), vm)?;
 
     // Execute main code in module:
@@ -690,7 +688,7 @@ pub(crate) fn import_module_level(
     };
 
     // import_get_module + import_find_and_load
-    let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+    let sys_modules = vm.sys_modules();
     let module = match sys_modules.get_item(&*abs_name, vm) {
         Ok(m) if !vm.is_none(&m) => {
             let initializing = import_ensure_initialized(&m, &abs_name, vm)?;
@@ -918,7 +916,7 @@ pub(crate) fn import_from_attribute(
         let mod_name = module.get_attr(identifier!(vm, __name__), vm).ok()?;
         let mod_name = mod_name.downcast_ref::<PyUtf8Str>()?;
         let full_mod_name = vm.ctx.new_utf8_str(format!("{}.{name}", mod_name.as_str()));
-        let sys_modules = vm.sys_module.get_attr("modules", vm).ok()?;
+        let sys_modules = vm.sys_modules();
         sys_modules.get_item(&*full_mod_name, vm).ok()
     })();
 

@@ -700,7 +700,10 @@ macro_rules! make_pack_float {
                 arg: &PyObject,
                 write: &mut dyn FnMut(&[u8]),
             ) -> PyResult<()> {
-                let f_64 = arg.try_to_value::<ArgIntoFloat>(vm)?.into_float();
+                let f_64 = arg
+                    .try_to_value::<ArgIntoFloat>(vm)
+                    .map_err(|_| new_struct_error(vm, "required argument is not a float"))?
+                    .into_float();
                 let f = f_64 as $T;
                 if f.is_infinite() != f_64.is_infinite() {
                     return Err(vm.new_overflow_error(concat!(
@@ -845,7 +848,10 @@ impl Packable for f16 {
         arg: &PyObject,
         write: &mut dyn FnMut(&[u8]),
     ) -> PyResult<()> {
-        let f_64 = arg.try_to_value::<ArgIntoFloat>(vm)?.into_float();
+        let f_64 = arg
+            .try_to_value::<ArgIntoFloat>(vm)
+            .map_err(|_| new_struct_error(vm, "required argument is not a float"))?
+            .into_float();
         let bits = pack_float16(f_64)
             .ok_or_else(|| vm.new_overflow_error("float too large to pack with e format"))?;
         bits.pack_int::<E>(write);

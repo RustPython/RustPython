@@ -685,6 +685,19 @@ def test_dialect_name_hashing():
     with assert_raises(ValueError):
         csv.unregister_dialect(UnhashableName())
 
+    class UnhashableStr(str):
+        def __hash__(self):
+            raise ValueError("unhashable name")
+
+    with assert_raises(ValueError):
+        csv.register_dialect(UnhashableStr("excel"))
+    with assert_raises(ValueError):
+        csv.get_dialect(UnhashableStr("excel"))
+    with assert_raises(ValueError):
+        csv.unregister_dialect(UnhashableStr("excel"))
+    with assert_raises(TypeError):
+        csv.register_dialect(UnhashableStr("excel"), delimiter="ab")
+
     # An empty registry misses before the name is hashed.
     csv.unregister_dialect("excel")
     csv.unregister_dialect("excel-tab")
@@ -696,3 +709,184 @@ def test_dialect_name_hashing():
 
 
 test_dialect_name_hashing()
+
+
+# Signature metadata describes dialect as a keyword, but it must still be
+# processed after the first argument's operation in CPython's legacy wrapper.
+class SignatureBadIterable:
+    def __iter__(self):
+        raise LookupError("iterate before dialect")
+
+
+class SignatureBadWriter:
+    @property
+    def write(self):
+        raise LookupError("write lookup before dialect")
+
+
+with assert_raises(LookupError) as error:
+    _csv.reader(SignatureBadIterable(), None, dialect=None)
+assert str(error.exception) == "iterate before dialect"
+
+with assert_raises(LookupError) as error:
+    _csv.writer(SignatureBadWriter(), None, dialect=None)
+assert str(error.exception) == "write lookup before dialect"
+
+for function, first in (
+    (_csv.reader, []),
+    (_csv.writer, io.StringIO()),
+    (_csv.register_dialect, "__signature_dialect"),
+):
+    with assert_raises(TypeError) as error:
+        function(first, None, dialect=None)
+    assert str(error.exception) == (
+        "argument for function given by name ('dialect') and position (1)"
+    )
+    with assert_raises(TypeError):
+        function(first, None, None)
+
+assert _csv.reader([], dialect=None).dialect.delimiter == ","
+assert _csv.writer(io.StringIO(), dialect=None).dialect.delimiter == ","
+_csv.register_dialect("__signature_dialect", dialect=None)
+_csv.unregister_dialect("__signature_dialect")
+
+# The preceding tests removed the registered excel dialect. The displayed
+# default must not turn omission into an actual lookup of that name.
+assert _csv.reader([]).dialect.delimiter == ","
+assert _csv.writer(io.StringIO()).dialect.delimiter == ","
+with assert_raises(_csv.Error):
+    _csv.reader([], "excel")
+with assert_raises(_csv.Error):
+    _csv.writer(io.StringIO(), "excel")
+
+
+# Positional arity is checked even before iteration or write lookup.
+with assert_raises(TypeError):
+    _csv.reader(SignatureBadIterable(), None, None)
+with assert_raises(TypeError):
+    _csv.writer(SignatureBadWriter(), None, None)
+
+_csv.register_dialect("__signature_default")
+_csv.unregister_dialect("__signature_default")
+with assert_raises(_csv.Error):
+    _csv.register_dialect("__signature_default", "excel")
+
+
+def test_writerow_streams_field_conversion():
+    events = []
+    callback_error = LookupError("field conversion")
+    iterator_error = ValueError("row iteration")
+    result = object()
+
+    class Sink:
+        def write(self, text):
+            events.append(("write", text))
+            return result
+
+    class Field:
+        def __init__(self, name, value):
+            self.name = name
+            self.value = value
+
+        def __str__(self):
+            events.append(("str", self.name))
+            if self.value is callback_error:
+                raise callback_error
+            return self.value
+
+    def row(*fields, error=None):
+        for index, field in enumerate(fields):
+            events.append(("next", index))
+            yield field
+        events.append(("next", "end"))
+        if error is not None:
+            raise error
+
+    writer = csv.writer(Sink())
+    assert writer.writerow(row(Field("a", "a"), Field("b", "b"))) is result
+    assert events == [
+        ("next", 0),
+        ("str", "a"),
+        ("next", 1),
+        ("str", "b"),
+        ("next", "end"),
+        ("write", "a,b\r\n"),
+    ]
+
+    events.clear()
+    with assert_raises(LookupError) as error:
+        writer.writerow(row(Field("bad", callback_error), error=iterator_error))
+    assert error.exception is callback_error
+    assert events == [("next", 0), ("str", "bad")]
+
+    events.clear()
+    with assert_raises(ValueError) as error:
+        writer.writerow(row(Field("first", "ok"), error=iterator_error))
+    assert error.exception is iterator_error
+    assert events == [("next", 0), ("str", "first"), ("next", "end")]
+
+    events.clear()
+    assert writer.writerow(row(Field("ok", "ok"))) is result
+    assert events == [("next", 0), ("str", "ok"), ("next", "end"), ("write", "ok\r\n")]
+
+    # Classification occurs before __str__, which can alter the type's slots.
+    class BecomesNumeric:
+        def __str__(self):
+            type(self).__int__ = lambda self: 1
+            return "first"
+
+    quoting = csv.writer(Sink(), quoting=csv.QUOTE_NONNUMERIC)
+    value = BecomesNumeric()
+    assert quoting.writerow([value]) is result
+    assert events[-1] == ("write", '"first"\r\n')
+    assert quoting.writerow([value]) is result
+    assert events[-1] == ("write", "first\r\n")
+
+
+def test_writerow_streams_dialect_validation():
+    events = []
+    buffer = io.StringIO()
+    later = ValueError("late iterator error")
+
+    def row(value, fail_at_end):
+        events.append("field")
+        yield value
+        events.append("end")
+        if fail_at_end:
+            raise later
+
+    quote_none = csv.writer(buffer, quoting=csv.QUOTE_NONE)
+    with assert_raises(csv.Error) as error:
+        quote_none.writerow(row("needs,escape", True))
+    assert str(error.exception) == "need to escape, but no escapechar set"
+    assert events == ["field"]
+    assert buffer.getvalue() == ""
+
+    # The single empty field check, unlike a field's escape/space check,
+    # cannot happen until the iterator has successfully completed.
+    events.clear()
+    with assert_raises(ValueError) as error:
+        quote_none.writerow(row("", True))
+    assert error.exception is later
+    assert events == ["field", "end"]
+    events.clear()
+    with assert_raises(csv.Error) as error:
+        quote_none.writerow(row("", False))
+    assert str(error.exception) == "single empty field record must be quoted"
+    assert events == ["field", "end"]
+
+    space = csv.writer(
+        buffer, delimiter=" ", skipinitialspace=True, quoting=csv.QUOTE_NONE
+    )
+    events.clear()
+    with assert_raises(csv.Error) as error:
+        space.writerow(row("", True))
+    assert str(error.exception) == (
+        "empty field must be quoted if delimiter is a space and skipinitialspace is true"
+    )
+    assert events == ["field"]
+    assert buffer.getvalue() == ""
+
+
+test_writerow_streams_field_conversion()
+test_writerow_streams_dialect_validation()

@@ -86,39 +86,39 @@ expression: "dis(r#\"\nimport sample\nfrom sample import member\nfrom sample imp
 
 13:7-13:16             LOAD_NAME                4 (Exception)
 13:0-14:8              CHECK_EXC_MATCH
-13:0-14:8              POP_JUMP_IF_FALSE        4 (to L13)
-13:0-14:8     L10:     NOT_TAKEN
-13:0-14:8     L11:     POP_TOP
+13:0-14:8              POP_JUMP_IF_FALSE        4 (to L11)
+13:0-14:8              NOT_TAKEN
+13:0-14:8              POP_TOP
 
-14:4-14:8     L12:     POP_EXCEPT
+14:4-14:8     L10:     POP_EXCEPT
 14:4-14:8              JUMP_BACKWARD_NO_INTERRUPT 54 (to L2)
 
-13:0-14:8     L13:     RERAISE                  0
+13:0-14:8     L11:     RERAISE                  0
 
-  --          L14:     COPY                     3
+  --          L12:     COPY                     3
   --                   POP_EXCEPT
   --                   RERAISE                  1
-  --          L15:     PUSH_EXC_INFO
+  --          L13:     PUSH_EXC_INFO
 
 18:7-18:16             LOAD_NAME                4 (Exception)
 18:0-19:17             CHECK_EXC_MATCH
-18:0-19:17             POP_JUMP_IF_FALSE        8 (to L19)
-18:0-19:17    L16:     NOT_TAKEN
-18:0-19:17    L17:     POP_TOP
+18:0-19:17             POP_JUMP_IF_FALSE        8 (to L15)
+18:0-19:17             NOT_TAKEN
+18:0-19:17             POP_TOP
 
 19:4-19:17             LOAD_SMALL_INT           0
 19:4-19:17             LOAD_COMMON_CONSTANT     7 (None)
 19:4-19:17             IMPORT_NAME              2 (sample + eager)
 19:4-19:17             STORE_NAME               0 (sample)
-19:4-19:17    L18:     POP_EXCEPT
+19:4-19:17    L14:     POP_EXCEPT
 19:4-19:17             JUMP_BACKWARD_NO_INTERRUPT 63 (to L4)
 
-18:0-19:17    L19:     RERAISE                  0
+18:0-19:17    L15:     RERAISE                  0
 
-  --          L20:     COPY                     3
+  --          L16:     COPY                     3
   --                   POP_EXCEPT
   --                   RERAISE                  1
-  --          L21:     PUSH_EXC_INFO
+  --          L17:     PUSH_EXC_INFO
 
 24:4-24:17             LOAD_SMALL_INT           0
 24:4-24:17             LOAD_COMMON_CONSTANT     7 (None)
@@ -126,41 +126,38 @@ expression: "dis(r#\"\nimport sample\nfrom sample import member\nfrom sample imp
 24:4-24:17             STORE_NAME               0 (sample)
 24:4-24:17             RERAISE                  0
 
-  --          L22:     COPY                     3
+  --          L18:     COPY                     3
   --                   POP_EXCEPT
   --                   RERAISE                  1
 
-26:5-26:12    L23:     PUSH_EXC_INFO
+26:5-26:12    L19:     PUSH_EXC_INFO
 26:5-26:12             WITH_EXCEPT_START
 26:5-26:12             TO_BOOL
-26:5-26:12             POP_JUMP_IF_TRUE         2 (to L26)
-26:5-26:12    L24:     NOT_TAKEN
-26:5-26:12    L25:     RERAISE                  2
-26:5-26:12    L26:     POP_TOP
-26:5-26:12    L27:     POP_EXCEPT
+26:5-26:12             POP_JUMP_IF_TRUE         2 (to L20)
+26:5-26:12             NOT_TAKEN
+26:5-26:12             RERAISE                  2
+26:5-26:12    L20:     POP_TOP
+26:5-26:12    L21:     POP_EXCEPT
 26:5-26:12             POP_TOP
 26:5-26:12             POP_TOP
 26:5-26:12             POP_TOP
 26:5-26:12             LOAD_COMMON_CONSTANT     7 (None)
 26:5-26:12             RETURN_VALUE
 
-  --          L28:     COPY                     3
+  --          L22:     COPY                     3
   --                   POP_EXCEPT
   --                   RERAISE                  1
 ExceptionTable:
   L1 to L2 -> L9 [0]
-  L3 to L4 -> L15 [0]
-  L5 to L6 -> L21 [0]
-  L7 to L8 -> L23 [2] lasti
-  L9 to L10 -> L14 [1] lasti
-  L11 to L12 -> L14 [1] lasti
-  L13 to L14 -> L14 [1] lasti
-  L15 to L16 -> L20 [1] lasti
-  L17 to L18 -> L20 [1] lasti
-  L19 to L20 -> L20 [1] lasti
-  L21 to L22 -> L22 [1] lasti
-  L23 to L24 -> L28 [4] lasti
-  L25 to L27 -> L28 [4] lasti
+  L3 to L4 -> L13 [0]
+  L5 to L6 -> L17 [0]
+  L7 to L8 -> L19 [2] lasti
+  L9 to L10 -> L12 [1] lasti
+  L11 to L12 -> L12 [1] lasti
+  L13 to L14 -> L16 [1] lasti
+  L15 to L16 -> L16 [1] lasti
+  L17 to L18 -> L18 [1] lasti
+  L19 to L21 -> L22 [4] lasti
 
 Disassembly of <code object f at 0xdeadbeef, file "<?>", line 5>:
 5:0-5:0             RESUME                   0

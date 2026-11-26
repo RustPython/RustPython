@@ -1741,7 +1741,7 @@ fn identify_unbound_names(
     for (_, instr, arg) in crate::vm::crossinterp::walk_instructions(code) {
         match instr {
             Instruction::LoadAttr { namei } => {
-                let name = code.names[namei.get(arg).name_idx() as usize];
+                let name = code.names[namei.get(arg).name_idx()];
                 if name_already_seen(&seen_attrs, attrnames.as_deref(), name, vm)? {
                     continue;
                 }
@@ -1756,7 +1756,7 @@ fn identify_unbound_names(
                 }
             }
             Instruction::LoadGlobal { namei } => {
-                let name = code.names[(namei.get(arg) >> 1) as usize];
+                let name = code.names[namei.get(arg).name_idx()];
                 if name_already_seen(&seen_globals, globalnames.as_deref(), name, vm)? {
                     continue;
                 }
@@ -2275,7 +2275,7 @@ fn snapshot_code_constant(
     Ok(CodeObject {
         instructions,
         constants: constants.into_iter().collect(),
-        names: map_names(&source.names),
+        names: map_names(source.names.as_slice()).into(),
         varnames: map_names(&source.varnames),
         cellvars: map_names(&source.cellvars),
         freevars: map_names(&source.freevars),

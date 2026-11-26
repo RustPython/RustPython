@@ -11,7 +11,6 @@ use crate::{
     types::Representable,
 };
 use core::sync::atomic::Ordering::Relaxed;
-use num_traits::Zero;
 #[allow(unused_imports)]
 use rustpython_common::atomic::Radium;
 use rustpython_compiler_core::bytecode::{self, Constant, Instruction, StackEffect};
@@ -995,11 +994,10 @@ impl Py<FrameObject> {
     fn set_f_trace_opcodes(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         match value {
             PySetterValue::Assign(value) => {
-                let value: PyIntRef = value
-                    .downcast()
-                    .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
-
-                let val = !value.as_bigint().is_zero();
+                if !value.class().is(vm.ctx.types.bool_type) {
+                    return Err(vm.new_type_error("attribute value type must be bool"));
+                }
+                let val = value.is(&vm.ctx.true_value);
                 *self.iframe().cold().trace_opcodes.lock() = val;
                 // Propagate to live source iframe.
                 let live = self.find_live_source_iframe();
@@ -1011,7 +1009,9 @@ impl Py<FrameObject> {
 
                 Ok(())
             }
-            PySetterValue::Delete => Err(vm.new_type_error("can't delete numeric/char attribute")),
+            PySetterValue::Delete => Err(vm.new_attribute_error(
+                "attribute 'f_trace_opcodes' of 'frame' objects cannot be deleted",
+            )),
         }
     }
 }

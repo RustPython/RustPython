@@ -39,11 +39,11 @@ Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
 2:9-2:10     L3:     PUSH_EXC_INFO
 2:9-2:10             WITH_EXCEPT_START
 2:9-2:10             TO_BOOL
-2:9-2:10             POP_JUMP_IF_TRUE         2 (to L6)
-2:9-2:10     L4:     NOT_TAKEN
-2:9-2:10     L5:     RERAISE                  2
-2:9-2:10     L6:     POP_TOP
-2:9-2:10     L7:     POP_EXCEPT
+2:9-2:10             POP_JUMP_IF_TRUE         2 (to L4)
+2:9-2:10             NOT_TAKEN
+2:9-2:10             RERAISE                  2
+2:9-2:10     L4:     POP_TOP
+2:9-2:10     L5:     POP_EXCEPT
 2:9-2:10             POP_TOP
 2:9-2:10             POP_TOP
 2:9-2:10             POP_TOP
@@ -53,10 +53,9 @@ Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
 4:4-4:5              LOAD_COMMON_CONSTANT     7 (None)
 4:4-4:5              RETURN_VALUE
 
-  --         L8:     COPY                     3
+  --         L6:     COPY                     3
   --                 POP_EXCEPT
   --                 RERAISE                  1
 ExceptionTable:
   L1 to L2 -> L3 [2] lasti
-  L3 to L4 -> L8 [4] lasti
-  L5 to L7 -> L8 [4] lasti
+  L3 to L5 -> L6 [4] lasti

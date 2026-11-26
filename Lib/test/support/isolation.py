@@ -78,7 +78,11 @@ def _decode(data):
 
 def _remote(detail):
     # Wrap the subprocess traceback the way concurrent.futures does, so it is
-    # clearly delimited when shown as the cause.
+    # clearly delimited when shown as the cause.  Return None if the subprocess
+    # said nothing (a hung one usually does not), so that "raise ... from None"
+    # suppresses an empty cause.
+    if not detail:
+        return None
     return _RemoteTraceback(f'\n"""\n{detail}"""')
 
 
@@ -90,38 +94,151 @@ def _check_subprocess_support():
         raise unittest.SkipTest('requires subprocess support')
 
 
-def _run_in_subprocess(module, qualname):
-    """Run module.qualname (a test method or class) in a fresh subprocess.
+def _child_environ(env):
+    # Start from the inherited environment, so that *env* only has to name what
+    # the test changes.
+    if not env:
+        return None
+    environ = dict(os.environ)
+    for name, value in env.items():
+        if value is None:
+            environ.pop(name, None)
+        else:
+            environ[name] = value
+    return environ
 
-    Return ``(payload, output, returncode)``, where *payload* is the decoded
-    ``{'outcomes': ..., 'durations': ...}`` mapping from the subprocess, or
-    ``None`` if it did not run to completion (crash, import error, ...).
+
+class _SubprocessTest:
+    """A test running in a subprocess, started by _start_test().
+
+    The parent can watch the subprocess (its pid) while the test runs, and
+    must wait() for it.
+    """
+
+    def __init__(self, proc, result_path, stdout, stderr):
+        self._proc = proc
+        self._result_path = result_path
+        self._stdout = stdout
+        self._stderr = stderr
+
+    def _read_output(self):
+        def snapshot(stream):
+            # A descendant may still write. Snapshot only the current extent,
+            # without moving the shared writer offset or waiting for pipe EOF.
+            stream.flush()
+            size = os.fstat(stream.fileno()).st_size
+            if os.name == 'nt':
+                # TemporaryFile is a named, delete-on-close file on Windows.
+                # Reopening with O_TEMPORARY shares deletion permission and
+                # gives the reader an independent file position.
+                def opener(path, flags):
+                    return os.open(path, flags | os.O_TEMPORARY | os.O_BINARY)
+                with open(stream.name, 'rb', opener=opener) as reader:
+                    data = reader.read(size)
+            else:
+                data = os.pread(stream.fileno(), size, 0)
+            return _decode(data)
+        return snapshot(self._stdout) + snapshot(self._stderr)
+
+    @property
+    def pid(self):
+        return self._proc.pid
+
+    def wait(self, timeout=None, tick=None, interval=1.0):
+        """Wait for the test to finish, calling *tick* every *interval* seconds.
+
+        Return ``(payload, output, returncode)``, where *payload* is the
+        decoded ``{'outcomes': ..., 'durations': ...}`` mapping from the
+        subprocess, or ``None`` if it did not run to completion (crash,
+        import error, ...).
+        """
+        import marshal
+        import subprocess
+        import time
+        deadline = None if timeout is None else time.monotonic() + timeout
+        try:
+            while True:
+                step = None if deadline is None else max(
+                    0.0, deadline - time.monotonic())
+                # Wake up for the next tick, unless the timeout comes first.
+                ticking = tick is not None and (step is None or step > interval)
+                try:
+                    # Output goes to temporary files, so a full pipe cannot
+                    # block the worker, and inherited handles cannot hold up
+                    # the parent after the worker exits.
+                    self._proc.wait(timeout=interval if ticking else step)
+                    break
+                except subprocess.TimeoutExpired:
+                    if ticking:
+                        tick()
+                        continue
+                    # Report the hang rather than leaving the runner stuck.
+                    self._proc.kill()
+                    self._proc.wait()
+                    raise _SubprocessTestError(
+                        f'test did not complete in a subprocess '
+                        f'within {timeout} seconds'
+                    ) from _remote(self._read_output())
+            try:
+                with open(self._result_path, 'rb') as f:
+                    payload = marshal.load(f)
+            except (OSError, EOFError, ValueError):
+                payload = None
+            return payload, self._read_output(), self._proc.returncode
+        except BaseException:
+            # Also cover KeyboardInterrupt and exceptions raised by tick().
+            # Reap only our direct worker; do not change its session or kill
+            # unrelated descendants belonging to the test.
+            if self._proc.poll() is None:
+                self._proc.kill()
+                self._proc.wait()
+            raise
+        finally:
+            self._stdout.close()
+            self._stderr.close()
+            try:
+                os.unlink(self._result_path)
+            except OSError:
+                pass
+
+
+def _start_test(module, qualname, options=(), env=None):
+    """Start module.qualname (a test method or class) in a fresh subprocess.
+
+    Return a _SubprocessTest.  Its wait() is what removes the temporary file
+    the subprocess writes its result to.
     """
     import marshal
     import subprocess
     import tempfile
     fd, result_path = tempfile.mkstemp(suffix='.json')
     os.close(fd)
+    stdout = stderr = None
     try:
+        stdout = tempfile.TemporaryFile()
+        stderr = tempfile.TemporaryFile()
         # Pass the config on the command line, not in the environment, so that
-        # the test cannot pass it on to the processes it spawns itself.  Use
-        # marshal, not json: it is built in, so the child imports nothing that
-        # the test would not see in a normal test run.
-        cmd = [sys.executable, '-m', 'test.support.subprocess_runner',
+        # the test cannot pass it on to the processes it spawns itself, and so
+        # that it survives the -E and -I options.  Use marshal, not json: it is
+        # built in, so the child imports nothing that the test would not see in
+        # a normal test run.
+        cmd = [sys.executable, *options, '-m', 'test.support.subprocess_runner',
                module, qualname, result_path,
                marshal.dumps(_child_config()).hex()]
-        proc = subprocess.run(cmd, capture_output=True)
-        try:
-            with open(result_path, 'rb') as f:
-                payload = marshal.load(f)
-        except (OSError, EOFError, ValueError):
-            payload = None
-    finally:
+        proc = subprocess.Popen(cmd, stdout=stdout,
+                                stderr=stderr, env=_child_environ(env))
+    except BaseException:
+        if stdout is not None:
+            stdout.close()
+        if stderr is not None:
+            stderr.close()
         try:
             os.unlink(result_path)
         except OSError:
             pass
-    return payload, _decode(proc.stdout) + _decode(proc.stderr), proc.returncode
+        raise
+    return _SubprocessTest(proc, result_path, stdout, stderr)
+
 
 
 def _replay_outcome(test, outcome):
@@ -173,7 +290,20 @@ def _check_returncode(returncode, output, what):
         raise exc from _remote(output)
 
 
-def _isolate_method(func):
+def _replay_test(test, payload, output, returncode):
+    """Reproduce in *test* the result that _SubprocessTest.wait() returned."""
+    if payload is None:
+        exc = _SubprocessTestError(
+            f'test did not complete in a subprocess (exit code {returncode})')
+        raise exc from _remote(output)
+    # The parent measures the test method's own duration (the real cost of the
+    # isolated run, subprocess startup included), so nothing to forward here.
+    # Replay the outcomes first: a failure of the test itself is more useful.
+    _replay_outcomes(test, payload['outcomes'])
+    _check_returncode(returncode, output, 'test')
+
+
+def _isolate_method(func, options, env, timeout):
     @functools.wraps(func)
     def wrapper(self, /, *args, **kwargs):
         if runningInSubprocess:
@@ -182,21 +312,12 @@ def _isolate_method(func):
         _check_subprocess_support()
         cls = type(self)
         qualname = f'{cls.__qualname__}.{func.__name__}'
-        payload, output, returncode = _run_in_subprocess(cls.__module__,
-                                                         qualname)
-        if payload is None:
-            exc = _SubprocessTestError(
-                f'test did not complete in a subprocess (exit code {returncode})')
-            raise exc from _remote(output)
-        # The parent measures this method's own duration (the real cost of the
-        # isolated run, subprocess startup included), so nothing to forward here.
-        # Replay the outcomes first: a failure of the test itself is more useful.
-        _replay_outcomes(self, payload['outcomes'])
-        _check_returncode(returncode, output, 'test')
+        proc = _start_test(cls.__module__, qualname, options, env)
+        _replay_test(self, *proc.wait(timeout))
     return wrapper
 
 
-def _isolate_class(cls):
+def _isolate_class(cls, options, env, timeout):
     # Unwrap to the plain functions so the replacements can call them with the
     # runtime cls; a bound classmethod would freeze the decoration-time class
     # and a subclass would run the fixtures bound to the base class.
@@ -216,8 +337,8 @@ def _isolate_class(cls):
         _check_subprocess_support()
         # Run the whole class in a single subprocess and stash the outcomes
         # for the test methods to replay.
-        payload, output, returncode = _run_in_subprocess(cls.__module__,
-                                                         cls.__qualname__)
+        proc = _start_test(cls.__module__, cls.__qualname__, options, env)
+        payload, output, returncode = proc.wait(timeout)
         if payload is None:
             exc = _SubprocessTestError(
                 f'class did not complete in a subprocess (exit code {returncode})')
@@ -283,7 +404,7 @@ def _isolate_class(cls):
     return cls
 
 
-def runInSubprocess():
+def runInSubprocess(*, options=(), env=None, timeout=None):
     """Decorator to run a test method or class in a fresh subprocess.
 
     The decorated test runs in a separate, fresh Python process, so it does not
@@ -292,6 +413,16 @@ def runInSubprocess():
     single subprocess and its ``setUpClass()``/``setUpModule()`` fixtures run
     once there; when a method is decorated, only that method runs in a
     subprocess.  Decorated methods must take no extra arguments.
+
+    *options* is a sequence of interpreter command line options for the
+    subprocess, and *env* is a mapping of environment variables to set in it,
+    on top of the inherited environment; a value of ``None`` unsets a variable.
+    Note that ``-E`` and ``-I`` make the subprocess ignore the ``PYTHON*``
+    variables, including ``PYTHONPATH``.
+
+    *timeout* is the number of seconds to wait for the subprocess; the test is
+    reported as an error if it does not complete in time.  By default there is
+    no timeout, and a hung test is left to the timeout of the test runner.
 
     A failure, error or skip of the whole test is reported for the test, and
     individual subtests (:meth:`~unittest.TestCase.subTest`) that fail or are
@@ -304,6 +435,6 @@ def runInSubprocess():
     """
     def decorator(obj):
         if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
-            return _isolate_class(obj)
-        return _isolate_method(obj)
+            return _isolate_class(obj, options, env, timeout)
+        return _isolate_method(obj, options, env, timeout)
     return decorator

@@ -117,6 +117,14 @@ mod zlib {
         }
     }
 
+    fn checksum_length(len2: PyIntRef, vm: &VirtualMachine) -> PyResult<backend::ChecksumLength> {
+        let len2 = len2.try_to_primitive::<backend::ChecksumLength>(vm)?;
+        if len2 < 0 {
+            return Err(vm.new_value_error("len2 must be non-negative".to_owned()));
+        }
+        Ok(len2)
+    }
+
     #[pyfunction]
     fn adler32_combine(
         adler1: ChecksumValue,
@@ -124,7 +132,7 @@ mod zlib {
         len2: PyIntRef,
         vm: &VirtualMachine,
     ) -> PyResult<u32> {
-        let len2 = len2.try_to_primitive::<backend::ChecksumLength>(vm)?;
+        let len2 = checksum_length(len2, vm)?;
         Ok(backend::adler32_combine(adler1.0, adler2.0, len2))
     }
 
@@ -135,7 +143,7 @@ mod zlib {
         len2: PyIntRef,
         vm: &VirtualMachine,
     ) -> PyResult<u32> {
-        let len2 = len2.try_to_primitive::<backend::ChecksumLength>(vm)?;
+        let len2 = checksum_length(len2, vm)?;
         Ok(backend::crc32_combine(crc1.0, crc2.0, len2))
     }
 

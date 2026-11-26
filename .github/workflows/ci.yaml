@@ -372,7 +372,7 @@ jobs:
         if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: cargo build --locked
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: env.RUN_RUST_TESTS != 'true' && env.RUN_UPDATE_LIB_TESTS == 'true' && runner.os == 'Linux'
         with:
           python-version-file: .python-version
@@ -505,6 +505,11 @@ jobs:
         env:
           TARGETS: ${{ matrix.target }}
 
+      # `cargo check` does not link, so it cannot catch an undefined symbol.
+      - name: Link the wasm32-wasip2 build
+        if: ${{ matrix.target == 'wasm32-wasip2' }}
+        run: cargo build --locked --target wasm32-wasip2 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env,doc,ucd_3_2_0
+
       - name: Check compilation with ssl
         if: ${{ !matrix.skip_ssl }}
         run: |
@@ -586,9 +591,7 @@ jobs:
         # Windows runners randomly crashes, https://github.com/actions/cache/issues/1754
         continue-on-error: true
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version-file: .python-version
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
 
       - name: Install macOS dependencies
         uses: ./.github/actions/install-macos-deps
@@ -597,28 +600,8 @@ jobs:
 
       # Keep features in sync with update-caches.yml CARGO_ARGS.
       - name: build rustpython
+        id: signature-input-build
         run: cargo build --locked --release --verbose --features=threading,jit ${{ env.CARGO_ARGS }}
-
-      - name: Check whats_left signatures and observation coverage
-        id: whatsleft
-        shell: bash
-        run: |
-          python -VV
-          python -I -c 'import json, os, platform, sys; print(json.dumps({"python": sys.version, "platform": platform.platform(), "machine": platform.machine(), "image_os": os.getenv("ImageOS"), "image_version": os.getenv("ImageVersion"), "github_sha": os.getenv("GITHUB_SHA")}))' > whats-left-context.json
-          python -m unittest discover -s scripts/tests -p 'test_whatsleft*.py'
-          python -I scripts/whats_left.py --signature --json-output whats-left.json --rustpython target/release/rustpython
-          context=$(python -c 'import os, platform; print(platform.system() + "-" + platform.machine() + "-" + platform.python_version() + ":" + os.environ["CARGO_ARGS"] + ":threading,jit")')
-          python scripts/check_whatsleft_signatures.py whats-left.json "scripts/whatsleft_signatures/${RUNNER_OS}.json" --context "$context"
-
-      - name: Preserve whats_left comparison
-        if: ${{ always() && steps.whatsleft.outcome != 'skipped' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: whats-left-${{ runner.os }}-${{ runner.arch }}
-          path: |
-            whats-left.json
-            whats-left-context.json
-          if-no-files-found: error
 
       - name: run snippets
         run: python -m pip install -r requirements.txt && pytest -v
@@ -703,6 +686,46 @@ jobs:
           target/release/rustpython -m venv testvenv
           testvenv/bin/rustpython -m pip install wheel
 
+      - name: Set up the signature reference (CPython 3.15.2)
+        id: signature-reference
+        if: ${{ !cancelled() && steps.signature-input-build.outcome == 'success' }}
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.15.2'
+          check-latest: false
+
+      - name: Test the signature comparison scripts
+        if: ${{ !cancelled() && steps.signature-reference.outcome == 'success' }}
+        run: python -m unittest discover -s scripts/tests -p 'test_whatsleft*.py'
+
+      - name: Collect and check CPython signature parity
+        id: whatsleft
+        if: ${{ !cancelled() && steps.signature-reference.outcome == 'success' }}
+        timeout-minutes: 15
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python -I -c 'import json, os, platform, sys; print(json.dumps({"python": sys.version, "platform": platform.platform(), "machine": platform.machine(), "image_os": os.getenv("ImageOS"), "image_version": os.getenv("ImageVersion"), "github_sha": os.getenv("GITHUB_SHA"), "cargo_args": os.getenv("CARGO_ARGS")}))' > whats-left-context.json
+          python -I scripts/whats_left.py --signature --json-output whats-left.json --rustpython target/release/rustpython
+          python scripts/check_whatsleft_signatures.py whats-left.json --require-parity
+
+      - name: Check faulthandler keyword behavior
+        if: ${{ !cancelled() && steps.signature-reference.outcome == 'success' }}
+        timeout-minutes: 3
+        shell: bash
+        run: python -I scripts/check_faulthandler_keywords.py target/release/rustpython > whats-left-faulthandler.json
+
+      - name: Preserve whats_left comparison
+        if: ${{ !cancelled() && (steps.whatsleft.outcome == 'success' || steps.whatsleft.outcome == 'failure') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: whats-left-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            whats-left.json
+            whats-left-context.json
+            whats-left-faulthandler.json
+          if-no-files-found: error
 
   clippy:
     # Named after the matrix entry rather than left to be named for it: a
@@ -819,14 +842,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
 
       - name: actionlint
-        uses: reviewdog/action-actionlint@a7d35aaf8c309203a4ae861d32b7bd490baa7bf3 # v1.83.0
+        uses: reviewdog/action-actionlint@ae857e78c1b42b3d0a49637181b09d3d56d402b4 # v1.84.1
 
       - name: zizmor
         uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
@@ -874,7 +897,7 @@ jobs:
 
       - name: reviewdog
         if: ${{ !cancelled() }}
-        uses: reviewdog/action-suggester@295fd4e5482381f33925c46ca5c2f66c69370267 # v1.27.0
+        uses: reviewdog/action-suggester@fd22a83b1ebc13fd8aee5d57b06793fce6f20fb9 # v1.27.1
         with:
           level: warning
           fail_level: error
@@ -979,7 +1002,7 @@ jobs:
           mkdir geckodriver
           tar -xzf geckodriver-v0.36.0-linux64.tar.gz -C geckodriver
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
 
       - run: python -m pip install -r requirements.txt
         working-directory: ./wasm/tests
@@ -1265,7 +1288,7 @@ jobs:
             --wasi-module target/wasm32-wasip1/wasm-release/rustpython.wasm
       - name: Setup Python for the snippet harness
         if: env.RUN_WASM_WASI == 'true'
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version-file: .python-version
 

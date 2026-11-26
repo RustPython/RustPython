@@ -83,6 +83,7 @@ mod _collections {
     type PyDequeRef = PyRef<PyDeque>;
 
     #[derive(FromArgs)]
+    #[from_args(text_signature = "([iterable[, maxlen]])")]
     struct PyDequeOptions {
         #[pyarg(any, optional)]
         iterable: OptionalArg<PyObjectRef>,
@@ -599,7 +600,7 @@ mod _collections {
             self._extend(&iterable, true, vm)
         }
 
-        #[pymethod]
+        #[pymethod(text_signature = "($self, value, [start, [stop]])")]
         fn index(
             &self,
             needle: PyObjectRef,

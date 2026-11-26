@@ -150,15 +150,18 @@ impl PyMappingProxy {
     }
 }
 
-#[pyclass(with(
-    AsMapping,
-    Iterable,
-    Constructor,
-    AsSequence,
-    Hashable,
-    AsNumber,
-    Representable
-))]
+#[pyclass(
+    with(
+        AsMapping,
+        Iterable,
+        Constructor,
+        AsSequence,
+        Hashable,
+        AsNumber,
+        Representable
+    ),
+    flags(IMMUTABLETYPE)
+)]
 impl Py<PyMappingProxy> {
     #[pyslot]
     fn slot_richcompare(

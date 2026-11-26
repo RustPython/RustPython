@@ -145,7 +145,7 @@ cargo build --release --target wasm32-wasip1 --features="freeze-stdlib"
 
 ### JIT (Just in time) compiler
 
-RustPython has a **very** experimental JIT compiler that compile python functions into native code.
+RustPython has a **very** experimental JIT compiler that compiles python functions into native code.
 
 #### Building
 

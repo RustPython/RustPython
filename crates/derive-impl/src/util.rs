@@ -289,6 +289,21 @@ pub(crate) trait ItemMeta: Sized {
     fn from_inner(inner: ItemMetaInner) -> Self;
     fn inner(&self) -> &ItemMetaInner;
 
+    fn text_signature(
+        &self,
+        receiver: Option<&str>,
+    ) -> Result<Option<crate::text_signature::TextSignature>> {
+        self.inner()
+            ._optional_str("text_signature")?
+            .map(|text| {
+                let span = self.inner().item_ident.span();
+                let signature = crate::text_signature::TextSignature::parse(text, span)?;
+                signature.validate_receiver(receiver, span)?;
+                Ok(signature)
+            })
+            .transpose()
+    }
+
     fn simple_name(&self) -> Result<String> {
         let inner = self.inner();
         Ok(inner
@@ -323,7 +338,8 @@ impl ItemMeta for SimpleItemMeta {
 pub(crate) struct FunctionItemMeta(pub ItemMetaInner);
 
 impl ItemMeta for FunctionItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "signature_from_flags"];
+    const ALLOWED_NAMES: &'static [&'static str] =
+        &["name", "signature_from_flags", "text_signature"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -971,9 +987,58 @@ pub(crate) fn internal_doc_tokens(
     doc: TokenStream,
     self_ty: Option<&Type>,
     leading_marker: Option<&str>,
+    text_signature: Option<&crate::text_signature::TextSignature>,
 ) -> TokenStream {
-    let args_const = args_const(&sig_pieces(sig, implicit_self, self_ty, leading_marker));
-    doc_from_signature_args(py_name, doc, args_const)
+    let pieces = sig_pieces(sig, implicit_self, self_ty, leading_marker);
+    let args = args_const(&pieces);
+    let user_pieces = pieces
+        .iter()
+        .filter(|piece| match piece {
+            SigPiece::Implicit(_) => false,
+            SigPiece::Marker(name) => !name.starts_with('$'),
+            _ => true,
+        })
+        .collect::<Vec<_>>();
+    let binding = user_pieces.iter().map(|piece| sig_arg_tokens(piece));
+    let shared = user_pieces.iter().map(|piece| match piece {
+        SigPiece::Arg { ty, .. } => {
+            quote!(<#ty as ::rustpython_vm::function::ArgsMetadata>::TEXT_SIGNATURE)
+        }
+        _ => quote!(None),
+    });
+    let receiver = leading_marker.or(implicit_self).or_else(|| {
+        sig.inputs
+            .iter()
+            .any(|arg| matches!(arg, FnArg::Receiver(_)))
+            .then_some("$self")
+    });
+    let receiver = match receiver {
+        Some(marker) => quote!(Some(#marker)),
+        None => quote!(None),
+    };
+    let selection = if let Some(signature) = text_signature {
+        let text = &signature.text;
+        let params = signature.params_tokens();
+        let validator = signature.validator();
+        quote! {
+            const BINDING_ARGS: &[::rustpython_vm::function::SigArg] = &[#(#binding),*];
+            const _: () = {
+                assert!(SHARED.is_none(), "text_signature is already declared on the argument spec");
+                #validator(BINDING_ARGS, &[#(#params),*]);
+            };
+            const OVERRIDE: Option<(&str, Option<&str>)> = Some((#text, None));
+        }
+    } else {
+        quote! { const OVERRIDE: Option<(&str, Option<&str>)> = match SHARED {
+            Some(text) => Some((text, #receiver)), None => None,
+        }; }
+    };
+    let args = quote! {
+        #args
+        const SHARED: Option<&str> = ::rustpython_vm::function::argument_text_signature(&[#(#shared),*]);
+        #selection
+    };
+    doc_from_signature_args(py_name, doc, args)
 }
 
 /// CPython's flags-based fallback, evaluated entirely during compilation.
@@ -982,26 +1047,55 @@ pub(crate) fn flags_signature_doc_tokens(
     py_name: &str,
     doc: TokenStream,
 ) -> TokenStream {
-    let original = args_const(&sig_pieces(sig, None, None, None));
+    let pieces = sig_pieces(sig, None, None, None);
+    let original = args_const(&pieces);
+    let shared = pieces.iter().map(|piece| match piece {
+        SigPiece::Arg { ty, .. } => {
+            quote!(<#ty as ::rustpython_vm::function::ArgsMetadata>::TEXT_SIGNATURE)
+        }
+        _ => quote!(None),
+    });
     let args = quote! {
         const ARGS: &[::rustpython_vm::function::SigArg] = {
             #original
+            assert!(::rustpython_vm::function::argument_text_signature(&[#(#shared),*]).is_none(),
+                "text_signature and signature_from_flags are mutually exclusive");
             ::rustpython_vm::function::signature_from_flags(ARGS)
         };
     };
-    doc_from_signature_args(py_name, doc, args)
+    doc_from_signature_args(
+        py_name,
+        doc,
+        quote!(#args const OVERRIDE: Option<(&str, Option<&str>)> = None;),
+    )
 }
 
-fn doc_from_signature_args(
-    py_name: &str,
+pub(crate) fn doc_from_signature_args(
+    py_name: &(impl ToTokens + ?Sized),
     doc: TokenStream,
     args_const: TokenStream,
 ) -> TokenStream {
+    let prefix_len = quote! { match OVERRIDE {
+        Some((text, receiver)) => #py_name.len() + ::rustpython_vm::function::text_signature_len(text, receiver) + 5,
+        None => ::rustpython_vm::function::signature_prefix_len(#py_name, ARGS),
+    } };
+    let prefix_bytes = quote! { match OVERRIDE {
+        Some((text, receiver)) => ::rustpython_vm::function::text_signature_doc_bytes::<N>(#py_name, text, receiver, ""),
+        None => ::rustpython_vm::function::signature_prefix_bytes::<N>(#py_name, ARGS),
+    } };
+    let full_len = quote! { match OVERRIDE {
+        Some((text, receiver)) => #py_name.len() + ::rustpython_vm::function::text_signature_len(text, receiver) + 5 + BODY.len(),
+        None => ::rustpython_vm::function::internal_doc_len(#py_name, ARGS, BODY),
+    } };
+    let full_bytes = quote! { match OVERRIDE {
+        Some((text, receiver)) => ::rustpython_vm::function::text_signature_doc_bytes::<N>(#py_name, text, receiver, BODY),
+        None => ::rustpython_vm::function::internal_doc_bytes::<N>(#py_name, ARGS, BODY),
+    } };
     quote! {
         {
             #args_const
             const BASE: ::rustpython_vm::function::ItemDoc = #doc;
-            if !::rustpython_vm::function::has_signature(ARGS) {
+            if OVERRIDE.is_none() && !::rustpython_vm::function::has_signature(ARGS) {
                 if BASE.len == 0 {
                     match BASE.text {
                         Some(text) if !text.is_empty() => {
@@ -1013,9 +1107,9 @@ fn doc_from_signature_args(
                     BASE
                 }
             } else if BASE.len != 0 {
-                const N: usize = ::rustpython_vm::function::signature_prefix_len(#py_name, ARGS);
+                const N: usize = #prefix_len;
                 const B: [u8; N] =
-                    ::rustpython_vm::function::signature_prefix_bytes::<N>(#py_name, ARGS);
+                    #prefix_bytes;
                 const PREFIX: &str = match ::core::str::from_utf8(&B) {
                     Ok(s) => s,
                     Err(_) => panic!(),
@@ -1034,9 +1128,9 @@ fn doc_from_signature_args(
                     Some(text) => text,
                     None => "",
                 };
-                const N: usize = ::rustpython_vm::function::internal_doc_len(#py_name, ARGS, BODY);
+                const N: usize = #full_len;
                 const B: [u8; N] =
-                    ::rustpython_vm::function::internal_doc_bytes::<N>(#py_name, ARGS, BODY);
+                    #full_bytes;
                 const FULL: &str = match ::core::str::from_utf8(&B) {
                     Ok(s) => s,
                     Err(_) => panic!(),
@@ -1117,14 +1211,100 @@ mod metadata_tests {
     }
 
     #[test]
+    fn signature_receiver_validation_precedes_codegen() {
+        let module: Attribute = parse_quote!(#[pyfunction(text_signature = "($self, value, /)")]);
+        let meta = FunctionItemMeta::from_attr(parse_quote!(sample), &module).unwrap();
+        assert!(meta.text_signature(Some("$module")).is_err());
+        assert!(meta.text_signature(None).is_err());
+        assert!(meta.text_signature(Some("$self")).is_ok());
+    }
+
+    #[test]
+    fn shared_signature_uses_only_python_argument_specs() {
+        let signature: Signature =
+            parse_quote!(fn method(zelf: PyRef<Example>, args: SearchArgs, vm: &VirtualMachine));
+        let tokens = internal_doc_tokens(
+            &signature,
+            "method",
+            Some("$self"),
+            quote!(Doc),
+            None,
+            None,
+            None,
+        )
+        .to_string();
+        let binding = tokens
+            .split("const SHARED")
+            .nth(1)
+            .unwrap()
+            .split("const OVERRIDE")
+            .next()
+            .unwrap();
+        assert!(binding.contains("SearchArgs"));
+        assert!(!binding.contains("PyRef"));
+        assert!(!binding.contains("$self"));
+        assert!(tokens.contains("ArgsMetadata > :: TEXT_SIGNATURE"));
+        let signature: Signature = parse_quote!(fn ordinary(value: PyRef<Example>));
+        let tokens =
+            internal_doc_tokens(&signature, "ordinary", None, quote!(Doc), None, None, None)
+                .to_string();
+        let binding = tokens
+            .split("const SHARED")
+            .nth(1)
+            .unwrap()
+            .split("const OVERRIDE")
+            .next()
+            .unwrap();
+        assert!(binding.contains("PyRef"));
+    }
+
+    #[test]
+    fn explicit_signature_is_checked_even_without_generated_display_or_docs() {
+        let sig: Signature = parse_quote!(fn sample((a, b): ValueArgs));
+        let signature = crate::text_signature::TextSignature::parse(
+            "($module, value, /)".into(),
+            Span::call_site(),
+        )
+        .unwrap();
+        for doc in [
+            quote!(::rustpython_vm::function::ItemDoc::NONE),
+            quote!(::rustpython_vm::function::ItemDoc::static_text("Body")),
+            quote!(::rustpython_vm::function::ItemDoc {
+                text: None,
+                offset: 1,
+                len: 4
+            }),
+        ] {
+            let tokens = internal_doc_tokens(
+                &sig,
+                "sample",
+                None,
+                doc,
+                None,
+                Some("$module"),
+                Some(&signature),
+            )
+            .to_string();
+            assert!(tokens.contains("validate_text_signature (BINDING_ARGS"));
+            assert!(tokens.contains("if OVERRIDE . is_none () && !"));
+            assert!(tokens.contains("text_signature_doc_bytes"));
+            assert!(tokens.contains("ValueArgs"));
+            assert!(tokens.contains("offset : BASE . offset"));
+            assert!(tokens.contains("len : BASE . len"));
+        }
+    }
+
+    #[test]
     fn signature_from_flags_codegen_preserves_original_argument_metadata() {
         let sig: Signature = parse_quote!(fn sample(value: ValueArgs, vm: &VirtualMachine));
         let doc = quote!(::rustpython_vm::function::ItemDoc::NONE);
         let from_flags = flags_signature_doc_tokens(&sig, "sample", doc.clone()).to_string();
         assert!(from_flags.contains("signature_from_flags"));
         assert!(from_flags.contains("ValueArgs"));
+        assert!(from_flags.contains("TEXT_SIGNATURE"));
+        assert!(from_flags.contains("mutually exclusive"));
         let ordinary =
-            internal_doc_tokens(&sig, "sample", None, doc, None, Some("$module")).to_string();
+            internal_doc_tokens(&sig, "sample", None, doc, None, Some("$module"), None).to_string();
         assert!(!ordinary.contains("signature_from_flags"));
         assert!(ordinary.contains("$module"));
     }

@@ -253,8 +253,7 @@ pub(crate) fn int_as_ssize(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PySs
     let int = obj
         .downcast_ref::<PyInt>()
         .ok_or_else(|| vm.new_type_error("an integer is required"))?;
-    PySsize::try_from(int.as_bigint())
-        .map_err(|_| vm.new_overflow_error("Python int too large to convert to C ssize_t"))
+    int.as_ssize_t(vm)
 }
 
 /// Clinic's slice_index(accept={int}): __index__ is accepted and overflow

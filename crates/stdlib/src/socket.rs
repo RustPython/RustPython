@@ -1977,12 +1977,9 @@ mod _socket {
                     .as_object()
                     .repr(vm)
                     .unwrap_or_else(|_| vm.ctx.new_str("<socket>"));
-                let msg = format!("unclosed {}", repr.as_wtf8());
-                let _ = crate::vm::warn::warn(
-                    vm.ctx.new_str(msg).into(),
-                    Some(vm.ctx.exceptions.resource_warning.to_owned()),
-                    1,
-                    None,
+                let _ = crate::vm::warn::warn_resource(
+                    format!("unclosed {}", repr.as_wtf8()),
+                    zelf.as_object(),
                     vm,
                 );
             }

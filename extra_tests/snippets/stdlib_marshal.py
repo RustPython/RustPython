@@ -146,6 +146,15 @@ class BadDataTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             marshal.loads(b"0")
 
+    def test_nested_subclass(self):
+        class FloatSubclass(float):
+            pass
+
+        with self.assertRaises(ValueError):
+            marshal.dumps([FloatSubclass(0.5)])
+        with self.assertRaises(ValueError):
+            marshal.dumps({"key": FloatSubclass(0.5)})
+
     def test_invalid_reference(self):
         import struct
 

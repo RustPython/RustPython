@@ -2,7 +2,27 @@ use crate::format::Case;
 use alloc::borrow::ToOwned;
 use alloc::format;
 use alloc::string::{String, ToString};
+use malachite_base::{num::conversion::traits::RoundingInto, rounding_modes::RoundingMode};
+use malachite_bigint::{BigInt, Sign};
+use malachite_q::Rational;
 use num_traits::Zero;
+
+/// Round the exact quotient of two integers to a Python float.
+///
+/// The denominator must be nonzero.
+#[must_use]
+pub fn true_div(numerator: &BigInt, denominator: &BigInt) -> f64 {
+    // Rational has no signed zero. Preserve the division sign before
+    // converting a zero numerator, as CPython's long_true_divide does.
+    if numerator.is_zero() && denominator.sign() == Sign::Minus {
+        return -0.0;
+    }
+    let rational = Rational::from_integers_ref(numerator.into(), denominator.into());
+    // Nearest rounding can return the largest finite value for a quotient
+    // slightly beyond it; overflow starts at the halfway rounding boundary.
+    let (rounded, _) = rational.rounding_into(RoundingMode::Nearest);
+    rounded
+}
 
 #[must_use]
 pub fn parse_str(literal: &str) -> Option<f64> {
@@ -416,6 +436,38 @@ pub fn to_hex(value: f64) -> String {
             }
         }
     }
+}
+
+// Canonical (floordiv, mod) for floats matching CPython's _float_div_mod
+// (Objects/floatobject.c). `mod_` and `floordiv` delegate here so that
+// `divmod(a, b) == (a // b, a % b)` holds by construction.
+#[must_use]
+pub fn divmod(v1: f64, v2: f64) -> Option<(f64, f64)> {
+    if v2 == 0.0 {
+        return None;
+    }
+    let mut m = v1 % v2;
+    let mut d = (v1 - m) / v2;
+    if m != 0.0 {
+        // Non-zero remainder must have the sign of the divisor.
+        if v2.is_sign_negative() != m.is_sign_negative() {
+            m += v2;
+            d -= 1.0;
+        }
+    } else {
+        // Zero remainder: sign matches divisor (IEEE 754 / CPython contract).
+        m = (0.0_f64).copysign(v2);
+    }
+    let d = if d != 0.0 {
+        let f = num_traits::float::FloatCore::floor(d);
+        // Snap up if (v1 - m) / v2 undershot the true integer quotient by
+        // more than half an ULP (mirrors CPython's `if (div - *floordiv > 0.5)`).
+        if d - f > 0.5 { f + 1.0 } else { f }
+    } else {
+        // Zero quotient: take the sign of the true quotient v1 / v2.
+        (0.0_f64).copysign(v1 / v2)
+    };
+    Some((d, m))
 }
 
 #[cfg(test)]

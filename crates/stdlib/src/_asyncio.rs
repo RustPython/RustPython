@@ -75,6 +75,16 @@ pub(crate) mod _asyncio {
         msg: Option<PyObjectRef>,
     }
 
+    fn cancel_message_delete_error(zelf: &PyObject, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let class = zelf.class();
+        let name = class.slot_name();
+        let end = name.floor_char_boundary(name.len().min(100));
+        vm.new_attribute_error(format!(
+            "attribute '_cancel_message' of '{}' objects cannot be deleted",
+            &name[..end]
+        ))
+    }
+
     #[derive(FromArgs)]
     struct LoopArg {
         #[pyarg(any, optional)]
@@ -735,11 +745,16 @@ pub(crate) mod _asyncio {
         }
 
         #[pygetset(setter)]
-        fn set__cancel_message(zelf: &Py<Self>, value: PySetterValue) {
-            match value {
-                PySetterValue::Assign(v) => *zelf.fut_cancel_msg.write() = Some(v),
-                PySetterValue::Delete => *zelf.fut_cancel_msg.write() = None,
-            }
+        fn set__cancel_message(
+            zelf: &Py<Self>,
+            value: PySetterValue,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let PySetterValue::Assign(value) = value else {
+                return Err(cancel_message_delete_error(zelf.as_object(), vm));
+            };
+            *zelf.fut_cancel_msg.write() = Some(value);
+            Ok(())
         }
 
         #[pygetset]
@@ -1712,11 +1727,16 @@ pub(crate) mod _asyncio {
         }
 
         #[pygetset(setter)]
-        fn set__cancel_message(zelf: &Py<Self>, value: PySetterValue) {
-            match value {
-                PySetterValue::Assign(v) => *zelf.base.fut_cancel_msg.write() = Some(v),
-                PySetterValue::Delete => *zelf.base.fut_cancel_msg.write() = None,
-            }
+        fn set__cancel_message(
+            zelf: &Py<Self>,
+            value: PySetterValue,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let PySetterValue::Assign(value) = value else {
+                return Err(cancel_message_delete_error(zelf.as_object(), vm));
+            };
+            *zelf.base.fut_cancel_msg.write() = Some(value);
+            Ok(())
         }
 
         #[pygetset]
@@ -2255,23 +2275,9 @@ pub(crate) mod _asyncio {
                 task.base.fut_state.store(FutureState::Finished);
                 *task.base.fut_result.write() = Some(result);
             }
-            PyTask::schedule_callbacks(task, vm)?;
-            _unregister_task(
-                TaskArg {
-                    task: task.to_owned().into(),
-                },
-                vm,
-            )?;
         } else if is_cancelled_error(&exc, vm) {
             task.base.fut_state.store(FutureState::Cancelled);
             *task.base.fut_cancelled_exc.write() = Some(exc.clone().into());
-            PyTask::schedule_callbacks(task, vm)?;
-            _unregister_task(
-                TaskArg {
-                    task: task.to_owned().into(),
-                },
-                vm,
-            )?;
         } else {
             task.base.fut_state.store(FutureState::Finished);
             // Save the original traceback for later restoration
@@ -2279,14 +2285,14 @@ pub(crate) mod _asyncio {
             *task.base.fut_exception_tb.write() = tb;
             *task.base.fut_exception.write() = Some(exc.clone().into());
             task.base.fut_log_tb.store(true, Ordering::Relaxed);
-            PyTask::schedule_callbacks(task, vm)?;
-            _unregister_task(
-                TaskArg {
-                    task: task.to_owned().into(),
-                },
-                vm,
-            )?;
         }
+        PyTask::schedule_callbacks(task, vm)?;
+        _unregister_task(
+            TaskArg {
+                task: task.to_owned().into(),
+            },
+            vm,
+        )?;
 
         // Re-raise KeyboardInterrupt and SystemExit after storing in task
         if should_reraise {

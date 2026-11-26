@@ -154,7 +154,7 @@ def patch_single_content(
     src_path: pathlib.Path,
     lib_path: pathlib.Path,
     patches_document: dict | None = None,
-) -> str:
+) -> str | None:
     """
     Patch content without writing to disk.
 
@@ -163,7 +163,7 @@ def patch_single_content(
         lib_path: Lib path to extract patches from (e.g., Lib/test/foo.py)
 
     Returns:
-        The patched content.
+        The patched content, or None for an unchanged negative-syntax fixture.
     """
     from update_lib import apply_patches, extract_patches
     from update_lib.patch_spec import apply_doctest_metadata, extract_doctest_guards
@@ -171,7 +171,17 @@ def patch_single_content(
     # Extract patches from existing file (if exists)
     if lib_path.exists():
         old_content = lib_path.read_text(encoding="utf-8")
-        patches = extract_patches(old_content)
+        try:
+            patches = extract_patches(old_content)
+        except SyntaxError:
+            # A fixture may be invalid Python on purpose. If its bytes agree,
+            # preserve it as-is without trying to migrate AST-based markers.
+            if (
+                patches_document is None
+                and src_path.read_bytes() == lib_path.read_bytes()
+            ):
+                return None
+            raise
     else:
         patches = {}
 
@@ -249,6 +259,8 @@ def patch_file(
         if verbose:
             print(f"Patching: {src_path} -> {lib_path}")
         content = patch_single_content(src_path, lib_path, patches_document)
+        if content is None:
+            return
     else:
         if verbose:
             print(f"Copying: {src_path} -> {lib_path}")
@@ -282,27 +294,30 @@ def patch_directory(
         if f.is_file() and "__pycache__" not in f.relative_to(src_dir).parts[:-1]
     )
 
+    # Prepare every Python migration before writing earlier paths. A syntax
+    # or marker error later in the package must not leave a partial update.
+    pending = []
     for src_file in src_files:
-        rel_path = src_file.relative_to(src_dir)
-        lib_file = lib_dir / rel_path
+        lib_file = lib_dir / src_file.relative_to(src_dir)
+        content = None
+        patching = src_file.suffix == ".py" and lib_file.exists()
+        if patching:
+            content = patch_single_content(src_file, lib_file)
+            if content is None:
+                continue
+        elif src_file.suffix == ".py":
+            content = src_file.read_text(encoding="utf-8")
+        pending.append((src_file, lib_file, content, patching))
 
-        if src_file.suffix == ".py":
-            if lib_file.exists():
-                if verbose:
-                    print(f"Patching: {src_file} -> {lib_file}")
-                content = patch_single_content(src_file, lib_file)
-            else:
-                if verbose:
-                    print(f"Copying: {src_file} -> {lib_file}")
-                content = src_file.read_text(encoding="utf-8")
-
-            lib_file.parent.mkdir(parents=True, exist_ok=True)
-            lib_file.write_text(content, encoding="utf-8")
-        else:
-            if verbose:
-                print(f"Copying: {src_file} -> {lib_file}")
-            lib_file.parent.mkdir(parents=True, exist_ok=True)
+    for src_file, lib_file, content, patching in pending:
+        if verbose:
+            action = "Patching" if patching else "Copying"
+            print(f"{action}: {src_file} -> {lib_file}")
+        lib_file.parent.mkdir(parents=True, exist_ok=True)
+        if content is None:
             shutil.copy2(src_file, lib_file)
+        else:
+            lib_file.write_text(content, encoding="utf-8")
 
 
 def retire_legacy_paths(src_dir: pathlib.Path, mapping: dict) -> None:

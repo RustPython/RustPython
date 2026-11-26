@@ -33,6 +33,16 @@ assert (
     == "h"
 )
 
+# `final` is converted by truth value, not by type.
+assert _codecs.utf_8_decode(b"\xc3", "strict", None) == ("", 0)
+assert _codecs.utf_8_decode(b"a", "strict", "x") == ("a", 1)
+assert _codecs.utf_7_decode(b"+", "strict", None) == ("", 0)
+assert _codecs.utf_16_le_decode(b"a", "strict", None) == ("", 0)
+assert _codecs.utf_16_ex_decode(b"a", "strict", 0, None) == ("", 0, 0)
+assert _codecs.utf_32_decode(b"a", "strict", None) == ("", 0)
+assert _codecs.unicode_escape_decode(b"\\", "strict", None) == ("", 0)
+assert _codecs.raw_unicode_escape_decode(b"\\u00", "strict", []) == ("", 0)
+
 
 # Lookup errors preserve the requested spelling, while search hooks receive
 # the Python 3.15 normalized registry key.

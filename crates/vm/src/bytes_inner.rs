@@ -5,13 +5,15 @@ use crate::{
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
     builtins::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyList, PyListRef,
-        PyStr, PyStrRef, PyTuple, PyTupleRef, pystr, pystr::PyUtf8StrRef,
+        PyStr, PyStrRef, PyTuple, PyTupleRef, pystr,
     },
     cformat::cformat_bytes,
+    codecs::{DEFAULT_ENCODING, TextCodecArgs},
     common::wtf8::is_py_ascii_whitespace,
     common::{borrow::BorrowedValue, hash},
     function::{
-        ArgBytesLike, ArgBytesOrStr, ArgIndex, ArgIterable, Either, OptionalArg, PyComparisonValue,
+        ArgBytesLike, ArgBytesOrStr, ArgIndex, ArgIterable, ArgNulFreeStr, Either, OptionalArg,
+        PyComparisonValue,
     },
     literal::escape::Escape,
     protocol::{BufferFlags, PyBuffer},
@@ -171,19 +173,20 @@ pub struct ByteInnerNewOptions {
     #[pyarg(any, optional)]
     pub source: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]
-    pub encoding: OptionalArg<PyUtf8StrRef>,
+    pub encoding: OptionalArg<ArgNulFreeStr>,
     #[pyarg(any, optional)]
-    pub errors: OptionalArg<PyUtf8StrRef>,
+    pub errors: OptionalArg<ArgNulFreeStr>,
 }
 
 impl ByteInnerNewOptions {
     fn get_value_from_string(
         s: PyStrRef,
-        encoding: PyUtf8StrRef,
-        errors: OptionalArg<PyUtf8StrRef>,
+        encoding: ArgNulFreeStr,
+        errors: OptionalArg<ArgNulFreeStr>,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesInner> {
-        let bytes = pystr::encode_string(s, Some(&encoding), errors.into_option(), vm)?;
+        let errors = errors.into_option().map(ArgNulFreeStr::into_utf8_ref);
+        let bytes = pystr::encode_string(s, Some(&encoding), errors, vm)?;
         Ok(bytes.as_bytes().to_vec().into())
     }
 
@@ -359,6 +362,7 @@ impl ByteInnerBuffer<'_> {
 }
 
 #[derive(FromArgs)]
+#[from_args(text_signature = "(sub[, start[, end]], /)")]
 pub struct ByteInnerFindOptions {
     #[pyarg(positional)]
     sub: PyObjectRef,
@@ -1457,26 +1461,13 @@ pub struct ByteInnerReplaceOptions {
     count: isize,
 }
 
-#[derive(FromArgs)]
-pub(crate) struct DecodeArgs {
-    // None is filled in as utf-8 when decoding.
-    #[pyarg(any, optional, py_default = "'utf-8'")]
-    encoding: Option<PyUtf8StrRef>,
-    // None is filled in as strict when decoding.
-    #[pyarg(any, optional, py_default = "'strict'")]
-    errors: Option<PyUtf8StrRef>,
-}
-
 pub(crate) fn bytes_decode(
     zelf: PyObjectRef,
-    args: DecodeArgs,
+    args: TextCodecArgs,
     vm: &VirtualMachine,
 ) -> PyResult<PyStrRef> {
-    let DecodeArgs { encoding, errors } = args;
-    let encoding = match encoding.as_ref() {
-        None => crate::codecs::DEFAULT_ENCODING,
-        Some(e) => e.as_str(),
-    };
+    let (encoding, errors) = args.into_parts();
+    let encoding = encoding.as_deref().map_or(DEFAULT_ENCODING, |s| s.as_str());
     vm.state
         .codec_registry
         .decode_text_object(zelf, encoding, errors, vm)

@@ -58,6 +58,10 @@ assert_raises(TypeError, lambda: divmod(2, complex(2, -3)))
 # assert 1j ** 2 == -1
 assert complex(1) ** 2 == 1
 assert 2 ** complex(2) == 4
+assert_raises(ValueError, pow, complex(1, 2), 2, 3)
+assert_raises(ValueError, pow, 2, complex(1, 2), 3)
+assert_raises(TypeError, pow, complex(1, 2), "x", 3)
+assert_raises(TypeError, pow, "x", complex(1, 2), 3)
 
 # __pos__
 
@@ -284,3 +288,8 @@ assert repr(161852602146008.12 + 1j) == "(161852602146008.12+1j)"
 assert repr(-788830060729777.2 + 2j) == "(-788830060729777.2+2j)"
 assert repr(complex(0.0, 1959276370239205.2)) == "1959276370239205.2j"
 assert repr(complex(-1818262230632059.2, 0.0)) == "(-1818262230632059.2+0j)"
+
+# Constant folding must preserve the distinction between real and complex zero.
+assert repr(0j - 0j) == "0j"
+assert repr((-0j) + 0.0) == "-0j"
+assert repr(0.0 + (-0j)) == "-0j"

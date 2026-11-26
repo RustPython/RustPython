@@ -503,7 +503,7 @@ impl PyCallableIterator {
     }
 }
 
-#[pyclass(with(IterNext, Iterable))]
+#[pyclass(with(IterNext, Iterable), flags(IMMUTABLETYPE))]
 impl Py<PyCallableIterator> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {

@@ -37,7 +37,7 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
 
       - run: sudo apt-get update && sudo apt-get -y install lcov
 
@@ -49,7 +49,9 @@ jobs:
         continue-on-error: true
 
       - name: Run cargo-llvm-cov with Python test suite.
-        run: cargo llvm-cov --no-report run -- -m test -u all --slowest --fail-env-changed
+        id: python-suite
+        # One worker at a time, with a fresh process for each test module.
+        run: cargo llvm-cov --no-report run -- -m test -j 1 -u all --slowest --fail-env-changed
         continue-on-error: true
 
       - name: Prepare code coverage data
@@ -60,6 +62,10 @@ jobs:
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: ./codecov.lcov
+
+      - name: Report Python test suite failure
+        if: ${{ !cancelled() && steps.python-suite.outcome == 'failure' }}
+        run: exit 1
 
   testdata:
     name: Collect regression test data
@@ -108,7 +114,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
 
       - name: build rustpython
         run: cargo build --release --verbose --features sqlite
@@ -168,7 +174,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
 
       - run: cargo install cargo-criterion
 

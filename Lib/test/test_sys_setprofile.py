@@ -481,7 +481,6 @@ class TestEdgeCases(unittest.TestCase):
         sys.setprofile(lambda *args: None)
         f()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_method_with_c_function(self):
         # gh-122029
         # When we have a PyMethodObject whose im_func is a C function, we

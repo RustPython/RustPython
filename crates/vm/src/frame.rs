@@ -19,7 +19,8 @@ use crate::{
         tuple::{PyTuple, PyTupleIterator, PyTupleRef},
     },
     bytecode::{
-        self, ADAPTIVE_COOLDOWN_VALUE, Instruction, LoadAttr, LoadSuperAttr, Opcode, SpecialMethod,
+        self, ADAPTIVE_COOLDOWN_VALUE, Instruction, LoadAttr, LoadGlobal, LoadSuperAttr, Opcode,
+        SpecialMethod,
         oparg::{ResumeContext, ResumeLocation},
     },
     convert::{ToPyObject, ToPyResult},
@@ -3921,7 +3922,13 @@ impl ExecutingFrame<'_> {
                 vm.raise_async_exception()
             }
             if vm.eval_breaker_tripped()
-                && let Err(exception) = eval_breaker_work(vm)
+                && let Err(exception) = {
+                    let result = eval_breaker_work(vm);
+                    // Signal handlers and scheduled GC callbacks may change
+                    // profiling before this instruction is dispatched.
+                    tracing = !PREPARE_GENERATOR && vm.use_tracing.get();
+                    result
+                }
             {
                 #[cold]
                 fn handle_signal_exception(
@@ -3984,7 +3991,24 @@ impl ExecutingFrame<'_> {
                 self.localsplus.promote_stack();
                 break Ok(None);
             }
-            let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
+            // Native-call specializations bypass PyCallable's legacy profile
+            // events. Use the generic call only while tracing, without rewriting
+            // shared bytecode or touching the specialization's inline caches.
+            let result = if tracing
+                && matches!(
+                    op,
+                    Instruction::CallListAppend
+                        | Instruction::CallLen
+                        | Instruction::CallIsinstance
+                        | Instruction::CallMethodDescriptorNoargs
+                        | Instruction::CallMethodDescriptorO
+                        | Instruction::CallMethodDescriptorFast
+                        | Instruction::CallMethodDescriptorFastWithKeywords
+                ) {
+                self.execute_call_vectorcall(arg.into(), vm)
+            } else {
+                self.execute_instruction(op, arg, &mut do_extend_arg, vm)
+            };
             // Skip inline cache entries if instruction fell through (no jump).
             // `cache_entries()` is a table lookup, so it is done here rather
             // than before dispatch: computing it up front kept the count live
@@ -4004,68 +4028,59 @@ impl ExecutingFrame<'_> {
                 // Instruction raised an exception
                 Err(exception) => {
                     #[cold]
-                    fn handle_exception(
-                        frame: &mut ExecutingFrame<'_>,
-                        exception: PyBaseExceptionRef,
+                    fn prepare_exception(
+                        frame: &ExecutingFrame<'_>,
+                        exception: &Py<PyBaseException>,
                         idx: usize,
-                        is_reraise: bool,
                         is_new_raise: bool,
                         complete_frame: bool,
                         vm: &VirtualMachine,
-                    ) -> FrameResult {
-                        // 1. Extract traceback from exception's '__traceback__' attr.
-                        // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
-                        // 3. First, try to find handler in exception table
+                    ) {
+                        // Check if the exception already has traceback entries before
+                        // we add ours. If it does, it was propagated from a callee
+                        // function and we should not re-contextualize it.
+                        let had_prior_traceback = exception.traceback().is_some();
 
-                        // RERAISE instructions should not add traceback entries - they're just
-                        // re-raising an already-processed exception
-                        if !is_reraise {
-                            // Check if the exception already has traceback entries before
-                            // we add ours. If it does, it was propagated from a callee
-                            // function and we should not re-contextualize it.
-                            let had_prior_traceback = exception.traceback().is_some();
+                        // PyTraceBack_Here always adds a new entry without
+                        // checking for duplicates. Each time an exception passes through
+                        // a frame (e.g., in a loop with repeated raise statements),
+                        // a new traceback entry is added.
+                        if complete_frame
+                            && let Some((loc, _end_loc)) = frame.code.locations.get(idx)
+                        {
+                            let next = exception.traceback();
 
-                            // PyTraceBack_Here always adds a new entry without
-                            // checking for duplicates. Each time an exception passes through
-                            // a frame (e.g., in a loop with repeated raise statements),
-                            // a new traceback entry is added.
-                            if complete_frame
-                                && let Some((loc, _end_loc)) = frame.code.locations.get(idx)
-                            {
-                                let next = exception.traceback();
-
-                                let new_traceback = PyTraceback::new(
-                                    next,
-                                    frame.frame_object(vm),
-                                    idx as i32 * 2,
-                                    loc.line,
-                                );
-                                vm_trace!(
-                                    "Adding to traceback: {:?} {:?}",
-                                    new_traceback,
-                                    loc.line
-                                );
-                                exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
-                            }
-
-                            // _PyErr_SetObject sets __context__ only when the exception
-                            // is first raised. When an exception propagates through frames,
-                            // __context__ must not be overwritten. We contextualize when:
-                            // - It's an explicit raise (raise/raise from)
-                            // - The exception had no prior traceback (originated here)
-                            if is_new_raise || !had_prior_traceback {
-                                vm.contextualize_exception(&exception);
-                            }
+                            let new_traceback = PyTraceback::new(
+                                next,
+                                frame.frame_object(vm),
+                                idx as i32 * 2,
+                                loc.line,
+                            );
+                            vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.line);
+                            exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                         }
 
-                        // Use exception table for zero-cost exception handling
-                        frame.unwind_blocks(
-                            vm,
-                            UnwindReason::Raising {
-                                exception,
-                                offset: idx as u32,
-                            },
-                        )
+                        // _PyErr_SetObject sets __context__ only when the exception
+                        // is first raised. When an exception propagates through frames,
+                        // __context__ must not be overwritten. We contextualize when:
+                        // - It's an explicit raise (raise/raise from)
+                        // - The exception had no prior traceback (originated here)
+                        if is_new_raise || !had_prior_traceback {
+                            vm.contextualize_exception(exception);
+                        }
+                    }
+
+                    #[cold]
+                    fn contextualize_observer_error(
+                        exception: PyBaseExceptionRef,
+                        vm: &VirtualMachine,
+                    ) -> PyBaseExceptionRef {
+                        // A callback can fail while binding its arguments, before
+                        // any Python frame has established the exception chain.
+                        if exception.traceback().is_none() && exception.__context__().is_none() {
+                            vm.contextualize_exception(&exception);
+                        }
+                        exception
                     }
 
                     // Check if this is a RERAISE instruction
@@ -4095,6 +4110,19 @@ impl ExecutingFrame<'_> {
                             )
                     );
 
+                    // CPython's error path attaches the original traceback before
+                    // notifying monitoring tools, then unwinds the resulting exception.
+                    if !is_reraise {
+                        prepare_exception(
+                            self,
+                            &exception,
+                            idx,
+                            is_new_raise,
+                            !PREPARE_GENERATOR && !self.iframe().is_incomplete(),
+                            vm,
+                        );
+                    }
+
                     // Fire RAISE or RERAISE monitoring event.
                     // If the callback raises, replace the original exception.
                     let exception = {
@@ -4115,29 +4143,37 @@ impl ExecutingFrame<'_> {
                             let exc_obj: PyObjectRef = exception.clone().into();
                             match monitoring::fire_raise(vm, self.code, offset, &exc_obj) {
                                 Ok(()) => exception,
-                                Err(monitor_exc) => monitor_exc,
+                                Err(monitor_exc) => contextualize_observer_error(monitor_exc, vm),
                             }
                         } else {
                             exception
                         }
                     };
 
-                    // Fire 'exception' trace event for sys.settrace.
-                    // Only for new raises, not re-raises (matching the
-                    // `error` label that calls _PyEval_MonitorRaise).
-                    if !is_reraise {
-                        self.fire_exception_trace(&exception, vm)?;
-                    }
+                    // Like monitoring, a failing trace callback replaces the
+                    // original exception without appending this frame a second time.
+                    let exception = if !is_reraise {
+                        match self.fire_exception_trace(&exception, vm) {
+                            Ok(()) => exception,
+                            Err(trace_exc) => contextualize_observer_error(trace_exc, vm),
+                        }
+                    } else {
+                        exception
+                    };
 
-                    match handle_exception(
-                        self,
-                        exception,
-                        idx,
-                        is_reraise,
-                        is_new_raise,
-                        !PREPARE_GENERATOR,
-                        vm,
-                    ) {
+                    // Keep instruction unwinding out of the dispatch loop, as
+                    // before traceback preparation moved ahead of callbacks.
+                    #[cold]
+                    #[inline(never)]
+                    fn unwind_instruction_exception(
+                        frame: &mut ExecutingFrame<'_>,
+                        exception: PyBaseExceptionRef,
+                        offset: u32,
+                        vm: &VirtualMachine,
+                    ) -> FrameResult {
+                        frame.unwind_blocks(vm, UnwindReason::Raising { exception, offset })
+                    }
+                    match unwind_instruction_exception(self, exception, idx as u32, vm) {
                         // The handler unwound to a new position, so the next
                         // index is whatever it left in the frame.
                         Ok(None) => next_idx = lasti_cell.load(Relaxed),
@@ -4419,15 +4455,14 @@ impl ExecutingFrame<'_> {
             .get(localsplus_idx)
             .copied()
             .unwrap_or(0);
+        let name = self.localsplus_name(localsplus_idx);
         if kind & CO_FAST_FREE != 0 {
-            let name = self.localsplus_name(localsplus_idx);
             vm.new_name_error(
                 format!("cannot access free variable '{name}' where it is not associated with a value in enclosing scope"),
                 name.to_owned(),
             )
         } else {
             // Both merged cells (LOCAL|CELL) and non-merged cells get unbound local error
-            let name = self.localsplus_name(localsplus_idx);
             vm.new_unbound_local_error(format!(
                 "local variable '{name}' referenced before assignment"
             ))
@@ -4777,7 +4812,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::DeleteGlobal { namei: idx } => {
-                let name = self.code.names[idx.get(arg) as usize];
+                let name = self.code.names[idx.get(arg)];
                 match self.globals.del_item(name, vm) {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
@@ -4788,7 +4823,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::DeleteName { namei: idx } => {
-                let name = self.code.names[idx.get(arg) as usize];
+                let name = self.code.names[idx.get(arg)];
                 self.locals
                     .mapping(vm)
                     .ass_subscript(name, None, vm)
@@ -5087,8 +5122,8 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::ImportName { namei: idx } => {
-                let packed = idx.get(arg);
-                self.import(vm, self.code.names[(packed >> 2) as usize], packed & 3)?;
+                let namei = idx.get(arg);
+                self.import(vm, self.code.names[namei.name_idx()], namei.flags())?;
                 Ok(None)
             }
             Instruction::IsOp { invert } => {
@@ -5220,7 +5255,7 @@ impl ExecutingFrame<'_> {
             Instruction::LoadFromDictOrGlobals { i: idx } => {
                 // PEP 649: Pop dict from stack (classdict), check there first, then globals
                 let dict = self.pop_value();
-                let name = self.code.names[idx.get(arg) as usize];
+                let name = self.code.names[idx.get(arg)];
                 let value = self.mapping_get_optional(&dict, name, vm)?;
 
                 self.push_value(match value {
@@ -5356,16 +5391,16 @@ impl ExecutingFrame<'_> {
             Instruction::LoadGlobal { namei: idx } => {
                 let oparg = idx.get(arg);
                 self.adaptive(|s, ii, cb| s.specialize_load_global(vm, oparg, ii, cb));
-                let name = &self.code.names[(oparg >> 1) as usize];
+                let name = &self.code.names[oparg.name_idx()];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
-                if (oparg & 1) != 0 {
+                if oparg.push_null() {
                     self.push_value_opt(None);
                 }
                 Ok(None)
             }
             Instruction::LoadName { namei: idx } => {
-                let name = self.code.names[idx.get(arg) as usize];
+                let name = self.code.names[idx.get(arg)];
                 let result = self.locals.mapping(vm).subscript(name, vm);
                 let value = match result {
                     Ok(x) => {
@@ -5946,11 +5981,11 @@ impl ExecutingFrame<'_> {
             Instruction::StoreGlobal { namei: idx } => {
                 let value = self.pop_value();
                 self.globals
-                    .set_item(self.code.names[idx.get(arg) as usize], value, vm)?;
+                    .set_item(self.code.names[idx.get(arg)], value, vm)?;
                 Ok(None)
             }
             Instruction::StoreName { namei: idx } => {
-                let name = self.code.names[idx.get(arg) as usize];
+                let name = self.code.names[idx.get(arg)];
                 let value = self.pop_value();
                 self.locals
                     .mapping(vm)
@@ -6275,7 +6310,7 @@ impl ExecutingFrame<'_> {
             Instruction::LoadAttrMethodWithValues => {
                 let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
-                let attr_name = self.code.names[oparg.name_idx() as usize];
+                let attr_name = self.code.names[oparg.name_idx()];
 
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -6304,7 +6339,7 @@ impl ExecutingFrame<'_> {
             Instruction::LoadAttrInstanceValue => {
                 let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
-                let attr_name = self.code.names[oparg.name_idx() as usize];
+                let attr_name = self.code.names[oparg.name_idx()];
 
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -6327,7 +6362,7 @@ impl ExecutingFrame<'_> {
             Instruction::LoadAttrWithHint => {
                 let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
-                let attr_name = self.code.names[oparg.name_idx() as usize];
+                let attr_name = self.code.names[oparg.name_idx()];
 
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -6350,11 +6385,9 @@ impl ExecutingFrame<'_> {
                             }
                         }
                         self.pop_stackref();
+                        self.push_value(value);
                         if oparg.is_method() {
-                            self.push_value(value);
                             self.push_value_opt(None);
-                        } else {
-                            self.push_value(value);
                         }
                         return Ok(None);
                     }
@@ -6365,7 +6398,7 @@ impl ExecutingFrame<'_> {
             Instruction::LoadAttrModule => {
                 let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
-                let attr_name = self.code.names[oparg.name_idx() as usize];
+                let attr_name = self.code.names[oparg.name_idx()];
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_ptr(cache_base + 6);
                 let keys_version = self.code.instructions.read_cache_ptr(cache_base + 7);
@@ -6384,11 +6417,9 @@ impl ExecutingFrame<'_> {
                         .is_none()
                 {
                     self.pop_stackref();
+                    self.push_value(value);
                     if oparg.is_method() {
-                        self.push_value(value);
                         self.push_value_opt(None);
-                    } else {
-                        self.push_value(value);
                     }
                     return Ok(None);
                 }
@@ -6406,11 +6437,9 @@ impl ExecutingFrame<'_> {
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
                     self.pop_stackref();
+                    self.push_value(attr);
                     if oparg.is_method() {
-                        self.push_value(attr);
                         self.push_value_opt(None);
-                    } else {
-                        self.push_value(attr);
                     }
                     return Ok(None);
                 }
@@ -6419,7 +6448,7 @@ impl ExecutingFrame<'_> {
             Instruction::LoadAttrNondescriptorWithValues => {
                 let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
-                let attr_name = self.code.names[oparg.name_idx() as usize];
+                let attr_name = self.code.names[oparg.name_idx()];
 
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
@@ -6429,11 +6458,9 @@ impl ExecutingFrame<'_> {
                     // Instance dict has priority — check if attr is shadowed
                     if let Some(value) = self.shadowing_instance_attr(cache_base, attr_name, vm)? {
                         self.pop_stackref();
+                        self.push_value(value);
                         if oparg.is_method() {
-                            self.push_value(value);
                             self.push_value_opt(None);
-                        } else {
-                            self.push_value(value);
                         }
                         return Ok(None);
                     }
@@ -6443,11 +6470,9 @@ impl ExecutingFrame<'_> {
                         return self.load_attr_slow(vm, oparg);
                     };
                     self.pop_stackref();
+                    self.push_value(attr);
                     if oparg.is_method() {
-                        self.push_value(attr);
                         self.push_value_opt(None);
-                    } else {
-                        self.push_value(attr);
                     }
                     return Ok(None);
                 }
@@ -6466,11 +6491,9 @@ impl ExecutingFrame<'_> {
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
                     self.pop_stackref();
+                    self.push_value(attr);
                     if oparg.is_method() {
-                        self.push_value(attr);
                         self.push_value_opt(None);
-                    } else {
-                        self.push_value(attr);
                     }
                     return Ok(None);
                 }
@@ -6492,11 +6515,9 @@ impl ExecutingFrame<'_> {
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
                     self.pop_stackref();
+                    self.push_value(attr);
                     if oparg.is_method() {
-                        self.push_value(attr);
                         self.push_value_opt(None);
-                    } else {
-                        self.push_value(attr);
                     }
                     return Ok(None);
                 }
@@ -6522,7 +6543,7 @@ impl ExecutingFrame<'_> {
                 {
                     debug_assert!(func.has_exact_argcount(2));
                     let owner = self.pop_value();
-                    let attr_name = self.code.names[oparg.name_idx() as usize].to_owned().into();
+                    let attr_name = self.code.names[oparg.name_idx()].to_owned().into();
                     let result =
                         func.invoke_exact_args_slots(&mut [Some(owner), Some(attr_name)], vm)?;
                     self.push_value(result);
@@ -6543,11 +6564,9 @@ impl ExecutingFrame<'_> {
                         self.code.instructions.read_cache_u32(cache_base + 3) as i32 as isize;
                     if let Some(value) = owner.get_slot(slot_offset) {
                         self.pop_stackref();
+                        self.push_value(value);
                         if oparg.is_method() {
-                            self.push_value(value);
                             self.push_value_opt(None);
-                        } else {
-                            self.push_value(value);
                         }
                         return Ok(None);
                     }
@@ -6579,10 +6598,10 @@ impl ExecutingFrame<'_> {
                 self.load_attr_slow(vm, oparg)
             }
             Instruction::StoreAttrInstanceValue => {
-                let attr_idx = u32::from(arg);
+                let attr_idx = bytecode::NameIdx::from_u32(u32::from(arg));
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let attr_name = self.code.names[attr_idx as usize];
+                let attr_name = self.code.names[attr_idx];
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
@@ -6601,10 +6620,10 @@ impl ExecutingFrame<'_> {
                 self.store_attr(vm, attr_idx)
             }
             Instruction::StoreAttrWithHint => {
-                let attr_idx = u32::from(arg);
+                let attr_idx = bytecode::NameIdx::from_u32(u32::from(arg));
                 let instr_idx = self.lasti() as usize - 1;
                 let cache_base = instr_idx + 1;
-                let attr_name = self.code.names[attr_idx as usize];
+                let attr_name = self.code.names[attr_idx];
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
@@ -6636,7 +6655,7 @@ impl ExecutingFrame<'_> {
                     owner.set_slot(slot_offset, Some(value));
                     return Ok(None);
                 }
-                let attr_idx = u32::from(arg);
+                let attr_idx = bytecode::NameIdx::from_u32(u32::from(arg));
                 self.store_attr(vm, attr_idx)
             }
             Instruction::StoreSubscrListInt => {
@@ -6667,11 +6686,10 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 if let Some(dict) = obj.downcast_ref_if_exact::<PyDict>(vm) {
                     dict.set_item(idx.as_object(), value, vm)?;
-                    Ok(None)
                 } else {
                     obj.set_item(idx.as_object(), value, vm)?;
-                    Ok(None)
                 }
+                Ok(None)
             }
             // Specialized BINARY_OP opcodes
             Instruction::BinaryOpAddInt => {
@@ -7538,7 +7556,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadSuperAttrAttr => {
                 let oparg = u32::from(arg);
-                let attr_name = self.code.names[(oparg >> 2) as usize];
+                let attr_name = self.code.names[LoadSuperAttr::from_u32(oparg).name_idx()];
                 // Stack: [global_super, class, self]
                 let self_obj = self.top_value();
                 let class_obj = self.nth_value(1);
@@ -7592,7 +7610,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadSuperAttrMethod => {
                 let oparg = u32::from(arg);
-                let attr_name = self.code.names[(oparg >> 2) as usize];
+                let attr_name = self.code.names[LoadSuperAttr::from_u32(oparg).name_idx()];
                 // Stack: [global_super, class, self]
                 let self_obj = self.top_value();
                 let class_obj = self.nth_value(1);
@@ -7733,13 +7751,12 @@ impl ExecutingFrame<'_> {
                         self.pop_stackref();
                         self.take_fused_bool_jump(jump, result);
                     }
-                    Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ToBoolInt => {
                 let obj = self.top_value();
@@ -7747,26 +7764,24 @@ impl ExecutingFrame<'_> {
                     let result = !int_val.as_bigint().is_zero();
                     self.pop_stackref();
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ToBoolNone => {
                 let obj = self.top_value();
                 if obj.class().is(vm.ctx.types.none_type) {
                     self.pop_stackref();
                     self.push_bool_or_fused_jump(instruction.cache_entries(), false, vm);
-                    Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ToBoolList => {
                 let obj = self.top_value();
@@ -7774,13 +7789,12 @@ impl ExecutingFrame<'_> {
                     let result = !list.borrow_vec().is_empty();
                     self.pop_stackref();
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ToBoolStr => {
                 let obj = self.top_value();
@@ -7788,13 +7802,12 @@ impl ExecutingFrame<'_> {
                     let result = !s.is_empty();
                     self.pop_stackref();
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ToBoolAlwaysTrue => {
                 // Objects without __bool__ or __len__ are always True.
@@ -7808,13 +7821,12 @@ impl ExecutingFrame<'_> {
                 {
                     self.pop_stackref();
                     self.push_bool_or_fused_jump(instruction.cache_entries(), true, vm);
-                    Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ContainsOpDict => {
                 let b = self.top_value(); // haystack
@@ -7830,7 +7842,6 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::Yes => !found,
                     };
                     self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
-                    Ok(None)
                 } else {
                     let b = self.pop_value();
                     let a = self.pop_value();
@@ -7841,8 +7852,8 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
                     };
                     self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ContainsOpSet => {
                 let b = self.top_value(); // haystack
@@ -7860,7 +7871,6 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::Yes => !found,
                     };
                     self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
-                    Ok(None)
                 } else {
                     let b = self.pop_value();
                     let a = self.pop_value();
@@ -7871,8 +7881,8 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
                     };
                     self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::UnpackSequenceTwoTuple => {
                 let obj = self.top_value();
@@ -7932,11 +7942,10 @@ impl ExecutingFrame<'_> {
                     } else {
                         self.for_iter_jump_on_exhausted(target);
                     }
-                    Ok(None)
                 } else {
                     self.execute_for_iter(vm, target)?;
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ForIterList => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
@@ -7947,11 +7956,10 @@ impl ExecutingFrame<'_> {
                     } else {
                         self.for_iter_jump_on_exhausted(target);
                     }
-                    Ok(None)
                 } else {
                     self.execute_for_iter(vm, target)?;
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ForIterTuple => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
@@ -7962,11 +7970,10 @@ impl ExecutingFrame<'_> {
                     } else {
                         self.for_iter_jump_on_exhausted(target);
                     }
-                    Ok(None)
                 } else {
                     self.execute_for_iter(vm, target)?;
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::ForIterGen => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
@@ -8003,14 +8010,13 @@ impl ExecutingFrame<'_> {
                         }
                         Err(e) => return Err(e),
                     }
-                    Ok(None)
                 } else {
                     self.execute_for_iter(vm, target)?;
-                    Ok(None)
                 }
+                Ok(None)
             }
             Instruction::LoadGlobalModule => {
-                let oparg = u32::from(arg);
+                let oparg = LoadGlobal::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
                 // Keep specialized opcode on guard miss (JUMP_TO_PREDICTED behavior).
                 let cached_version = self.code.instructions.read_cache_u16(cache_base + 1);
@@ -8020,24 +8026,24 @@ impl ExecutingFrame<'_> {
                     && let Some(x) =
                         globals.get_item_by_index_and_keys_version(cached_version, cached_index)
                 {
-                    let name = self.code.names[(oparg >> 1) as usize];
+                    let name = self.code.names[oparg.name_idx()];
                     let x = crate::lazy_import::reify_value(x, name, self.globals.as_object(), vm)?;
                     self.push_value(x);
-                    if (oparg & 1) != 0 {
+                    if oparg.push_null() {
                         self.push_value_opt(None);
                     }
                     return Ok(None);
                 }
-                let name = self.code.names[(oparg >> 1) as usize];
+                let name = self.code.names[oparg.name_idx()];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
-                if (oparg & 1) != 0 {
+                if oparg.push_null() {
                     self.push_value_opt(None);
                 }
                 Ok(None)
             }
             Instruction::LoadGlobalBuiltin => {
-                let oparg = u32::from(arg);
+                let oparg = LoadGlobal::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
                 let cached_globals_ver = self.code.instructions.read_cache_u16(cache_base + 1);
                 let cached_builtins_ver = self.code.instructions.read_cache_u16(cache_base + 2);
@@ -8051,18 +8057,18 @@ impl ExecutingFrame<'_> {
                     && let Some(x) = builtins_dict
                         .get_item_by_index_and_keys_version(cached_builtins_ver, cached_index)
                 {
-                    let name = self.code.names[(oparg >> 1) as usize];
+                    let name = self.code.names[oparg.name_idx()];
                     let x = crate::lazy_import::reify_value(x, name, self.builtins, vm)?;
                     self.push_value(x);
-                    if (oparg & 1) != 0 {
+                    if oparg.push_null() {
                         self.push_value_opt(None);
                     }
                     return Ok(None);
                 }
-                let name = self.code.names[(oparg >> 1) as usize];
+                let name = self.code.names[oparg.name_idx()];
                 let x = self.load_global_or_builtin(name, vm)?;
                 self.push_value(x);
-                if (oparg & 1) != 0 {
+                if oparg.push_null() {
                     self.push_value_opt(None);
                 }
                 Ok(None)
@@ -8475,16 +8481,9 @@ impl ExecutingFrame<'_> {
                     }
                 }
 
-                // Removing the last LINE layer changes its saved opcode in CPython.
-                // That redispatch skips nested INSTRUCTION once, not on later visits.
-                let line_removed = line_active
-                    && !monitoring::is_event_active_at(
-                        vm,
-                        self.code,
-                        offset,
-                        MonitoringEvent::Line,
-                    );
-                if also_instruction && !line_removed {
+                // Disabling LINE does not disable the nested INSTRUCTION event.
+                // fire_instruction still checks its current subscriptions.
+                if also_instruction {
                     monitoring::fire_instruction(vm, self.code, offset)?;
                 }
 
@@ -8654,7 +8653,7 @@ impl ExecutingFrame<'_> {
     #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
     fn import_from(&mut self, vm: &VirtualMachine, idx: bytecode::NameIdx) -> PyResult {
         let module = self.top_value();
-        let name = self.code.names[idx as usize];
+        let name = self.code.names[idx];
 
         if let Some(deferred) = module.downcast_ref_if_exact::<crate::lazy_import::PyLazyImport>(vm)
         {
@@ -8942,9 +8941,32 @@ impl ExecutingFrame<'_> {
         } else {
             None
         };
-        let invoke = || callable.vectorcall(args, nargs, Some(&kwnames), vm);
+        let invoke = || {
+            // CPython CALL_FUNCTION_EX profiles the original callable, not the
+            // native function wrapped by a method. Bypass only that dispatch's
+            // profile events; Python callbacks and their native calls still trace.
+            if vm.use_tracing.get()
+                && let Some(method) = callable.downcast_ref::<PyBoundMethod>()
+                && method
+                    .function_obj()
+                    .downcast_ref::<PyNativeFunction>()
+                    .is_some()
+            {
+                let function = method.function_obj();
+                let native = function.to_callable().expect("native function is callable");
+                args.insert(0, method.self_obj().to_owned());
+                if let Some(vectorcall) = native.vectorcall {
+                    vectorcall(function, args, nargs + 1, Some(&kwnames), vm)
+                } else {
+                    let args = FuncArgs::from_vectorcall_owned(args, nargs + 1, Some(&kwnames));
+                    (native.call)(function, args, vm)
+                }
+            } else {
+                callable.vectorcall(args, nargs, Some(&kwnames), vm)
+            }
+        };
         let result = if INSTRUMENTED {
-            self.execute_call_instrumented_inner(&callable, arg0, invoke, vm)
+            self.execute_call_instrumented_inner::<true>(&callable, arg0, invoke, vm)
         } else {
             invoke().map(|value| {
                 self.push_value(value);
@@ -9210,6 +9232,19 @@ impl ExecutingFrame<'_> {
         let self_or_null = self.pop_value_opt();
         let callable = self.pop_value();
 
+        // Match CPython's _MAYBE_EXPAND_METHOD[_KW] before monitoring CALL.
+        // Calls that already carry a receiver must keep the original callable.
+        let (callable, self_or_null) = if self_or_null.is_none()
+            && let Some(method) = callable.downcast_ref_if_exact::<PyBoundMethod>(vm)
+        {
+            (
+                method.function_obj().to_owned(),
+                Some(method.self_obj().to_owned()),
+            )
+        } else {
+            (callable, self_or_null)
+        };
+
         let final_args = if let Some(self_val) = self_or_null {
             let mut args = args;
             args.prepend_arg(self_val);
@@ -9219,17 +9254,24 @@ impl ExecutingFrame<'_> {
         };
 
         let arg0 = final_args.args.first().cloned();
-        self.execute_call_instrumented_inner(&callable, arg0, || callable.call(final_args, vm), vm)
+        self.execute_call_instrumented_inner::<false>(
+            &callable,
+            arg0,
+            || callable.call(final_args, vm),
+            vm,
+        )
     }
 
-    fn execute_call_instrumented_inner(
+    fn execute_call_instrumented_inner<const EX: bool>(
         &mut self,
         callable: &PyObject,
         arg0: Option<PyObjectRef>,
         invoke: impl FnOnce() -> PyResult,
         vm: &VirtualMachine,
     ) -> FrameResult {
-        let is_python_call = callable.downcast_ref_if_exact::<PyFunction>(vm).is_some();
+        // CALL_FUNCTION_EX does not unwrap bound methods for C_RETURN/C_RAISE.
+        let is_python_call = callable.downcast_ref_if_exact::<PyFunction>(vm).is_some()
+            || (EX && callable.downcast_ref::<PyBoundMethod>().is_some());
 
         // Fire CALL event
         let call_arg0 = if self.monitoring_mask & MonitoringEvent::Call.mask() != 0 {
@@ -10279,7 +10321,7 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        let attr_name = self.code.names[oparg.name_idx() as usize];
+        let attr_name = self.code.names[oparg.name_idx()];
 
         // Match CPython: only specialize module attribute loads when the
         // current module dict has no __getattr__ override and the attribute is
@@ -10533,7 +10575,7 @@ impl ExecutingFrame<'_> {
     ) {
         let obj = self.top_value();
         let owner_type = obj.downcast_ref::<PyType>().unwrap();
-        let attr_name = self.code.names[oparg.name_idx() as usize];
+        let attr_name = self.code.names[oparg.name_idx()];
 
         // Check metaclass: ensure no data descriptor on metaclass for this name
         let mcl = obj.class();
@@ -10621,7 +10663,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn load_attr_slow(&mut self, vm: &VirtualMachine, oparg: LoadAttr) -> FrameResult {
-        let attr_name = self.code.names[oparg.name_idx() as usize];
+        let attr_name = self.code.names[oparg.name_idx()];
 
         if !oparg.is_method() {
             // Regular attribute access: `get_attr` reads through the receiver,
@@ -12001,7 +12043,7 @@ impl ExecutingFrame<'_> {
     fn specialize_load_global(
         &mut self,
         vm: &VirtualMachine,
-        oparg: u32,
+        oparg: LoadGlobal,
         instr_idx: usize,
         cache_base: usize,
     ) {
@@ -12014,7 +12056,7 @@ impl ExecutingFrame<'_> {
         let Some(globals) = self.globals.as_mutable() else {
             return;
         };
-        let name = self.code.names[(oparg >> 1) as usize];
+        let name = self.code.names[oparg.name_idx()];
         let Ok(globals_version @ 1..) = u16::try_from(globals.assign_keys_version(vm)) else {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
@@ -12211,7 +12253,7 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        let attr_name = self.code.names[attr_idx as usize];
+        let attr_name = self.code.names[attr_idx];
         let cls_attr = cls.get_attr(attr_name);
         let has_data_descr = cls_attr.as_ref().is_some_and(|descr| {
             // Assignment must honor __set__ even without __get__.
@@ -12293,7 +12335,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn load_super_attr(&mut self, vm: &VirtualMachine, oparg: LoadSuperAttr) -> FrameResult {
-        let attr_name = self.code.names[oparg.name_idx() as usize];
+        let attr_name = self.code.names[oparg.name_idx()];
 
         // Stack layout (bottom to top): [super, class, self]
         // Pop in LIFO order: self, class, super
@@ -12331,7 +12373,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn store_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
-        let attr_name = self.code.names[attr as usize];
+        let attr_name = self.code.names[attr];
         let parent = self.pop_stackref();
         let value = self.pop_value();
         parent.set_attr(attr_name, value, vm)?;
@@ -12339,7 +12381,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn delete_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
-        let attr_name = self.code.names[attr as usize];
+        let attr_name = self.code.names[attr];
         let parent = self.pop_stackref();
         parent.del_attr(attr_name, vm)?;
         Ok(None)

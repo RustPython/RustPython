@@ -270,6 +270,16 @@ impl VirtualMachine {
         filename: impl AsRef<std::path::Path>,
         lineno: usize,
     ) -> Option<String> {
+        self.program_text_with_newlines(filename, lineno, false)
+    }
+
+    #[cfg(any(feature = "parser", feature = "compiler"))]
+    fn program_text_with_newlines(
+        &self,
+        filename: impl AsRef<std::path::Path>,
+        lineno: usize,
+        universal: bool,
+    ) -> Option<String> {
         if lineno == 0 {
             return None;
         }
@@ -304,6 +314,11 @@ impl VirtualMachine {
             if remaining.starts_with('\u{feff}') {
                 remaining = &remaining['\u{feff}'.len_utf8()..];
             }
+            let remaining = if universal {
+                compiler::core::normalize_newlines(remaining)
+            } else {
+                alloc::borrow::Cow::Borrowed(remaining)
+            };
             remaining
                 .split_inclusive('\n')
                 .nth(lineno.checked_sub(1)?)
@@ -311,7 +326,7 @@ impl VirtualMachine {
         }
         #[cfg(not(feature = "host_env"))]
         {
-            let _ = filename;
+            let _ = (filename, universal);
             None
         }
     }
@@ -553,6 +568,7 @@ impl VirtualMachine {
                     inherited_barry_as_flufl: future_features
                         .contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
                     type_comments,
+                    require_relative_import: false,
                 },
             )
             .map_err(|warning| {
@@ -649,10 +665,11 @@ impl VirtualMachine {
                 },
             );
             if let Err(error) = validation {
-                if type_comment_error_offset.is_some() {
-                    // The valid raw grammar stopped at a TYPE_COMMENT. Emit
-                    // only reached parser actions, then tokenizer recovery,
-                    // before returning the unchanged validation error.
+                // The raw grammar may have reached a relative-import action
+                // before validation failed. With no type-comment boundary,
+                // leave the established callback path alone unless there was
+                // such an action to include.
+                let emitted = if type_comment_error_offset.is_some() || source.contains("import") {
                     self.emit_ast_parser_warnings(
                         source,
                         filename,
@@ -663,13 +680,20 @@ impl VirtualMachine {
                             inherited_barry_as_flufl: future_features
                                 .contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
                             type_comments: true,
+                            require_relative_import: type_comment_error_offset.is_none(),
                         },
                     )
                     .map_err(|warning| {
                         VmCompileError::Warning(warning).into_pyexception(self, Some(source))
-                    })?;
-                }
+                    })?
+                } else {
+                    Vec::new()
+                };
                 for (offset, ch) in pending_ast_warnings {
+                    if type_comment_error_offset.is_none() && emitted.binary_search(&offset).is_ok()
+                    {
+                        continue;
+                    }
                     emit_ast_warning(offset, ch).map_err(|error| {
                         error.into_pyexception_maybe_incomplete(
                             self,
@@ -934,8 +958,13 @@ impl VirtualMachine {
 mod escape_warnings {
     use super::*;
     use crate::warn;
-    use ruff_python_ast::{self as ast, visitor::Visitor};
-    use ruff_text_size::TextRange;
+    use ruff_python_ast::{
+        self as ast,
+        token::{Token, TokenKind, Tokens},
+        visitor::Visitor,
+    };
+    use ruff_python_parser::{ExpressionKind, LexicalErrorType, ParseError, ParseErrorType};
+    use ruff_text_size::{Ranged as _, TextRange, TextSize};
 
     fn line_offset_at(source: &str, offset: usize) -> (usize, usize) {
         let offset = offset.min(source.len());
@@ -1229,7 +1258,26 @@ mod escape_warnings {
         }
     }
 
+    struct RelativeLazyImportWarning {
+        module: TextRange,
+        statement_end: usize,
+        lookahead: Option<usize>,
+        level: u32,
+    }
+
+    impl RelativeLazyImportWarning {
+        fn message(&self) -> String {
+            let dots = ".".repeat(self.level as usize);
+            format!(
+                "'from {dots} lazy import' is the same as 'from {dots}lazy import'; \
+                 did you mean 'lazy from {dots} import'?"
+            )
+        }
+    }
+
     enum ParserWarning {
+        RelativeLazyImport(RelativeLazyImportWarning),
+        TokenizerRecoveryError(ParseError, compiler::Mode, bool),
         /// The escape, where it is reported from, and for a bytes literal
         /// escape on the literal's first line, the error column that
         /// string_parser.c reports.
@@ -1252,6 +1300,8 @@ mod escape_warnings {
             match self {
                 Self::Escape(escape, ..) => escape.offset(),
                 Self::Numeric { offset, .. } => *offset,
+                Self::RelativeLazyImport(import) => import.module.start().to_usize(),
+                Self::TokenizerRecoveryError(error, ..) => error.location.start().to_usize(),
             }
         }
 
@@ -1261,8 +1311,25 @@ mod escape_warnings {
                 // END token. Expressions and format specs have already been
                 // parsed by then, even if their escapes occur later in source.
                 Self::Escape(_, _, _, Some(diagnostic)) => diagnostic.emission_offset,
+                Self::RelativeLazyImport(import) => {
+                    import.lookahead.unwrap_or(import.statement_end)
+                }
                 _ => self.offset(),
             }
+        }
+
+        fn type_comment_boundary_offset(&self) -> usize {
+            match self {
+                Self::RelativeLazyImport(import) => import.statement_end,
+                _ => self.emission_offset(),
+            }
+        }
+
+        fn is_parser_origin(&self) -> bool {
+            matches!(
+                self,
+                Self::Escape(_, EscapeOrigin::Parser, ..) | Self::RelativeLazyImport(_)
+            )
         }
     }
 
@@ -2245,9 +2312,196 @@ mod escape_warnings {
         collect_fragment(fragment_start, end);
     }
 
+    // In CPython a tokenizer exception, unlike a rejected token, can
+    // preempt a parser-action SyntaxError during full-source tokenization.
+    fn tokenizer_recovery_error(error: &ParseError) -> bool {
+        matches!(
+            &error.error,
+            ParseErrorType::Lexical(kind)
+                if kind.is_tokenizer_error()
+                    && !matches!(
+                        kind,
+                        LexicalErrorType::FStringError(_)
+                            | LexicalErrorType::TStringError(_)
+                            | LexicalErrorType::UnclosedBracket { .. }
+                            | LexicalErrorType::Eof
+                    )
+        )
+    }
+
+    fn is_inside_interpolation(tokens: &Tokens, offset: TextSize) -> bool {
+        let mut depth = 0usize;
+        for token in tokens.iter().take_while(|token| token.start() < offset) {
+            match token.kind() {
+                TokenKind::FStringStart | TokenKind::TStringStart => depth += 1,
+                TokenKind::FStringEnd | TokenKind::TStringEnd => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+        }
+        depth != 0
+    }
+
+    struct RelativeImportWarnings<'a> {
+        tokens: &'a Tokens,
+        errors: &'a [ParseError],
+        first_error: Option<TextSize>,
+        tokenizer_error: Option<TextSize>,
+    }
+
+    impl RelativeImportWarnings<'_> {
+        fn tokens_from(&self, offset: TextSize) -> impl Iterator<Item = &Token> {
+            let index = self.tokens.partition_point(|token| token.start() < offset);
+            self.tokens[index..]
+                .iter()
+                .filter(|token| !token.kind().is_trivia())
+        }
+
+        // Ruff may point a recovery diagnostic at a token CPython already
+        // accepted. Use exact token/alias ownership only for this action.
+        fn recovered_target_diagnostic(
+            &self,
+            error: &ParseError,
+            import: &ast::StmtImportFrom,
+            first: &Token,
+        ) -> bool {
+            match &error.error {
+                ParseErrorType::OtherError(message)
+                    if first.kind() == TokenKind::Star
+                        && message == "star import must be the only import" =>
+                {
+                    error.location.start() == first.start()
+                        && error.location.end() <= import.range.end()
+                }
+                ParseErrorType::InvalidImportTarget(ExpressionKind::Name) => {
+                    import.names.iter().any(|alias| {
+                        let Some(name) = alias.asname.as_ref() else {
+                            return false;
+                        };
+                        if name.id.is_empty()
+                            || error.location != name.range
+                            || alias.range.end() != name.end()
+                        {
+                            return false;
+                        }
+                        let mut tokens = self.tokens_from(alias.name.end());
+                        tokens
+                            .next()
+                            .is_some_and(|token| token.kind() == TokenKind::As)
+                            && tokens.next().is_some_and(|token| {
+                                token.range() == name.range
+                                    && (token.kind() == TokenKind::Identifier
+                                        || token.kind().is_soft_keyword())
+                            })
+                    })
+                }
+                _ => false,
+            }
+        }
+
+        // The recovered AST supplies the aliases. Check only their terminal
+        // syntax, since Ruff can keep a node with a missing ')' or a trailing
+        // comma that the PEG action would never reach.
+        fn recovered_targets(
+            &self,
+            import: &ast::StmtImportFrom,
+            module_end: TextSize,
+        ) -> Option<(TextSize, Option<TextSize>)> {
+            let mut targets = self.tokens_from(module_end);
+            if targets.next()?.kind() != TokenKind::Import {
+                return None;
+            }
+            let first = targets.next()?;
+            let cutoff = self
+                .first_error
+                .filter(|&error| error > import.range.end())
+                .or_else(|| {
+                    self.errors
+                        .iter()
+                        .filter(|error| !self.recovered_target_diagnostic(error, import, first))
+                        .map(|error| error.location.start())
+                        .min()
+                });
+            if cutoff.is_some_and(|error| error < first.end()) {
+                return None;
+            }
+            if first.kind() == TokenKind::Star {
+                return Some((first.end(), None));
+            }
+            if first.kind() == TokenKind::Lpar {
+                let end = import.range.end();
+                if cutoff.is_some_and(|error| error < end) {
+                    return None;
+                }
+                let index = self.tokens.partition_point(|token| token.start() < end);
+                return self.tokens[..index]
+                    .last()
+                    .filter(|token| token.kind() == TokenKind::Rpar && token.end() == end)
+                    .map(|_| (end, None));
+            }
+            let alias = import.names.iter().rev().find(|alias| {
+                !alias.name.id.is_empty() && cutoff.is_none_or(|error| alias.name.end() <= error)
+            })?;
+            let asname = alias.asname.as_ref().filter(|name| {
+                !name.id.is_empty() && cutoff.is_none_or(|error| name.end() <= error)
+            });
+            let end = asname.unwrap_or(&alias.name).end();
+            let mut lookahead = self.tokens_from(end);
+            let mut next = lookahead.next()?;
+            if asname.is_none() && next.kind() == TokenKind::As {
+                // An optional malformed 'as NAME' leaves the name accepted,
+                // but the attempted NAME can already have been tokenized.
+                next = lookahead.next()?;
+            } else if next.kind() == TokenKind::Comma {
+                return None;
+            }
+            Some((end, Some(next.start())))
+        }
+
+        fn check(&self, import: &ast::StmtImportFrom) -> Option<RelativeLazyImportWarning> {
+            let module = import.module.as_ref()?;
+            if import.is_lazy
+                || import.level == 0
+                || import.names.is_empty()
+                || module.id != "lazy"
+                || self
+                    .first_error
+                    .is_some_and(|error| error < module.range.end())
+            {
+                return None;
+            }
+            let start = module.range.start();
+            let index = self.tokens.partition_point(|token| token.start() < start);
+            let previous = self.tokens.get(index.checked_sub(1)?)?;
+            if !matches!(previous.kind(), TokenKind::Dot | TokenKind::Ellipsis)
+                || previous.end() >= start
+            {
+                return None;
+            }
+            let (end, lookahead) = if self.first_error.is_some() {
+                self.recovered_targets(import, module.range.end())?
+            } else {
+                (import.range.end(), None)
+            };
+            // Finishing an unparenthesized name list needs lookahead. A
+            // tokenizer exception on that token stops the grammar action.
+            if let (Some(error), Some(lookahead)) = (self.tokenizer_error, lookahead)
+                && error <= lookahead
+            {
+                return None;
+            }
+            Some(RelativeLazyImportWarning {
+                module: module.range,
+                statement_end: end.to_usize(),
+                lookahead: lookahead.map(|offset| offset.to_usize()),
+                level: import.level,
+            })
+        }
+    }
+
     struct EscapeWarningVisitor<'a, 'w> {
         source: &'a str,
         warnings: &'w mut Vec<ParserWarning>,
+        relative_imports: Option<RelativeImportWarnings<'a>>,
         ast_only: bool,
         interpolated_body_diagnostics: InterpolatedBodyDiagnostics,
         diagnostic_index: core::cell::OnceCell<SourceDiagnosticIndex>,
@@ -2255,6 +2509,7 @@ mod escape_warnings {
         /// This pass runs before the compile that rejects an over-nested
         /// tree, so it has to stop itself.
         depth: usize,
+        statement_depth: usize,
         depth_limit: usize,
     }
 
@@ -2375,7 +2630,38 @@ mod escape_warnings {
     }
 
     impl<'a> Visitor<'a> for EscapeWarningVisitor<'a, '_> {
+        fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
+            if let Some(imports) = &self.relative_imports {
+                if imports
+                    .first_error
+                    .is_some_and(|error| error < stmt.start())
+                {
+                    return;
+                }
+                if let ast::Stmt::ImportFrom(import) = stmt
+                    && let Some(warning) = imports.check(import)
+                {
+                    self.warnings
+                        .push(ParserWarning::RelativeLazyImport(warning));
+                }
+            }
+            if self.statement_depth < self.depth_limit {
+                self.statement_depth += 1;
+                ast::visitor::walk_stmt(self, stmt);
+                self.statement_depth -= 1;
+            }
+        }
+
         fn visit_expr(&mut self, expr: &'a ast::Expr) {
+            // On syntax errors, string escapes are recovered by the scanner;
+            // only the accepted import productions come from the partial AST.
+            if self
+                .relative_imports
+                .as_ref()
+                .is_some_and(|imports| imports.first_error.is_some())
+            {
+                return;
+            }
             match expr {
                 ast::Expr::NumberLiteral(number)
                     if matches!(
@@ -2480,6 +2766,14 @@ mod escape_warnings {
         type_comment_error_offset: Option<usize>,
     }
 
+    impl CollectedParserWarnings {
+        fn has_relative_import(&self) -> bool {
+            self.warnings
+                .iter()
+                .any(|warning| matches!(warning, ParserWarning::RelativeLazyImport(_)))
+        }
+    }
+
     fn collect_parser_warnings(
         source: &str,
         filename: &str,
@@ -2508,11 +2802,21 @@ mod escape_warnings {
                 inherited_barry_as_flufl,
             );
             let parsed = ruff_python_parser::parse_unchecked(barry_source.source(), options);
+            let first_error = parsed
+                .errors()
+                .iter()
+                .map(|error| error.location.start())
+                .min();
+            let tokenizer_error = parsed
+                .errors()
+                .iter()
+                .filter(|error| tokenizer_recovery_error(error))
+                .min_by_key(|error| error.location.start());
+            if single_mode {
+                single_boundary = compiler::single_mode_statement_boundary(&parsed);
+            }
             if parsed.has_valid_syntax() {
                 has_valid_syntax = true;
-                if single_mode {
-                    single_boundary = compiler::single_mode_statement_boundary(&parsed);
-                }
                 if type_comments {
                     type_comment_error_offset =
                         crate::stdlib::_ast::invalid_type_comment_warning_boundary(
@@ -2529,24 +2833,6 @@ mod escape_warnings {
                     // without mistaking numeric-looking string contents for
                     // tokens. The text scanner remains the invalid-source path.
                     warnings.clear();
-                }
-                let mut visitor = EscapeWarningVisitor {
-                    source,
-                    warnings: &mut warnings,
-                    ast_only: true,
-                    interpolated_body_diagnostics,
-                    diagnostic_index: core::cell::OnceCell::new(),
-                    interpolation_depth: 0,
-                    depth: 0,
-                    depth_limit: compiler::CompileOpts::default().recursion_limit,
-                };
-                match parsed.syntax() {
-                    ast::Mod::Module(module) => {
-                        for stmt in &module.body {
-                            visitor.visit_stmt(stmt);
-                        }
-                    }
-                    ast::Mod::Expression(expr) => visitor.visit_expr(&expr.body),
                 }
             } else {
                 ast_tokenizer_recovery = false;
@@ -2583,6 +2869,49 @@ mod escape_warnings {
                     });
                 collect_string_escape_warnings_in_range(source, 0, end, None, &mut warnings);
             }
+            let mut visitor = EscapeWarningVisitor {
+                source,
+                warnings: &mut warnings,
+                relative_imports: Some(RelativeImportWarnings {
+                    tokens: parsed.tokens(),
+                    errors: parsed.errors(),
+                    first_error,
+                    tokenizer_error: tokenizer_error.map(|error| error.location.start()),
+                }),
+                ast_only: true,
+                interpolated_body_diagnostics,
+                diagnostic_index: core::cell::OnceCell::new(),
+                interpolation_depth: 0,
+                depth: 0,
+                statement_depth: 0,
+                depth_limit: compiler::CompileOpts::default().recursion_limit,
+            };
+            match parsed.syntax() {
+                ast::Mod::Module(module) => {
+                    for stmt in &module.body {
+                        visitor.visit_stmt(stmt);
+                    }
+                }
+                ast::Mod::Expression(expr) => visitor.visit_expr(&expr.body),
+            }
+            if let Some(error) = tokenizer_error
+                && warnings
+                    .iter()
+                    .any(|warning| matches!(warning, ParserWarning::RelativeLazyImport(_)))
+            {
+                let mode = if single_mode {
+                    compiler::Mode::Single
+                } else if mode == ruff_python_parser::Mode::Expression {
+                    compiler::Mode::Eval
+                } else {
+                    compiler::Mode::Exec
+                };
+                warnings.push(ParserWarning::TokenizerRecoveryError(
+                    error.clone(),
+                    mode,
+                    is_inside_interpolation(parsed.tokens(), error.location.start()),
+                ));
+            }
         } else if mode.is_none() && compiler::pre_parse_source_error(&source_file).is_ok() {
             ast_tokenizer_recovery = false;
             // Function-type input has a separate AST parser; its return
@@ -2618,6 +2947,7 @@ mod escape_warnings {
     pub(super) struct AstParserWarningOptions {
         pub(super) inherited_barry_as_flufl: bool,
         pub(super) type_comments: bool,
+        pub(super) require_relative_import: bool,
     }
 
     #[derive(Default)]
@@ -2670,7 +3000,7 @@ mod escape_warnings {
                 is_single,
                 false,
             );
-            if !collected.has_valid_syntax {
+            if !collected.has_valid_syntax && !collected.has_relative_import() {
                 // Invalid source still needs the legacy recovery contract;
                 // a valid mixed batch already has separate tokenizer events.
                 self.emit_tokenizer_syntax_warnings(source, original_filename, module)?;
@@ -2745,11 +3075,13 @@ mod escape_warnings {
                 let mut visitor = EscapeWarningVisitor {
                     source,
                     warnings: &mut warnings,
+                    relative_imports: None,
                     ast_only: false,
                     interpolated_body_diagnostics: InterpolatedBodyDiagnostics::Legacy,
                     diagnostic_index: core::cell::OnceCell::new(),
                     interpolation_depth: 0,
                     depth: 0,
+                    statement_depth: 0,
                     depth_limit: compiler::CompileOpts::default().recursion_limit,
                 };
                 match parsed.syntax() {
@@ -2809,20 +3141,19 @@ mod escape_warnings {
                 matches!(start, CompileStart::Single),
                 options.type_comments,
             );
+            let has_relative_import = collected.has_relative_import();
+            if options.require_relative_import && !has_relative_import {
+                return Ok(Vec::new());
+            }
+            let tokenizer_recovery = collected.tokenizer_recovery || has_relative_import;
+            let single = collected.single_boundary.filter(|_| tokenizer_recovery);
             self.emit_parser_warning_batch(
                 source,
                 filename,
                 module.map(AsObject::as_object),
                 collected.warnings,
                 ParserWarningBoundaries {
-                    single: if matches!(start, CompileStart::Single)
-                        && collected.has_valid_syntax
-                        && collected.tokenizer_recovery
-                    {
-                        collected.single_boundary
-                    } else {
-                        None
-                    },
+                    single,
                     type_comment_error_offset: collected.type_comment_error_offset,
                 },
                 WarningEmission::Ast {
@@ -2830,7 +3161,7 @@ mod escape_warnings {
                     // after a parser warning becomes an error. Later numeric
                     // tokenizer warnings raised as errors still take precedence,
                     // including on a following logical line.
-                    tokenizer_recovery: collected.tokenizer_recovery
+                    tokenizer_recovery: tokenizer_recovery
                         && matches!(
                             start,
                             CompileStart::File | CompileStart::Eval | CompileStart::Single
@@ -2901,7 +3232,7 @@ mod escape_warnings {
                     WarningEmission::Interactive(emitted) => (&[][..], false, None, Some(emitted)),
                 };
             let mut considered_escapes = alloc::collections::BTreeSet::new();
-            let mut parser_error = None;
+            let mut parser_error: Option<CompileWarningError> = None;
             for warning in warnings {
                 let pending_error_interpolated_tokenizer = (type_comment_error_offset
                     .is_some_and(|offset| warning.offset() >= offset)
@@ -2927,10 +3258,11 @@ mod escape_warnings {
                 {
                     let end = match (boundary, &warning) {
                         (compiler::SingleModeStatementBoundary::Simple { end, .. }, _) => Some(end),
-                        (
-                            compiler::SingleModeStatementBoundary::Compound { end },
-                            ParserWarning::Escape(_, EscapeOrigin::Parser, ..),
-                        ) => Some(end),
+                        (compiler::SingleModeStatementBoundary::Compound { end }, warning)
+                            if warning.is_parser_origin() =>
+                        {
+                            Some(end)
+                        }
                         // Compound input requests another token and can emit
                         // tokenizer warnings while rejecting the next statement.
                         _ => None,
@@ -2943,21 +3275,94 @@ mod escape_warnings {
                 // Preserve ordinary warning order and never replay prior warnings.
                 if (parser_error.is_some()
                     || type_comment_error_offset
-                        .is_some_and(|offset| warning.emission_offset() >= offset))
-                    && matches!(warning, ParserWarning::Escape(_, EscapeOrigin::Parser, ..))
+                        .is_some_and(|offset| warning.type_comment_boundary_offset() >= offset))
+                    && warning.is_parser_origin()
                 {
                     continue;
                 }
                 if let Some(state) = interactive.as_deref_mut() {
                     let message = match &warning {
+                        ParserWarning::TokenizerRecoveryError(..) => break,
                         ParserWarning::Escape(escape, ..) => escape.warning_message(),
                         ParserWarning::Numeric { message, .. } => message.clone(),
+                        ParserWarning::RelativeLazyImport(import) => import.message(),
                     };
                     if !state.emitted.insert((warning.offset(), message)) {
                         continue;
                     }
                 }
                 match warning {
+                    ParserWarning::TokenizerRecoveryError(error, mode, in_interpolation) => {
+                        if !in_interpolation && let Some(mut pending) = parser_error.take() {
+                            let source_file =
+                                compiler::core::SourceFileBuilder::new(filename, source).finish();
+                            let error =
+                                CompileError::from_ruff_parse_error(error, &source_file, mode);
+                            pending.exception = self.new_syntax_error_with_filename(
+                                &error,
+                                Some(source),
+                                false,
+                                original_filename,
+                            );
+                            return Err(pending);
+                        }
+                        break;
+                    }
+                    ParserWarning::RelativeLazyImport(import) => {
+                        let message = import.message();
+                        let start = import.module.start().to_usize();
+                        if let Err(mut error) = warn_syntax_at_offset(
+                            source,
+                            filename,
+                            original_filename,
+                            module,
+                            start,
+                            message.clone(),
+                            self,
+                        ) {
+                            if !error
+                                .exception
+                                .fast_isinstance(self.ctx.exceptions.syntax_warning)
+                            {
+                                return Err(error);
+                            }
+                            // Grammar actions use UTF-8 byte columns and load the
+                            // diagnostic's line from the named file, if it exists.
+                            let line_start =
+                                source[..start].rfind(['\r', '\n']).map_or(0, |i| i + 1);
+                            let filename = original_filename
+                                .map_or_else(|| self.ctx.new_str(filename), ToOwned::to_owned);
+                            let text = self
+                                .fsencode(&filename)
+                                .ok()
+                                .and_then(|path| {
+                                    self.program_text_with_newlines(path, error.lineno, true)
+                                })
+                                .map_or_else(
+                                    || self.ctx.none(),
+                                    |text| self.ctx.new_str(text).into(),
+                                );
+                            let line = self.ctx.new_int(error.lineno);
+                            let location = self.ctx.new_tuple(vec![
+                                filename.into(),
+                                line.clone().into(),
+                                self.ctx.new_int(start - line_start + 1).into(),
+                                text,
+                                line.into(),
+                                self.ctx
+                                    .new_int(import.module.end().to_usize() - line_start + 1)
+                                    .into(),
+                            ]);
+                            error.exception = self.new_exception(
+                                self.ctx.exceptions.syntax_error.to_owned(),
+                                vec![self.ctx.new_str(message).into(), location.into()],
+                            );
+                            if interactive.is_some() {
+                                return Err(error);
+                            }
+                            parser_error = Some(error);
+                        }
+                    }
                     ParserWarning::Escape(escape, origin, error_column, diagnostic) => {
                         let offset = escape.offset();
                         if !considered_escapes.insert(offset) {

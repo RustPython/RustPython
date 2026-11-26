@@ -1734,7 +1734,7 @@ pub mod sys {
     #[pystruct_sequence(name = "asyncgen_hooks", data = "AsyncgenHooksData")]
     pub(super) struct PyAsyncgenHooks;
 
-    #[pyclass(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence), flags(IMMUTABLETYPE))]
     impl PyAsyncgenHooks {}
 
     #[pyfunction]
@@ -1821,7 +1821,7 @@ pub mod sys {
     #[pystruct_sequence(name = "flags", data = "FlagsData", no_attr)]
     pub(super) struct PyFlags;
 
-    #[pyclass(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence), flags(IMMUTABLETYPE))]
     impl Py<PyFlags> {
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -1873,7 +1873,7 @@ pub mod sys {
     pub(super) struct PyThreadInfo;
 
     #[cfg(feature = "threading")]
-    #[pyclass(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence), flags(IMMUTABLETYPE))]
     impl PyThreadInfo {}
 
     #[pystruct_sequence_data]
@@ -1910,7 +1910,7 @@ pub mod sys {
     #[pystruct_sequence(name = "float_info", data = "FloatInfoData", no_attr)]
     pub(super) struct PyFloatInfo;
 
-    #[pyclass(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence), flags(IMMUTABLETYPE))]
     impl PyFloatInfo {}
 
     #[pystruct_sequence_data]
@@ -1946,7 +1946,7 @@ pub mod sys {
     #[pystruct_sequence(name = "hash_info", data = "HashInfoData", no_attr)]
     pub(super) struct PyHashInfo;
 
-    #[pyclass(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence), flags(IMMUTABLETYPE))]
     impl PyHashInfo {}
 
     #[pystruct_sequence_data]
@@ -1969,7 +1969,7 @@ pub mod sys {
     #[pystruct_sequence(name = "int_info", data = "IntInfoData", no_attr)]
     pub(super) struct PyIntInfo;
 
-    #[pyclass(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence), flags(IMMUTABLETYPE))]
     impl PyIntInfo {}
 
     #[derive(Default, Debug)]
@@ -2003,7 +2003,7 @@ pub mod sys {
     #[pystruct_sequence(name = "version_info", data = "VersionInfoData", no_attr)]
     pub struct PyVersionInfo;
 
-    #[pyclass(with(PyStructSequence))]
+    #[pyclass(with(PyStructSequence), flags(IMMUTABLETYPE))]
     impl PyVersionInfo {
         #[pyslot]
         fn slot_new(
@@ -2198,6 +2198,10 @@ pub(crate) fn init_module(
     builtins: &Py<PyModule>,
 ) -> PyResult<()> {
     module.__init_methods(vm)?;
+    let _ = vm
+        .state
+        .sysdict_copy
+        .set(module.dict().copy().into_ref(&vm.ctx));
     sys::module_exec(vm, module)?;
     // These values decode OS bytes and can fail before the codec registry is ready.
     // Initialize them outside infallible #[pyattr] functions so startup can report errors.
@@ -2211,6 +2215,7 @@ pub(crate) fn init_module(
     )?;
 
     let modules = vm.ctx.new_dict();
+    let _ = vm.state.modules.set(modules.clone());
     modules
         .set_item("sys", module.to_owned().into(), vm)
         .unwrap();

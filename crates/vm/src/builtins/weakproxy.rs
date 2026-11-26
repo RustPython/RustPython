@@ -89,7 +89,7 @@ impl PyWeakProxy {
 #[repr(transparent)]
 pub struct PyWeakCallableProxy(PyWeakProxy);
 
-#[pyclass(with(Callable, Constructor))]
+#[pyclass(with(Callable, Constructor), flags(IMMUTABLETYPE))]
 impl PyWeakCallableProxy {}
 
 impl Constructor for PyWeakCallableProxy {
@@ -163,17 +163,20 @@ impl Comparable for PyWeakProxy {
     }
 }
 
-#[pyclass(with(
-    Comparable,
-    GetAttr,
-    SetAttr,
-    Constructor,
-    AsNumber,
-    AsSequence,
-    AsMapping,
-    Representable,
-    IterNext
-))]
+#[pyclass(
+    with(
+        Comparable,
+        GetAttr,
+        SetAttr,
+        Constructor,
+        AsNumber,
+        AsSequence,
+        AsMapping,
+        Representable,
+        IterNext
+    ),
+    flags(IMMUTABLETYPE)
+)]
 impl Py<PyWeakProxy> {
     /// Return str(self).
     #[pymethod]

@@ -7,6 +7,7 @@ pub const X509_V_ERR_CERT_HAS_EXPIRED: i32 = 10;
 pub const X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY: i32 = 20;
 pub const X509_V_ERR_CERT_REVOKED: i32 = 23;
 pub const X509_V_ERR_INVALID_PURPOSE: i32 = 26;
+pub const X509_V_ERR_CERT_REJECTED: i32 = 28;
 pub const X509_V_ERR_HOSTNAME_MISMATCH: i32 = 62;
 pub const X509_V_ERR_IP_ADDRESS_MISMATCH: i32 = 64;
 
@@ -36,6 +37,16 @@ pub fn rustls_cert_error_to_verify_info(
             X509_V_ERR_INVALID_PURPOSE,
             "unsupported certificate purpose",
         ),
+        // rustls preserves WebPKI errors without a dedicated CertificateError variant.
+        // Only translate an actual distrust decision; do not inspect or re-verify the chain.
+        CertificateError::Other(other_err)
+            if matches!(
+                other_err.0.downcast_ref::<webpki::Error>(),
+                Some(webpki::Error::CertDistrusted)
+            ) =>
+        {
+            (X509_V_ERR_CERT_REJECTED, "certificate rejected")
+        }
         CertificateError::Other(other_err) => {
             let err_msg = format!("{other_err:?}");
             if err_msg.contains("Hostname mismatch") || err_msg.contains("not valid for") {
@@ -53,5 +64,31 @@ pub fn rustls_cert_error_to_verify_info(
             }
         }
         _ => (X509_V_ERR_UNSPECIFIED, "certificate verification failed"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::sync::Arc;
+
+    #[test]
+    fn maps_only_typed_webpki_distrust_to_rejected() {
+        let distrust = rustls::CertificateError::Other(rustls::OtherError(Arc::new(
+            webpki::Error::CertDistrusted,
+        )));
+        assert_eq!(
+            rustls_cert_error_to_verify_info(&distrust),
+            (X509_V_ERR_CERT_REJECTED, "certificate rejected")
+        );
+        for other in [
+            rustls::OtherError(Arc::new(webpki::Error::BadDer)),
+            rustls::OtherError(Arc::new(std::io::Error::other("CertDistrusted"))),
+        ] {
+            assert_eq!(
+                rustls_cert_error_to_verify_info(&rustls::CertificateError::Other(other)),
+                (X509_V_ERR_UNSPECIFIED, "certificate verification failed")
+            );
+        }
     }
 }

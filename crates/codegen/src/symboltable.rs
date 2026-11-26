@@ -534,6 +534,21 @@ fn inline_comprehension(
             symbol.scope = scope;
             parent_symbols.insert(name.clone(), symbol);
         }
+
+        // An inlined comprehension contributes its symbols before
+        // update_symbols(), including forwarding-only FREE entries. Those
+        // entries have no flags of their own but are no longer placeholders
+        // introduced solely to forward a nested scope's free variable.
+        if parent_type == CompilerScope::Class
+            && scope == SymbolScope::Free
+            && comp_free.contains(name)
+        {
+            parent_symbols
+                .get_mut(name)
+                .unwrap()
+                .flags
+                .insert(SymbolFlags::DEF_FREE_CLASS);
+        }
     }
     removed_class_implicits
 }
@@ -802,7 +817,11 @@ impl SymbolTableAnalyzer {
         // generator expressions.
         if symbol_table.typ == CompilerScope::Class || symbol_table.can_see_class_scope {
             for name in &newfree {
-                if let Some(symbol) = symbol_table.symbols.get_mut(name) {
+                if let Some(symbol) = symbol_table.symbols.get_mut(name)
+                    // Forwarding-only entries do not exist until update_symbols()
+                    // inserts them as FREE; they do not get DEF_FREE_CLASS.
+                    && !symbol.flags.is_empty()
+                {
                     symbol.flags.insert(SymbolFlags::DEF_FREE_CLASS);
                 }
             }
@@ -999,16 +1018,7 @@ impl SymbolTableAnalyzer {
                 name == "__classdict__" || name == "__conditional_annotations__";
 
             for (table, typ, _skip) in self.tables.iter_mut().rev().take(decl_depth) {
-                if let CompilerScope::Class = typ {
-                    if let Some(free_class) = table.get_mut(name) {
-                        free_class.flags.insert(SymbolFlags::DEF_FREE_CLASS)
-                    } else {
-                        let mut symbol = Symbol::new(name.clone());
-                        symbol.flags.insert(SymbolFlags::DEF_FREE_CLASS);
-                        symbol.scope = SymbolScope::Free;
-                        table.insert(name.to_owned(), symbol);
-                    }
-                } else if is_class_implicit
+                if is_class_implicit
                     && matches!(
                         typ,
                         CompilerScope::Function
@@ -1075,6 +1085,22 @@ enum SymbolUsage {
     TypeParam,
 }
 
+bitflags! {
+    // Statement traversal state, owned by the current lexical scope.
+    #[derive(Clone, Copy)]
+    struct ScanRegion: u8 {
+        const CONDITIONAL = 1 << 0;
+        const TRY = 1 << 1;
+    }
+}
+
+/// A scope owns a statement visit region only while its visit is active.
+#[derive(Clone, Copy)]
+struct ActiveScanRegion {
+    owner: usize,
+    flags: ScanRegion,
+}
+
 struct SymbolTableBuilder {
     class_name: Option<Name>,
     // Scope stack.
@@ -1082,18 +1108,12 @@ struct SymbolTableBuilder {
     future_annotations: bool,
     allow_top_level_await: bool,
     source_file: SourceFile,
-    // Current scope's varnames being collected (temporary storage)
-    current_varnames: Vec<Name>,
-    // Stack to preserve parent varnames when entering nested scopes
-    varnames_stack: Vec<Vec<Name>>,
     // Track if we're inside an iterable definition expression (for nested comprehensions)
     in_iter_def_exp: bool,
     // yield/yield from inside comprehension scopes is rejected with a
     // message that names the comprehension kind.
     comprehension_yield_context: Option<&'static str>,
-    // PEP 649: Track if we're inside a conditional block (if/for/while/etc.)
-    in_conditional_block: bool,
-    lazy_prohibited_scopes: Vec<usize>,
+    active_scan_region: Option<ActiveScanRegion>,
     // Mirrors symtable ENTER_RECURSIVE guards during compilation.
     recursion_depth: usize,
     recursion_limit: usize,
@@ -1130,12 +1150,9 @@ impl SymbolTableBuilder {
             future_annotations: false,
             allow_top_level_await: false,
             source_file,
-            current_varnames: Vec::new(),
-            varnames_stack: Vec::new(),
             in_iter_def_exp: false,
             comprehension_yield_context: None,
-            in_conditional_block: false,
-            lazy_prohibited_scopes: Vec::new(),
+            active_scan_region: None,
             recursion_depth: 0,
             recursion_limit: DEFAULT_RECURSION_LIMIT,
             next_block_index: 0,
@@ -1192,8 +1209,6 @@ impl SymbolTableBuilder {
     fn finish(mut self) -> Result<SymbolTable, SymbolTableError> {
         assert_eq!(self.tables.len(), 1);
         let mut symbol_table = self.tables.pop().unwrap();
-        // Save varnames for the top-level module scope
-        symbol_table.varnames = self.current_varnames;
         // Propagate future_annotations to the symbol table
         symbol_table.future_annotations = self.future_annotations;
         analyze_symbol_table(&mut symbol_table)?;
@@ -1227,9 +1242,6 @@ impl SymbolTableBuilder {
         table.future_annotations = self.future_annotations;
         table.mangled_names = inherited_mangled_names;
         self.tables.push(table);
-        // Save parent's varnames and start fresh for the new scope
-        self.varnames_stack
-            .push(core::mem::take(&mut self.current_varnames));
     }
 
     fn enter_type_param_block(
@@ -1287,20 +1299,13 @@ impl SymbolTableBuilder {
 
     /// Pop symbol table and add to sub table of parent table.
     fn leave_scope(&mut self) {
-        let mut table = self.tables.pop().unwrap();
-        // Save the collected varnames to the symbol table
-        table.varnames = core::mem::take(&mut self.current_varnames);
+        let table = self.tables.pop().unwrap();
         self.tables.last_mut().unwrap().sub_tables.push(table);
-        // Restore parent's varnames
-        self.current_varnames = self.varnames_stack.pop().unwrap_or_default();
     }
 
     /// Pop symbol table without adding it to the parent children list.
     fn discard_scope(&mut self) -> SymbolTable {
-        let mut table = self.tables.pop().unwrap();
-        table.varnames = core::mem::take(&mut self.current_varnames);
-        self.current_varnames = self.varnames_stack.pop().unwrap_or_default();
-        table
+        self.tables.pop().unwrap()
     }
 
     fn resolve_future_annotation_names_as_globals(table: &mut SymbolTable) {
@@ -1359,10 +1364,6 @@ impl SymbolTableBuilder {
             .take()
             .unwrap();
         self.tables.push(*annotation_table);
-        // Save parent's varnames and seed with existing annotation varnames (e.g., "format")
-        self.varnames_stack
-            .push(core::mem::take(&mut self.current_varnames));
-        self.current_varnames = self.tables.last().unwrap().varnames.clone();
 
         if can_see_class_scope && (include_classdict_with_future || !self.future_annotations) {
             self.add_classdict_freevar();
@@ -1378,16 +1379,12 @@ impl SymbolTableBuilder {
     /// Stores the annotation block back to parent instead of sub_tables
     fn leave_annotation_scope(&mut self) {
         let mut table = self.tables.pop().unwrap();
-        // Save the collected varnames to the symbol table
-        table.varnames = core::mem::take(&mut self.current_varnames);
         if self.future_annotations {
             Self::resolve_future_annotation_names_as_globals(&mut table);
         }
         // Store back to parent's annotation_block (not sub_tables)
         let parent = self.tables.last_mut().unwrap();
         parent.annotation_block = Some(Box::new(table));
-        // Restore parent's varnames
-        self.current_varnames = self.varnames_stack.pop().unwrap_or_default();
     }
 
     fn add_classdict_freevar(&mut self) {
@@ -1398,16 +1395,11 @@ impl SymbolTableBuilder {
             .entry(name.clone())
             .or_insert_with(|| Symbol::new(name));
         symbol.scope = SymbolScope::Free;
-        symbol
-            .flags
-            .insert(SymbolFlags::USE | SymbolFlags::DEF_FREE_CLASS);
+        symbol.flags.insert(SymbolFlags::USE);
     }
 
     fn add_format_parameter(&mut self) {
         self.tables.last_mut().unwrap().add_format_parameter();
-        if !self.current_varnames.iter().any(|name| name == ".format") {
-            self.current_varnames.push(".format".into());
-        }
     }
 
     /// Walk up the scope chain to determine if we're inside an async function.
@@ -1584,7 +1576,7 @@ impl SymbolTableBuilder {
         let needs_conditional_annotations = is_ann_assign
             && (matches!(current_scope, Some(CompilerScope::Module))
                 || (matches!(current_scope, Some(CompilerScope::Class))
-                    && self.in_conditional_block));
+                    && self.current_scan_region().contains(ScanRegion::CONDITIONAL)));
         let should_register_conditional_annotations = needs_conditional_annotations
             && !self.tables.last().unwrap().has_conditional_annotations;
 
@@ -1658,10 +1650,11 @@ impl SymbolTableBuilder {
             ),
             _ => return Ok(()),
         };
-        let reason = if self.lazy_prohibited_scopes.contains(&self.tables.len()) {
+        let scope = self.tables.last().unwrap();
+        let reason = if self.current_scan_region().contains(ScanRegion::TRY) {
             Some(format!("lazy {kind} not allowed inside try/except blocks"))
         } else {
-            match self.tables.last().unwrap().typ {
+            match scope.typ {
                 CompilerScope::Function | CompilerScope::AsyncFunction => {
                     Some(format!("lazy {kind} not allowed inside functions"))
                 }
@@ -1675,6 +1668,32 @@ impl SymbolTableBuilder {
         } else {
             Ok(())
         }
+    }
+
+    fn current_scan_region(&self) -> ScanRegion {
+        let owner = self.tables.last().unwrap().block_index;
+        match self.active_scan_region {
+            Some(region) if region.owner == owner => region.flags,
+            _ => ScanRegion::empty(),
+        }
+    }
+
+    /// CPython's conditional and try bits are local to an entry. Statement
+    /// visits nest in stack order, so only the latest region can belong to
+    /// the current entry; a newly entered scope sees no inherited flags.
+    fn with_scan_region(
+        &mut self,
+        flags: ScanRegion,
+        visit: impl FnOnce(&mut Self) -> SymbolTableResult,
+    ) -> SymbolTableResult {
+        let owner = self.tables.last().unwrap().block_index;
+        let flags = flags | self.current_scan_region();
+        let previous = self
+            .active_scan_region
+            .replace(ActiveScanRegion { owner, flags });
+        let result = visit(self);
+        self.active_scan_region = previous;
+        result
     }
 
     fn scan_statement(&mut self, statement: &ast::Stmt) -> SymbolTableResult {
@@ -1816,9 +1835,6 @@ impl SymbolTableBuilder {
                         CompilerScope::Class,
                         self.line_index_start(def_range),
                     );
-                    // Reset in_conditional_block for new class scope
-                    let saved_in_conditional = self.in_conditional_block;
-                    self.in_conditional_block = false;
                     self.class_name = Some(name.id().clone());
                     if type_params.is_some() {
                         self.register_name(
@@ -1830,7 +1846,6 @@ impl SymbolTableBuilder {
                     }
                     self.scan_statements(body)?;
                     self.leave_scope();
-                    self.in_conditional_block = saved_in_conditional;
                     if type_params.is_some() {
                         self.leave_scope();
                     }
@@ -1847,17 +1862,16 @@ impl SymbolTableBuilder {
                     ..
                 }) => {
                     self.scan_expression(test, ExpressionContext::Load)?;
-                    // PEP 649: Track conditional block for annotations
-                    let saved_in_conditional_block = self.in_conditional_block;
-                    self.in_conditional_block = true;
-                    self.scan_statements(body)?;
-                    for elif in elif_else_clauses {
-                        if let Some(test) = &elif.test {
-                            self.scan_expression(test, ExpressionContext::Load)?;
+                    self.with_scan_region(ScanRegion::CONDITIONAL, |builder| {
+                        builder.scan_statements(body)?;
+                        for elif in elif_else_clauses {
+                            if let Some(test) = &elif.test {
+                                builder.scan_expression(test, ExpressionContext::Load)?;
+                            }
+                            builder.scan_statements(&elif.body)?;
                         }
-                        self.scan_statements(&elif.body)?;
-                    }
-                    self.in_conditional_block = saved_in_conditional_block;
+                        Ok(())
+                    })?;
                 }
                 Stmt::For(StmtFor {
                     target,
@@ -1878,23 +1892,19 @@ impl SymbolTableBuilder {
                     }
                     self.scan_expression(target, ExpressionContext::Store)?;
                     self.scan_expression(iter, ExpressionContext::Load)?;
-                    // PEP 649: Track conditional block for annotations
-                    let saved_in_conditional_block = self.in_conditional_block;
-                    self.in_conditional_block = true;
-                    self.scan_statements(body)?;
-                    self.scan_statements(orelse)?;
-                    self.in_conditional_block = saved_in_conditional_block;
+                    self.with_scan_region(ScanRegion::CONDITIONAL, |builder| {
+                        builder.scan_statements(body)?;
+                        builder.scan_statements(orelse)
+                    })?;
                 }
                 Stmt::While(StmtWhile {
                     test, body, orelse, ..
                 }) => {
                     self.scan_expression(test, ExpressionContext::Load)?;
-                    // PEP 649: Track conditional block for annotations
-                    let saved_in_conditional_block = self.in_conditional_block;
-                    self.in_conditional_block = true;
-                    self.scan_statements(body)?;
-                    self.scan_statements(orelse)?;
-                    self.in_conditional_block = saved_in_conditional_block;
+                    self.with_scan_region(ScanRegion::CONDITIONAL, |builder| {
+                        builder.scan_statements(body)?;
+                        builder.scan_statements(orelse)
+                    })?;
                 }
                 Stmt::Break(_) | Stmt::Continue(_) | Stmt::Pass(_) => {
                     // No symbols here.
@@ -2031,17 +2041,15 @@ impl SymbolTableBuilder {
                             statement.range(),
                         ));
                     }
-                    // PEP 649: Track conditional block for annotations
-                    let saved_in_conditional_block = self.in_conditional_block;
-                    self.in_conditional_block = true;
-                    for item in items {
-                        self.scan_expression(&item.context_expr, ExpressionContext::Load)?;
-                        if let Some(expression) = &item.optional_vars {
-                            self.scan_expression(expression, ExpressionContext::Store)?;
+                    self.with_scan_region(ScanRegion::CONDITIONAL, |builder| {
+                        for item in items {
+                            builder.scan_expression(&item.context_expr, ExpressionContext::Load)?;
+                            if let Some(expression) = &item.optional_vars {
+                                builder.scan_expression(expression, ExpressionContext::Store)?;
+                            }
                         }
-                    }
-                    self.scan_statements(body)?;
-                    self.in_conditional_block = saved_in_conditional_block;
+                        builder.scan_statements(body)
+                    })?;
                 }
                 Stmt::Try(StmtTry {
                     body,
@@ -2050,44 +2058,43 @@ impl SymbolTableBuilder {
                     finalbody,
                     ..
                 }) => {
-                    // PEP 649: Track conditional block for annotations
-                    let saved_in_conditional_block = self.in_conditional_block;
-                    self.in_conditional_block = true;
-                    self.lazy_prohibited_scopes.push(self.tables.len());
-                    self.scan_statements(body)?;
-                    for handler in handlers {
-                        let ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
-                            type_,
-                            name,
-                            body,
-                            ..
-                        }) = &handler;
-                        if let Some(expression) = type_ {
-                            self.scan_expression(expression, ExpressionContext::Load)?;
+                    self.with_scan_region(ScanRegion::CONDITIONAL | ScanRegion::TRY, |builder| {
+                        builder.scan_statements(body)?;
+                        for handler in handlers {
+                            let ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                                type_,
+                                name,
+                                body,
+                                ..
+                            }) = &handler;
+                            if let Some(expression) = type_ {
+                                builder.scan_expression(expression, ExpressionContext::Load)?;
+                            }
+                            if let Some(name) = name {
+                                builder.register_name(
+                                    name.id(),
+                                    SymbolUsage::Assigned,
+                                    handler.range(),
+                                )?;
+                            }
+                            builder.scan_statements(body)?;
                         }
-                        if let Some(name) = name {
-                            self.register_name(name.id(), SymbolUsage::Assigned, handler.range())?;
-                        }
-                        self.scan_statements(body)?;
-                    }
-                    self.scan_statements(orelse)?;
-                    self.scan_statements(finalbody)?;
-                    self.lazy_prohibited_scopes.pop();
-                    self.in_conditional_block = saved_in_conditional_block;
+                        builder.scan_statements(orelse)?;
+                        builder.scan_statements(finalbody)
+                    })?;
                 }
                 Stmt::Match(StmtMatch { subject, cases, .. }) => {
                     self.scan_expression(subject, ExpressionContext::Load)?;
-                    // PEP 649: Track conditional block for annotations
-                    let saved_in_conditional_block = self.in_conditional_block;
-                    self.in_conditional_block = true;
-                    for case in cases {
-                        self.scan_pattern(&case.pattern)?;
-                        if let Some(guard) = &case.guard {
-                            self.scan_expression(guard, ExpressionContext::Load)?;
+                    self.with_scan_region(ScanRegion::CONDITIONAL, |builder| {
+                        for case in cases {
+                            builder.scan_pattern(&case.pattern)?;
+                            if let Some(guard) = &case.guard {
+                                builder.scan_expression(guard, ExpressionContext::Load)?;
+                            }
+                            builder.scan_statements(&case.body)?;
                         }
-                        self.scan_statements(&case.body)?;
-                    }
-                    self.in_conditional_block = saved_in_conditional_block;
+                        Ok(())
+                    })?;
                 }
                 Stmt::Raise(StmtRaise { exc, cause, .. }) => {
                     if let Some(expression) = exc {
@@ -3229,65 +3236,37 @@ impl SymbolTableBuilder {
                 });
             }
             match role {
-                SymbolUsage::Global if !symbol.is_global() => {
-                    if flags.contains(SymbolFlags::DEF_PARAM) {
+                SymbolUsage::Global | SymbolUsage::Nonlocal => {
+                    // CPython checks the accumulated flags even on a repeated
+                    // directive. Lookup uses the mangled name; diagnostics use
+                    // the spelling from the current directive.
+                    let directive = if matches!(role, SymbolUsage::Global) {
+                        "global"
+                    } else {
+                        "nonlocal"
+                    };
+                    let error = if flags.contains(SymbolFlags::DEF_PARAM) {
+                        Some(format!(
+                            "name '{original_name}' is parameter and {directive}"
+                        ))
+                    } else if flags.contains(SymbolFlags::USE) {
+                        Some(format!(
+                            "name '{original_name}' is used prior to {directive} declaration"
+                        ))
+                    } else if flags.contains(SymbolFlags::DEF_ANNOT) {
+                        Some(format!(
+                            "annotated name '{original_name}' can't be {directive}"
+                        ))
+                    } else if flags.contains(SymbolFlags::DEF_LOCAL) {
+                        Some(format!(
+                            "name '{original_name}' is assigned to before {directive} declaration"
+                        ))
+                    } else {
+                        None
+                    };
+                    if let Some(error) = error {
                         return Err(SymbolTableError {
-                            error: format!("name '{name}' is parameter and global"),
-                            location,
-                            end_location,
-                        });
-                    }
-                    if flags.contains(SymbolFlags::USE) {
-                        return Err(SymbolTableError {
-                            error: format!("name '{name}' is used prior to global declaration"),
-                            location,
-                            end_location,
-                        });
-                    }
-                    if flags.contains(SymbolFlags::DEF_ANNOT) {
-                        return Err(SymbolTableError {
-                            error: format!("annotated name '{name}' can't be global"),
-                            location,
-                            end_location,
-                        });
-                    }
-                    if flags.contains(SymbolFlags::DEF_LOCAL) {
-                        return Err(SymbolTableError {
-                            error: format!(
-                                "name '{name}' is assigned to before global declaration"
-                            ),
-                            location,
-                            end_location,
-                        });
-                    }
-                }
-                SymbolUsage::Nonlocal => {
-                    if flags.contains(SymbolFlags::DEF_PARAM) {
-                        return Err(SymbolTableError {
-                            error: format!("name '{name}' is parameter and nonlocal"),
-                            location,
-                            end_location,
-                        });
-                    }
-                    if flags.contains(SymbolFlags::USE) {
-                        return Err(SymbolTableError {
-                            error: format!("name '{name}' is used prior to nonlocal declaration"),
-                            location,
-                            end_location,
-                        });
-                    }
-                    if flags.contains(SymbolFlags::DEF_ANNOT) {
-                        return Err(SymbolTableError {
-                            error: format!("annotated name '{name}' can't be nonlocal"),
-                            location,
-                            end_location,
-                        });
-                    }
-                    if flags.contains(SymbolFlags::DEF_LOCAL) {
-                        return Err(SymbolTableError {
-                            error: format!(
-                                "name '{name}' is assigned to before nonlocal declaration"
-                            ),
+                            error,
                             location,
                             end_location,
                         });
@@ -3357,8 +3336,8 @@ impl SymbolTableBuilder {
                 flags.insert(SymbolFlags::DEF_PARAM);
                 // Parameters are always added to varnames first
                 let name_str = symbol.name.clone();
-                if !self.current_varnames.contains(&name_str) {
-                    self.current_varnames.push(name_str);
+                if !table.varnames.contains(&name_str) {
+                    table.varnames.push(name_str);
                 }
             }
             SymbolUsage::AnnotationAssigned => {
@@ -3538,6 +3517,47 @@ mod tests {
             symbol.flags.contains(SymbolFlags::DEF_COMP_ITER),
             "CPython symtable_add_def_helper sets DEF_COMP_ITER on comprehension iteration targets"
         );
+    }
+
+    #[test]
+    fn free_class_flag_distinguishes_forwarding_from_class_symbols() {
+        for (class_body, has_flag) in [
+            ("", false),
+            ("        x = 2\n", true),
+            ("        item = x\n", true),
+            ("        global x\n", true),
+            ("        nonlocal x\n", true),
+            ("        item = [lambda: x for _ in range(2)]\n", true),
+        ] {
+            let source = format!(
+                "def outer():\n    x = 1\n    class C:\n{class_body}        def a(self): return x\n        def b(self): return x\n"
+            );
+            let top = scan_source(&source);
+            let outer = top.sub_tables.iter().find(|st| st.name == "outer").unwrap();
+            let class = outer.sub_tables.iter().find(|st| st.name == "C").unwrap();
+            let x = class.lookup(&"x".into()).unwrap();
+            assert_eq!(x.flags.contains(SymbolFlags::DEF_FREE_CLASS), has_flag);
+        }
+    }
+
+    #[test]
+    fn annotation_classdict_only_has_free_class_flag_when_needed_by_child() {
+        for (expression, has_flag) in [
+            ("int", false),
+            ("(__classdict__, (lambda: __classdict__)())", true),
+        ] {
+            let source = format!("class C:\n    item: {expression}\n");
+            let top = scan_source(&source);
+            let class = top.sub_tables.iter().find(|st| st.name == "C").unwrap();
+            let block = class.annotation_block.as_ref().unwrap();
+            let classdict = block.lookup(&"__classdict__".into()).unwrap();
+            assert_eq!(classdict.scope, super::SymbolScope::Free);
+            assert!(classdict.flags.contains(SymbolFlags::USE));
+            assert_eq!(
+                classdict.flags.contains(SymbolFlags::DEF_FREE_CLASS),
+                has_flag
+            );
+        }
     }
 
     #[test]
@@ -3872,6 +3892,55 @@ def f(x=(lambda: 1)()):
             5,
             "CPython reports LOCATION(s) for global directives, at 'global'"
         );
+    }
+
+    #[test]
+    fn repeated_global_rechecks_prior_uses_and_definitions() {
+        for (statement, reason) in [
+            ("x", "is used prior to"),
+            ("x = 1", "is assigned to before"),
+            ("del x", "is assigned to before"),
+        ] {
+            let source = format!("def f():\n    global x\n    {statement}\n    global x\n");
+            let err = scan_source_result(&source).unwrap_err();
+            assert_eq!(err.error, format!("name 'x' {reason} global declaration"));
+            let start = err.location.unwrap();
+            let end = err.end_location.unwrap();
+            assert_eq!((start.line.get(), start.character_offset.get()), (4, 5));
+            assert_eq!((end.line.get(), end.character_offset.get()), (4, 13));
+        }
+        // Repetition alone is legal. Imports do not carry any of the
+        // definition flags checked by a scope directive.
+        assert!(scan_source_result("global x\nglobal x\n").is_ok());
+        assert!(scan_source_result("def f():\n    global x\n    import x\n    global x\n").is_ok());
+    }
+
+    #[test]
+    fn private_scope_directive_conflicts_use_source_spelling() {
+        for (directive, statement, message) in [
+            (
+                "global",
+                "__x = 1",
+                "name '__x' is assigned to before global declaration",
+            ),
+            (
+                "nonlocal",
+                "__x",
+                "name '__x' is used prior to nonlocal declaration",
+            ),
+            (
+                "nonlocal",
+                "__x: int",
+                "annotated name '__x' can't be nonlocal",
+            ),
+        ] {
+            let source =
+                format!("class C:\n    def f():\n        {statement}\n        {directive} __x\n");
+            let err = scan_source_result(&source).unwrap_err();
+            assert_eq!(err.error, message);
+            let start = err.location.unwrap();
+            assert_eq!((start.line.get(), start.character_offset.get()), (4, 9));
+        }
     }
 
     #[test]

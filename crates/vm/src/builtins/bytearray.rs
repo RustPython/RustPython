@@ -13,9 +13,10 @@ use crate::{
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerReplaceOptions, ByteInnerSplitOptions, ByteInnerStripOptions, ByteInnerSub,
-        ByteInnerTranslateOptions, ByteOr, BytesJoin, DecodeArgs, PyBytesInner, bytes_decode,
+        ByteInnerTranslateOptions, ByteOr, BytesJoin, PyBytesInner, bytes_decode,
     },
     class::PyClassImpl,
+    codecs::TextCodecArgs,
     common::lock::{
         PyDetachingRwLock, PyDetachingRwLockReadGuard, PyDetachingRwLockWriteGuard,
         PyMappedDetachingRwLockReadGuard, PyMappedDetachingRwLockWriteGuard, PyMutex,
@@ -1040,8 +1041,8 @@ impl Py<PyByteArray> {
     }
 
     #[pymethod]
-    fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        self.starts_ends_with(options, true, vm)
+    fn endswith(&self, options: anystr::EndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        self.starts_ends_with(options.inner, true, vm)
     }
 
     #[pymethod]
@@ -1300,7 +1301,7 @@ impl PyRef<PyByteArray> {
     }
 
     #[pymethod]
-    fn decode(self, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn decode(self, args: TextCodecArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         bytes_decode(self.into(), args, vm)
     }
 }

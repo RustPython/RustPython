@@ -201,7 +201,7 @@ impl PySlice {
     }
 }
 
-#[pyclass(with(Comparable, Representable, Hashable))]
+#[pyclass(with(Comparable, Representable, Hashable), flags(IMMUTABLETYPE))]
 impl Py<PySlice> {
     #[pyclassmethod]
     fn __class_getitem__(

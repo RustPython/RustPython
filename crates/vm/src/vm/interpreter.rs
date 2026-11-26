@@ -92,6 +92,8 @@ where
         // Subinterpreter: clone config and module tables from parent, fresh runtime state.
         let int_max_str_digits = AtomicCell::new(parent.int_max_str_digits.load());
         let mut config = parent.config.clone();
+        // The executable startup snapshot applies only to its initial interpreter.
+        config.settings.closed_stdio = [false; 3];
         config.settings.inspect = parent.inspect.load(Ordering::Relaxed);
         (
             config,
@@ -164,6 +166,9 @@ where
         inspect: AtomicBool::new(config.settings.inspect),
         interactive_src_count: AtomicUsize::new(0),
         config,
+        modules: Default::default(),
+        builtins_copy: Default::default(),
+        sysdict_copy: Default::default(),
         module_defs: all_module_defs,
         frozen,
         stacksize: AtomicCell::new(0),
@@ -872,6 +877,9 @@ impl VirtualMachine {
         // Exit callbacks have finished, but modules and the user unraisable
         // hook are still available to report a failed stream flush.
         let mut flush_status = vm.flush_std();
+
+        #[cfg(all(feature = "host_env", any(unix, windows, target_os = "wasi")))]
+        crate::stdlib::_signal::_signal::finalize_signal_handlers(vm);
 
         // GC pass - collect cycles before module cleanup
         vm.state.gc.collect_force(2);

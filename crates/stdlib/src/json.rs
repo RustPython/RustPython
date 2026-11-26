@@ -1118,12 +1118,10 @@ mod _json {
                 let Some(value) = get(i) else {
                     break;
                 };
-                if i == 0 {
-                    self.push_newline_indent(out, new_level);
-                } else {
+                if i != 0 {
                     out.push_wtf8(self.item_separator.as_wtf8());
-                    self.push_newline_indent(out, new_level);
                 }
+                self.push_newline_indent(out, new_level);
                 if let Err(e) = self.encode_value(&value, new_level, out, vm) {
                     return Err(add_note(
                         e,
@@ -1182,11 +1180,10 @@ mod _json {
             }
             if *first {
                 *first = false;
-                self.push_newline_indent(out, level);
             } else {
                 out.push_wtf8(self.item_separator.as_wtf8());
-                self.push_newline_indent(out, level);
             }
+            self.push_newline_indent(out, level);
             out.push_wtf8(&key_out);
             out.push_wtf8(self.key_separator.as_wtf8());
             self.encode_value(value, level, out, vm).map_err(|e| {

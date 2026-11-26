@@ -728,7 +728,6 @@ class StateTestCase(BaseTestCase):
         with TracerRun(self) as tracer:
             tracer.runcall(tfunc_main)
 
-    @unittest.skipIf(hasattr(__import__("sys"), "addaudithook"), "TODO: RUSTPYTHON; Currently no conditional tracing toggle")
     @patch_list(sys.meta_path)
     def test_skip(self):
         # Check that tracing is skipped over the import statement in

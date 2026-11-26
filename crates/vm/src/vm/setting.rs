@@ -141,6 +141,10 @@ pub struct Settings {
     /// -u, PYTHONUNBUFFERED=x
     pub buffered_stdio: bool,
 
+    /// Standard descriptors closed at executable startup, before runtime sanitization.
+    /// Embeddings normally leave this unset and inspect current descriptors instead.
+    pub closed_stdio: [bool; 3],
+
     /// PYTHONIOENCODING - stdio encoding
     pub stdio_encoding: Option<String>,
     /// PYTHONIOENCODING - stdio error handler
@@ -245,6 +249,7 @@ impl Default for Settings {
             pycache_prefix: None,
             code_debug_ranges: true,
             buffered_stdio: true,
+            closed_stdio: [false; 3],
             check_hash_pycs_mode: CheckHashPycsMode::Default,
             allow_external_library: cfg!(feature = "importlib"),
             stdio_encoding: None,

@@ -29,3 +29,11 @@ for error, kwargs in (
     finally:
         while lock._is_owned():
             lock.release()
+
+with assert_raises(OverflowError):
+    _thread.stack_size(2**64)
+with assert_raises(OverflowError):
+    _thread.stack_size(2**63)
+with assert_raises(OverflowError):
+    _thread.stack_size(-(2**63) - 1)
+assert _thread.stack_size() == 0

@@ -1374,10 +1374,16 @@ impl PyCData {
     /// Create from external memory address
     ///
     /// # Safety
+    /// `ptr` must be non-null and valid for `size` bytes for the lifetime of returned PyCData.
+    /// `size` must not exceed `isize::MAX`.
     /// The returned slice's 'static lifetime is a lie.
     /// Actually only valid for the lifetime of the memory pointed to by ptr.
     /// PyCData_AtAddress
     pub unsafe fn at_address(ptr: *const u8, size: usize) -> Self {
+        debug_assert!(
+            !ptr.is_null() && isize::try_from(size).is_ok(),
+            "PyCData::at_address requires non-null pointer and size <= isize::MAX"
+        );
         // = PyCData_AtAddress
         // SAFETY: Caller must ensure ptr is valid for the lifetime of returned PyCData
         let slice = unsafe { rustpython_host_env::ctypes::borrow_memory(ptr, size) };
@@ -3303,6 +3309,19 @@ impl Py<PyCData> {
             return Err(vm.new_type_error("abstract class"));
         }
 
+        if isize::try_from(size).is_err() {
+            return Err(vm.new_overflow_error("size too large"));
+        }
+
+        if address == 0 {
+            return Err(vm.new_value_error("NULL pointer access"));
+        }
+
+        let addr = address as usize;
+        if addr.checked_add(size).is_none() {
+            return Err(vm.new_overflow_error("address overflow"));
+        }
+
         // PyCData_AtAddress
         let cdata = unsafe { PyCData::at_address(address as *const u8, size) };
         cdata.into_ref_with_type(vm, cls).map(Into::into)
@@ -3322,6 +3341,10 @@ impl Py<PyCData> {
 
         if size == 0 {
             return Err(vm.new_type_error("abstract class"));
+        }
+
+        if isize::try_from(size).is_err() {
+            return Err(vm.new_overflow_error("size too large"));
         }
 
         // Get the library handle from dll object

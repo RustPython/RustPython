@@ -97,17 +97,17 @@ where
     fn delitem_by_slice(&mut self, _vm: &VirtualMachine, slice: SaturatedSlice) -> PyResult<()> {
         let (range, step, slice_len) = slice.adjust_indices(self.as_ref().len());
         if slice_len == 0 {
-            Ok(())
-        } else if step == 1 || step == -1 {
+            return Ok(());
+        }
+        if step == 1 || step == -1 {
             self.do_set_range(range, &[]);
-            Ok(())
         } else {
             self.do_delete_indexes(
                 range.clone(),
                 SaturatedSliceIter::from_adjust_indices(range, step, slice_len).positive_order(),
             );
-            Ok(())
         }
+        Ok(())
     }
 }
 

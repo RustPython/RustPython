@@ -2252,9 +2252,7 @@ mod _sqlite3 {
                     let _ = unsafe { zelf.isolation_level.swap(value) };
                     Ok(())
                 }
-                PySetterValue::Delete => {
-                    Err(vm.new_attribute_error("'isolation_level' attribute cannot be deleted"))
-                }
+                PySetterValue::Delete => Err(vm.new_attribute_error("cannot delete attribute")),
             }
         }
 
@@ -2269,7 +2267,14 @@ mod _sqlite3 {
             })
         }
         #[pygetset(setter)]
-        fn set_autocommit(zelf: &Py<Self>, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_autocommit(
+            zelf: &Py<Self>,
+            val: PySetterValue,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let PySetterValue::Assign(val) = val else {
+                return Err(vm.new_attribute_error("cannot delete autocommit attribute"));
+            };
             with_deferred_drops(|| Self::set_autocommit_inner(zelf, val, vm))
         }
 
@@ -2833,8 +2838,31 @@ mod _sqlite3 {
         }
 
         #[pygetset(setter)]
-        fn set_arraysize(zelf: &Py<Self>, val: u32) {
+        fn set_arraysize(
+            zelf: &Py<Self>,
+            val: PySetterValue<u32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let PySetterValue::Assign(val) = val else {
+                let message = {
+                    let class = zelf.class();
+                    let slot_name = class.slot_name();
+                    // CPython's built-in Cursor uses the public module in tp_name.
+                    let name = if class.is(Self::class(&vm.ctx)) {
+                        "sqlite3.Cursor"
+                    } else {
+                        &slot_name
+                    };
+                    let end = name.floor_char_boundary(name.len().min(100));
+                    format!(
+                        "attribute 'arraysize' of '{}' objects cannot be deleted",
+                        &name[..end]
+                    )
+                };
+                return Err(vm.new_attribute_error(message));
+            };
             zelf.arraysize.store(val, Ordering::Relaxed);
+            Ok(())
         }
 
         #[pygetset]
@@ -2843,8 +2871,16 @@ mod _sqlite3 {
         }
 
         #[pygetset(setter)]
-        fn set_row_factory(zelf: &Py<Self>, val: Option<PyObjectRef>) {
+        fn set_row_factory(
+            zelf: &Py<Self>,
+            val: PySetterValue<Option<PyObjectRef>>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let PySetterValue::Assign(val) = val else {
+                return Err(vm.new_attribute_error("cannot delete row_factory attribute"));
+            };
             let _ = unsafe { zelf.row_factory.swap(val) };
+            Ok(())
         }
 
         fn build_row_cast_map(
@@ -3569,9 +3605,16 @@ mod _sqlite3 {
                 let ret = inner.blob.read_single(&mut byte, index);
                 inner.check(ret, vm).map(|_| vm.ctx.new_int(byte).into())
             } else if let Some(slice) = needle.downcast_ref::<PySlice>() {
-                let blob_len = inner.blob.bytes();
                 let slice = slice.to_saturated(vm)?;
-                let (range, step, length) = slice.adjust_indices(blob_len as usize);
+                let (range, step, length) = slice.adjust_indices(inner.blob.bytes() as usize);
+                if length == 0 {
+                    return Ok(vm.ctx.empty_bytes.clone().into());
+                }
+                if step < 0 {
+                    return Err(
+                        vm.new_value_error("Blob doesn't support slices with a negative step")
+                    );
+                }
                 let mut buf = Vec::<u8>::with_capacity(length);
 
                 if step == 1 {
@@ -3641,19 +3684,13 @@ mod _sqlite3 {
                 let Some(value) = value else {
                     return Err(vm.new_type_error("Blob doesn't support slice deletion"));
                 };
-                let value_buf = PyBuffer::try_from_borrowed_object(vm, &value)?;
+                let slice = slice.to_saturated(vm)?;
+                let (range, step, slice_len) = slice.adjust_indices(inner.blob.bytes() as usize);
 
+                let value_buf = PyBuffer::try_from_borrowed_object(vm, &value)?;
                 let buf = value_buf
                     .as_contiguous()
                     .ok_or_else(|| vm.new_buffer_error("underlying buffer is not C-contiguous"))?;
-
-                let blob_len = inner.blob.bytes();
-                let slice = slice.to_saturated(vm)?;
-                let (range, step, slice_len) = slice.adjust_indices(blob_len as usize);
-
-                if step == 0 {
-                    return Err(vm.new_value_error("slice step cannot be zero"));
-                }
 
                 if buf.len() != slice_len {
                     return Err(vm.new_index_error("Blob slice assignment is wrong size"));
@@ -3661,6 +3698,11 @@ mod _sqlite3 {
 
                 if slice_len == 0 {
                     return Ok(());
+                }
+                if step < 0 {
+                    return Err(
+                        vm.new_value_error("Blob doesn't support slices with a negative step")
+                    );
                 }
 
                 if step == 1 {

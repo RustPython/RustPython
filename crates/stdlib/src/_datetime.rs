@@ -20,7 +20,9 @@ mod _datetime {
             hash::PyHash,
             wtf8::{CodePoint, Wtf8Buf},
         },
-        function::{ArgumentError, FromArgs, FuncArgs, OptionalArg, Param, PyComparisonValue},
+        function::{
+            ArgCInt, ArgumentError, FromArgs, FuncArgs, OptionalArg, Param, PyComparisonValue,
+        },
         protocol::{PyNumber, PyNumberMethods},
         types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
     };
@@ -1724,11 +1726,11 @@ mod _datetime {
     #[derive(FromArgs)]
     pub(super) struct DateArgs {
         #[pyarg(any)]
-        year: i32,
+        year: ArgCInt,
         #[pyarg(any)]
-        month: i32,
+        month: ArgCInt,
         #[pyarg(any)]
-        day: i32,
+        day: ArgCInt,
     }
 
     impl Constructor for PyDate {
@@ -1749,7 +1751,9 @@ mod _datetime {
         }
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let DateArgs { year, month, day } = args;
+            let year = args.year.into_primitive();
+            let month = args.month.into_primitive();
+            let day = args.day.into_primitive();
             check_date_args(year, month, day, vm)?;
             Ok(Self::new(year, month, day))
         }
@@ -1967,7 +1971,8 @@ mod _datetime {
         }
 
         #[pyclassmethod]
-        fn fromordinal(cls: PyTypeRef, ordinal: i32, vm: &VirtualMachine) -> PyResult {
+        fn fromordinal(cls: PyTypeRef, ordinal: ArgCInt, vm: &VirtualMachine) -> PyResult {
+            let ordinal = ordinal.into_primitive();
             if ordinal < 1 {
                 return Err(vm.new_value_error("ordinal must be >= 1"));
             }
@@ -1999,16 +2004,9 @@ mod _datetime {
 
         #[pyclassmethod]
         fn fromisocalendar(cls: PyTypeRef, args: IsoCalendarArgs, vm: &VirtualMachine) -> PyResult {
-            let to_i32 = |obj: PyObjectRef| -> PyResult<i32> {
-                obj.try_into_value::<i32>(vm).map_err(|err| {
-                    if err.fast_isinstance(vm.ctx.exceptions.overflow_error) {
-                        vm.new_value_error("ISO calendar component out of range")
-                    } else {
-                        err
-                    }
-                })
-            };
-            let (year, week, day) = (to_i32(args.year)?, to_i32(args.week)?, to_i32(args.day)?);
+            let year = args.year.into_primitive();
+            let week = args.week.into_primitive();
+            let day = args.day.into_primitive();
             match iso_to_ymd(year, week, day) {
                 Ok((y, m, d)) => new_date_subclass(y, m, d, &cls, vm),
                 Err(-4) => Err(
@@ -2100,9 +2098,9 @@ mod _datetime {
         #[pymethod]
         fn replace(zelf: &Py<Self>, args: DateReplaceArgs, vm: &VirtualMachine) -> PyResult {
             new_date_subclass(
-                args.year.unwrap_or_else(|| zelf.y()),
-                args.month.unwrap_or_else(|| zelf.m()),
-                args.day.unwrap_or_else(|| zelf.d()),
+                replacement_int(args.year, zelf.y()),
+                replacement_int(args.month, zelf.m()),
+                replacement_int(args.day, zelf.d()),
                 zelf.class(),
                 vm,
             )
@@ -2147,11 +2145,11 @@ mod _datetime {
     #[derive(FromArgs)]
     struct IsoCalendarArgs {
         #[pyarg(any)]
-        year: PyObjectRef,
+        year: ArgCInt,
         #[pyarg(any)]
-        week: PyObjectRef,
+        week: ArgCInt,
         #[pyarg(any)]
-        day: PyObjectRef,
+        day: ArgCInt,
     }
 
     /// `**changes` in the text signature. Binding still accepts the same
@@ -2173,14 +2171,18 @@ mod _datetime {
         }
     }
 
+    fn replacement_int(arg: OptionalArg<ArgCInt>, old: i32) -> i32 {
+        arg.into_option().map_or(old, ArgCInt::into_primitive)
+    }
+
     #[derive(FromArgs)]
     struct DateReplaceArgs {
         #[pyarg(any, optional, py_default = "unchanged")]
-        year: OptionalArg<i32>,
+        year: OptionalArg<ArgCInt>,
         #[pyarg(any, optional, py_default = "unchanged")]
-        month: OptionalArg<i32>,
+        month: OptionalArg<ArgCInt>,
         #[pyarg(any, optional, py_default = "unchanged")]
-        day: OptionalArg<i32>,
+        day: OptionalArg<ArgCInt>,
     }
 
     impl PyDate {
@@ -2580,7 +2582,10 @@ mod _datetime {
         }
     }
 
-    #[pyclass(with(Constructor, Comparable, Hashable, Representable))]
+    #[pyclass(
+        with(Constructor, Comparable, Hashable, Representable),
+        flags(IMMUTABLETYPE)
+    )]
     impl PyTimeZone {
         #[pymethod]
         fn tzname(zelf: &Py<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
@@ -2794,17 +2799,17 @@ mod _datetime {
     #[derive(FromArgs)]
     pub(super) struct TimeArgs {
         #[pyarg(any, default = 0)]
-        hour: i32,
+        hour: ArgCInt,
         #[pyarg(any, default = 0)]
-        minute: i32,
+        minute: ArgCInt,
         #[pyarg(any, default = 0)]
-        second: i32,
+        second: ArgCInt,
         #[pyarg(any, default = 0)]
-        microsecond: i32,
+        microsecond: ArgCInt,
         #[pyarg(any, default = None)]
         tzinfo: Option<PyObjectRef>,
         #[pyarg(named, default = 0)]
-        fold: i32,
+        fold: ArgCInt,
     }
 
     fn pickle_tzinfo(
@@ -2852,35 +2857,33 @@ mod _datetime {
 
         fn py_new(_cls: &Py<PyType>, a: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let tzinfo = a.tzinfo.and_then(|tz| tzinfo_arg(tz, vm));
-            check_time_args(a.hour, a.minute, a.second, a.microsecond, a.fold, vm)?;
+            let hour = a.hour.into_primitive();
+            let minute = a.minute.into_primitive();
+            let second = a.second.into_primitive();
+            let microsecond = a.microsecond.into_primitive();
+            let fold = a.fold.into_primitive();
+            check_time_args(hour, minute, second, microsecond, fold, vm)?;
             if let Some(tz) = &tzinfo {
                 check_tzinfo_subclass(tz, vm)?;
             }
-            Ok(Self::new(
-                a.hour,
-                a.minute,
-                a.second,
-                a.microsecond,
-                tzinfo,
-                a.fold,
-            ))
+            Ok(Self::new(hour, minute, second, microsecond, tzinfo, fold))
         }
     }
 
     #[derive(FromArgs)]
     struct TimeReplaceArgs {
         #[pyarg(any, optional, py_default = "unchanged")]
-        hour: OptionalArg<i32>,
+        hour: OptionalArg<ArgCInt>,
         #[pyarg(any, optional, py_default = "unchanged")]
-        minute: OptionalArg<i32>,
+        minute: OptionalArg<ArgCInt>,
         #[pyarg(any, optional, py_default = "unchanged")]
-        second: OptionalArg<i32>,
+        second: OptionalArg<ArgCInt>,
         #[pyarg(any, optional, py_default = "unchanged")]
-        microsecond: OptionalArg<i32>,
+        microsecond: OptionalArg<ArgCInt>,
         #[pyarg(any, optional, py_default = "unchanged")]
         tzinfo: OptionalArg<PyObjectRef>,
         #[pyarg(named, optional, py_default = "unchanged")]
-        fold: OptionalArg<i32>,
+        fold: OptionalArg<ArgCInt>,
     }
 
     #[derive(FromArgs)]
@@ -3019,12 +3022,12 @@ mod _datetime {
                 OptionalArg::Missing => zelf.tzinfo.clone(),
             };
             new_time_subclass(
-                args.hour.unwrap_or_else(|| i32::from(zelf.hour)),
-                args.minute.unwrap_or_else(|| i32::from(zelf.minute)),
-                args.second.unwrap_or_else(|| i32::from(zelf.second)),
-                args.microsecond.unwrap_or(zelf.microsecond as i32),
+                replacement_int(args.hour, i32::from(zelf.hour)),
+                replacement_int(args.minute, i32::from(zelf.minute)),
+                replacement_int(args.second, i32::from(zelf.second)),
+                replacement_int(args.microsecond, zelf.microsecond as i32),
                 tzinfo,
-                args.fold.unwrap_or_else(|| i32::from(zelf.fold)),
+                replacement_int(args.fold, i32::from(zelf.fold)),
                 zelf.class(),
                 vm,
             )
@@ -3582,23 +3585,23 @@ mod _datetime {
     #[derive(FromArgs)]
     pub(super) struct DateTimeArgs {
         #[pyarg(any)]
-        year: i32,
+        year: ArgCInt,
         #[pyarg(any)]
-        month: i32,
+        month: ArgCInt,
         #[pyarg(any)]
-        day: i32,
+        day: ArgCInt,
         #[pyarg(any, default = 0)]
-        hour: i32,
+        hour: ArgCInt,
         #[pyarg(any, default = 0)]
-        minute: i32,
+        minute: ArgCInt,
         #[pyarg(any, default = 0)]
-        second: i32,
+        second: ArgCInt,
         #[pyarg(any, default = 0)]
-        microsecond: i32,
+        microsecond: ArgCInt,
         #[pyarg(any, default = None)]
         tzinfo: Option<PyObjectRef>,
         #[pyarg(named, default = 0)]
-        fold: i32,
+        fold: ArgCInt,
     }
 
     impl Constructor for PyDateTime {
@@ -3641,21 +3644,29 @@ mod _datetime {
 
         fn py_new(_cls: &Py<PyType>, a: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let tzinfo = a.tzinfo.and_then(|tz| tzinfo_arg(tz, vm));
-            check_date_args(a.year, a.month, a.day, vm)?;
-            check_time_args(a.hour, a.minute, a.second, a.microsecond, a.fold, vm)?;
+            let year = a.year.into_primitive();
+            let month = a.month.into_primitive();
+            let day = a.day.into_primitive();
+            let hour = a.hour.into_primitive();
+            let minute = a.minute.into_primitive();
+            let second = a.second.into_primitive();
+            let microsecond = a.microsecond.into_primitive();
+            let fold = a.fold.into_primitive();
+            check_date_args(year, month, day, vm)?;
+            check_time_args(hour, minute, second, microsecond, fold, vm)?;
             if let Some(tz) = &tzinfo {
                 check_tzinfo_subclass(tz, vm)?;
             }
             Ok(Self::new(
-                a.year,
-                a.month,
-                a.day,
-                a.hour,
-                a.minute,
-                a.second,
-                a.microsecond,
+                year,
+                month,
+                day,
+                hour,
+                minute,
+                second,
+                microsecond,
                 tzinfo,
-                a.fold,
+                fold,
             ))
         }
     }
@@ -3695,23 +3706,23 @@ mod _datetime {
     #[derive(FromArgs)]
     struct DateTimeReplaceArgs {
         #[pyarg(any, optional, py_default = "unchanged")]
-        year: OptionalArg<i32>,
+        year: OptionalArg<ArgCInt>,
         #[pyarg(any, optional, py_default = "unchanged")]
-        month: OptionalArg<i32>,
+        month: OptionalArg<ArgCInt>,
         #[pyarg(any, optional, py_default = "unchanged")]
-        day: OptionalArg<i32>,
+        day: OptionalArg<ArgCInt>,
         #[pyarg(any, optional, py_default = "unchanged")]
-        hour: OptionalArg<i32>,
+        hour: OptionalArg<ArgCInt>,
         #[pyarg(any, optional, py_default = "unchanged")]
-        minute: OptionalArg<i32>,
+        minute: OptionalArg<ArgCInt>,
         #[pyarg(any, optional, py_default = "unchanged")]
-        second: OptionalArg<i32>,
+        second: OptionalArg<ArgCInt>,
         #[pyarg(any, optional, py_default = "unchanged")]
-        microsecond: OptionalArg<i32>,
+        microsecond: OptionalArg<ArgCInt>,
         #[pyarg(any, optional, py_default = "unchanged")]
         tzinfo: OptionalArg<PyObjectRef>,
         #[pyarg(named, optional, py_default = "unchanged")]
-        fold: OptionalArg<i32>,
+        fold: OptionalArg<ArgCInt>,
     }
 
     #[derive(FromArgs)]
@@ -4148,15 +4159,15 @@ mod _datetime {
             };
             let (y, mo, d, h, mi, s, us) = zelf.fields();
             new_datetime_subclass(
-                args.year.unwrap_or(y),
-                args.month.unwrap_or(mo),
-                args.day.unwrap_or(d),
-                args.hour.unwrap_or(h),
-                args.minute.unwrap_or(mi),
-                args.second.unwrap_or(s),
-                args.microsecond.unwrap_or(us),
+                replacement_int(args.year, y),
+                replacement_int(args.month, mo),
+                replacement_int(args.day, d),
+                replacement_int(args.hour, h),
+                replacement_int(args.minute, mi),
+                replacement_int(args.second, s),
+                replacement_int(args.microsecond, us),
                 tzinfo,
-                args.fold.unwrap_or_else(|| i32::from(zelf.fold)),
+                replacement_int(args.fold, i32::from(zelf.fold)),
                 zelf.class(),
                 vm,
             )

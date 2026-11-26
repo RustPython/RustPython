@@ -97,10 +97,12 @@ impl<T> ArgIterable<T> {
     /// This operation may fail if an exception is raised while invoking the
     /// `__iter__` method of the iterable object.
     fn get_iter(&self, vm: &VirtualMachine) -> PyResult<PyIter> {
-        Ok(PyIter::new(match self.iter_fn {
-            Some(f) => f(self.iterable.clone(), vm)?,
-            None => PySequenceIterator::new(self.iterable.clone(), vm)?.into_pyobject(vm),
-        }))
+        match self.iter_fn {
+            Some(_) => PyIter::try_from_object(vm, self.iterable.clone()),
+            None => Ok(PyIter::new(
+                PySequenceIterator::new(self.iterable.clone(), vm)?.into_pyobject(vm),
+            )),
+        }
     }
 
     /// Returns an iterator over this sequence of objects. See [`PyIter::iter`]

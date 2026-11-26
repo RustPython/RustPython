@@ -432,6 +432,12 @@ impl Py<PyInt> {
         }
     }
 
+    // PyLong_AsSsize_t after the caller has established the actual int type.
+    pub(crate) fn as_ssize_t(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        isize::try_from(self.as_bigint())
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C ssize_t"))
+    }
+
     // PyLong_AsUInt32, PyLong_AsUInt64 and the unsigned argument converters:
     // a negative value for an unsigned type raises ValueError.
     pub fn try_to_primitive<I>(&self, vm: &VirtualMachine) -> PyResult<I>

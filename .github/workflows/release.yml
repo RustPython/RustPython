@@ -118,6 +118,21 @@ jobs:
           name: rustpython-release-wasm32-wasip1
           path: target/rustpython-release-wasm32-wasip1.wasm
 
+  build-demo:
+    runs-on: ubuntu-latest
+    # The demo can fail independently of the release binaries.
+    if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
@@ -184,25 +199,23 @@ jobs:
 
       - name: Create Release
         run: |
+          release_args=(--prerelease)
+          release_type_name=Pre-Release
           if [[ "${PRE_RELEASE_INPUT}" == "false" ]]; then
-            RELEASE_TYPE_NAME=Release
-            PRERELEASE_ARG=
-          else
-            RELEASE_TYPE_NAME=Pre-Release
-            PRERELEASE_ARG=--prerelease
+            release_args=()
+            release_type_name=Release
           fi
-          
-          today=$(date '+%Y-%m-%d')
-          gh release create "$today-$tag-$run" \
+
+          today=$(date -u '+%Y-%m-%d')
+          gh release create "$today-$GITHUB_REF_NAME-$GITHUB_RUN_NUMBER" \
               --repo="$GITHUB_REPOSITORY" \
-              --title="RustPython $RELEASE_TYPE_NAME $today-$tag #$run" \
-              --target="$tag" \
-              --notes "⚠️ **Important**: To run RustPython, you must download both the binary for your platform AND the \`rustpython-lib.zip\` archive. Extract the Lib directory from the archive to the same location as the binary, or set the \`RUSTPYTHONPATH\` environment variable to point to the Lib directory." \
-              --generate-notes \
-              $PRERELEASE_ARG \
-              bin/rustpython-release-*
+              --title="RustPython $release_type_name $today-$GITHUB_REF_NAME #$GITHUB_RUN_NUMBER" \
+              --target="$GITHUB_SHA" \
+              --notes "Built from commit \`$GITHUB_SHA\`.
+
+          Download the binary for your platform and \`rustpython-lib.zip\`. Extract the archive and set \`RUSTPYTHONPATH\` to the absolute path of the extracted \`Lib/\` directory. On Linux and macOS, make the binary executable with \`chmod +x\` before running it." \
+              "${release_args[@]}" \
+              bin/rustpython-release-* bin/rustpython-lib.zip
         env:
           GH_TOKEN: ${{ github.token }}
-          tag: ${{ github.ref_name }}
-          run: ${{ github.run_number }}
-          PRE_RELEASE_INPUT: ${{ github.event.inputs.pre-release }}
+          PRE_RELEASE_INPUT: ${{ inputs.pre-release }}

@@ -36,7 +36,7 @@ mod _sysconfigdata {
 
         // Ensure the module is registered under the platform-specific name
         // (import_builtin() already handles this, but double-check for safety)
-        let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+        let sys_modules = vm.sys_modules();
         let sysconfigdata_name = sysconfigdata_name();
         sys_modules.set_item(sysconfigdata_name.as_str(), module.to_owned().into(), vm)?;
 

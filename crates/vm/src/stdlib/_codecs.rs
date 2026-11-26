@@ -17,7 +17,7 @@ mod _codecs {
         codecs,
         convert::TryFromObject,
         exceptions::nul_char_error,
-        function::{ArgBytesLike, OptionalOption},
+        function::{ArgBytesLike, ArgIntoBool, OptionalOption},
     };
     use num_traits::ToPrimitive;
 
@@ -76,12 +76,8 @@ mod _codecs {
     #[derive(FromArgs)]
     struct CodeArgs {
         obj: PyObjectRef,
-        // None is replaced with utf-8 before the codec runs.
-        #[pyarg(any, optional, py_default = "'utf-8'")]
-        encoding: Option<PyUtf8StrRef>,
-        // None is replaced with strict before the codec runs.
-        #[pyarg(any, optional, py_default = "'strict'")]
-        errors: Option<PyUtf8StrRef>,
+        #[pyarg(flatten)]
+        names: codecs::TextCodecArgs,
     }
 
     impl CodeArgs {
@@ -96,17 +92,11 @@ mod _codecs {
                 &VirtualMachine,
             ) -> PyResult,
         ) -> PyResult {
-            let encoding = self
-                .encoding
+            let (encoding, errors) = self.names.into_parts();
+            let encoding = encoding
                 .as_deref()
                 .map_or(codecs::DEFAULT_ENCODING, |s| s.as_str());
-            f(
-                &vm.state.codec_registry,
-                self.obj,
-                encoding,
-                self.errors,
-                vm,
-            )
+            f(&vm.state.codec_registry, self.obj, encoding, errors, vm)
         }
     }
 
@@ -191,8 +181,8 @@ mod _codecs {
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(positional, default)]
-        r#final: bool,
+        #[pyarg(positional, default = ArgIntoBool::FALSE)]
+        r#final: ArgIntoBool,
     }
 
     impl DecodeArgs {
@@ -203,7 +193,7 @@ mod _codecs {
         {
             let ctx = PyDecodeContext::new(name, &self.data, vm);
             let errors = ErrorsHandler::new(self.errors.as_deref(), vm);
-            decode(ctx, &errors, self.r#final)
+            decode(ctx, &errors, self.r#final.into_bool())
         }
     }
 
@@ -400,8 +390,8 @@ mod _codecs {
         data: PyObjectRef,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(positional, default = true)]
-        r#final: bool,
+        #[pyarg(positional, default = ArgIntoBool::TRUE)]
+        r#final: ArgIntoBool,
     }
 
     impl EscapeTextDecodeArgs {
@@ -420,7 +410,8 @@ mod _codecs {
         let data = args.bytes(vm)?;
         let ctx = PyDecodeContext::new(encodings::unicode_escape::ENCODING_NAME, &data, vm);
         let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
-        let (text, consumed, note) = encodings::unicode_escape::decode(ctx, &errors, args.r#final)?;
+        let (text, consumed, note) =
+            encodings::unicode_escape::decode(ctx, &errors, args.r#final.into_bool())?;
         warn_escape(note, vm)?;
         Ok((text, consumed))
     }
@@ -439,7 +430,7 @@ mod _codecs {
         let data = args.bytes(vm)?;
         let ctx = PyDecodeContext::new(encodings::raw_unicode_escape::ENCODING_NAME, &data, vm);
         let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
-        encodings::raw_unicode_escape::decode(ctx, &errors, args.r#final)
+        encodings::raw_unicode_escape::decode(ctx, &errors, args.r#final.into_bool())
     }
 
     #[pyfunction]
@@ -451,7 +442,7 @@ mod _codecs {
     fn utf_7_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
         let ctx = PyDecodeContext::new(encodings::utf7::ENCODING_NAME, &args.data, vm);
         let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
-        encodings::utf7::decode(ctx, &errors, args.r#final)
+        encodings::utf7::decode(ctx, &errors, args.r#final.into_bool())
     }
 
     #[derive(FromArgs)]
@@ -503,7 +494,7 @@ mod _codecs {
             ctx,
             &errors,
             encodings::utf16::ByteOrder::Native,
-            args.r#final,
+            args.r#final.into_bool(),
         )?;
         Ok((text, consumed))
     }
@@ -527,7 +518,7 @@ mod _codecs {
             ctx,
             &errors,
             encodings::utf16::ByteOrder::Little,
-            args.r#final,
+            args.r#final.into_bool(),
         )?;
         Ok((text, consumed))
     }
@@ -547,8 +538,12 @@ mod _codecs {
     fn utf_16_be_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
         let ctx = PyDecodeContext::new(encodings::utf16::ENCODING_NAME_BE, &args.data, vm);
         let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
-        let (text, consumed, _) =
-            encodings::utf16::decode(ctx, &errors, encodings::utf16::ByteOrder::Big, args.r#final)?;
+        let (text, consumed, _) = encodings::utf16::decode(
+            ctx,
+            &errors,
+            encodings::utf16::ByteOrder::Big,
+            args.r#final.into_bool(),
+        )?;
         Ok((text, consumed))
     }
 
@@ -560,8 +555,8 @@ mod _codecs {
         errors: Option<PyUtf8StrRef>,
         #[pyarg(positional, default)]
         byteorder: i32,
-        #[pyarg(positional, default)]
-        r#final: bool,
+        #[pyarg(positional, default = ArgIntoBool::FALSE)]
+        r#final: ArgIntoBool,
     }
 
     #[pyfunction]
@@ -571,7 +566,12 @@ mod _codecs {
     ) -> PyResult<(Wtf8Buf, usize, i32)> {
         let ctx = PyDecodeContext::new(encodings::utf16::ENCODING_NAME, &args.data, vm);
         let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
-        encodings::utf16::decode(ctx, &errors, wide_order(args.byteorder), args.r#final)
+        encodings::utf16::decode(
+            ctx,
+            &errors,
+            wide_order(args.byteorder),
+            args.r#final.into_bool(),
+        )
     }
 
     #[pyfunction]
@@ -591,7 +591,7 @@ mod _codecs {
             ctx,
             &errors,
             encodings::utf32::ByteOrder::Native,
-            args.r#final,
+            args.r#final.into_bool(),
         )?;
         Ok((text, consumed))
     }
@@ -615,7 +615,7 @@ mod _codecs {
             ctx,
             &errors,
             encodings::utf32::ByteOrder::Little,
-            args.r#final,
+            args.r#final.into_bool(),
         )?;
         Ok((text, consumed))
     }
@@ -635,8 +635,12 @@ mod _codecs {
     fn utf_32_be_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
         let ctx = PyDecodeContext::new(encodings::utf32::ENCODING_NAME_BE, &args.data, vm);
         let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
-        let (text, consumed, _) =
-            encodings::utf32::decode(ctx, &errors, encodings::utf32::ByteOrder::Big, args.r#final)?;
+        let (text, consumed, _) = encodings::utf32::decode(
+            ctx,
+            &errors,
+            encodings::utf32::ByteOrder::Big,
+            args.r#final.into_bool(),
+        )?;
         Ok((text, consumed))
     }
 
@@ -647,7 +651,12 @@ mod _codecs {
     ) -> PyResult<(Wtf8Buf, usize, i32)> {
         let ctx = PyDecodeContext::new(encodings::utf32::ENCODING_NAME, &args.data, vm);
         let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
-        encodings::utf32::decode(ctx, &errors, wide_order(args.byteorder), args.r#final)
+        encodings::utf32::decode(
+            ctx,
+            &errors,
+            wide_order(args.byteorder),
+            args.r#final.into_bool(),
+        )
     }
 
     macro_rules! delegate_pycodecs {

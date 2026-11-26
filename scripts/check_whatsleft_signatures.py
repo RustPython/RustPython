@@ -185,10 +185,9 @@ def write_baseline(path, baseline):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("result", type=Path)
-    parser.add_argument("baseline", type=Path)
+    parser.add_argument("baseline", type=Path, nargs="?")
     parser.add_argument(
         "--context",
-        required=True,
         help="OS-architecture-CPython version-build features",
     )
     parser.add_argument(
@@ -196,8 +195,24 @@ def main():
         action="store_true",
         help="explicit maintainer operation; never used by CI",
     )
+    parser.add_argument(
+        "--require-parity",
+        action="store_true",
+        help="fail on every comparable mismatch instead of reading a baseline",
+    )
     args = parser.parse_args()
+    if args.require_parity:
+        if args.baseline or args.context or args.write_baseline:
+            parser.error("--require-parity does not use a baseline or context")
+    elif args.baseline is None or args.context is None:
+        parser.error("baseline and --context are required without --require-parity")
     current = snapshot(json.loads(args.result.read_text(encoding="utf-8")))
+    if args.require_parity:
+        defects = current["defects"]
+        for path, (expected, actual) in sorted(defects.items()):
+            print(f"signature mismatch: {path}: {json.dumps([expected, actual])}")
+        print(f"{len(defects)} comparable signature mismatches")
+        return bool(defects)
     if args.write_baseline:
         write_baseline(args.baseline, {"context": args.context, **pack(current)})
         return 0

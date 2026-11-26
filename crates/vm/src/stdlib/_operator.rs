@@ -3,11 +3,12 @@ pub(crate) use _operator::module_def;
 #[pymodule]
 mod _operator {
     use crate::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
         common::wtf8::{Wtf8, Wtf8Buf},
         function::{
-            ArgBytesLike, ArgumentError, Either, FromArgs, FuncArgs, OptionalArg, Param, PosArgs,
+            ArgBytesLike, ArgIndex, ArgumentError, Either, FromArgs, FuncArgs, OptionalArg, Param,
+            PosArgs,
         },
         protocol::PyIter,
         recursion::ReprGuard,
@@ -159,17 +160,21 @@ mod _operator {
 
     // Sequence based operators
 
+    // A dict subclass has `__getitem__` but is a mapping, not a sequence.
+    fn check_concat_receiver(a: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        if a.fast_isinstance(vm.ctx.types.dict_type) {
+            return Err(vm.new_type_error(format!(
+                "'{}' object can't be concatenated",
+                a.class().slot_name()
+            )));
+        }
+        Ok(())
+    }
+
     #[pyfunction]
     fn concat(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // Best attempt at checking that a is sequence-like.
-        if !a.class().has_attr(identifier!(vm, __getitem__))
-            || a.fast_isinstance(vm.ctx.types.dict_type)
-        {
-            return Err(
-                vm.new_type_error(format!("{} object can't be concatenated", a.class().name()))
-            );
-        }
-        vm._add(&a, &b)
+        check_concat_receiver(&a, vm)?;
+        a.sequence_unchecked().concat(&b, vm)
     }
 
     #[pyfunction]
@@ -224,13 +229,17 @@ mod _operator {
     struct LengthHintArgs {
         #[pyarg(positional)]
         obj: PyObjectRef,
-        #[pyarg(positional, default = 0)]
-        default: isize,
+        #[pyarg(positional, optional, py_default = "0")]
+        default: OptionalArg<ArgIndex>,
     }
 
     #[pyfunction]
     fn length_hint(args: LengthHintArgs, vm: &VirtualMachine) -> PyResult<isize> {
         let LengthHintArgs { obj, default } = args;
+        let default = match default {
+            OptionalArg::Present(index) => index.as_ref().as_ssize_t(vm)?,
+            OptionalArg::Missing => 0,
+        };
         Ok(vm
             .length_hint_opt(obj)?
             .map_or(default, |hint| hint as isize))
@@ -250,16 +259,8 @@ mod _operator {
 
     #[pyfunction]
     fn iconcat(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // Best attempt at checking that a is sequence-like.
-        if !a.class().has_attr(identifier!(vm, __getitem__))
-            || a.fast_isinstance(vm.ctx.types.dict_type)
-        {
-            return Err(vm.new_type_error(format!(
-                "'{}' object can't be concatenated",
-                a.class().name()
-            )));
-        }
-        vm._iadd(&a, &b)
+        check_concat_receiver(&a, vm)?;
+        a.sequence_unchecked().inplace_concat(&b, vm)
     }
 
     #[pyfunction]
@@ -392,13 +393,8 @@ mod _operator {
         }
     }
 
-    #[pyclass(with(Callable, Constructor, Representable))]
+    #[pyclass(with(Callable, Constructor, Representable), instance_text_signature)]
     impl Py<PyAttrGetter> {
-        #[pygetset]
-        fn __text_signature__(&self) -> &'static str {
-            "(obj, /)"
-        }
-
         #[pymethod]
         fn __reduce__(zelf: PyRef<PyAttrGetter>, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
             let attrs = vm.ctx.new_tuple(
@@ -460,9 +456,16 @@ mod _operator {
         }
     }
 
+    #[derive(FromArgs)]
+    struct GetterCallArgs {
+        #[pyarg(positional)]
+        obj: PyObjectRef,
+    }
+
     impl Callable for PyAttrGetter {
-        type Args = PyObjectRef;
-        fn call(zelf: &Py<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
+        type Args = GetterCallArgs;
+        fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            let obj = args.obj;
             // Handle case where we only have one attribute.
             if zelf.attrs.len() == 1 {
                 return Self::get_single_attr(obj, &zelf.attrs[0], vm);
@@ -504,13 +507,8 @@ mod _operator {
         items: Vec<PyObjectRef>,
     }
 
-    #[pyclass(with(Callable, Constructor, Representable))]
+    #[pyclass(with(Callable, Constructor, Representable), instance_text_signature)]
     impl Py<PyItemGetter> {
-        #[pygetset]
-        fn __text_signature__(&self) -> &'static str {
-            "(obj, /)"
-        }
-
         #[pymethod]
         fn __reduce__(zelf: PyRef<PyItemGetter>, vm: &VirtualMachine) -> PyObjectRef {
             let items = vm.ctx.new_tuple(zelf.items.to_vec());
@@ -542,8 +540,9 @@ mod _operator {
     }
 
     impl Callable for PyItemGetter {
-        type Args = PyObjectRef;
-        fn call(zelf: &Py<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
+        type Args = GetterCallArgs;
+        fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            let obj = args.obj;
             // Handle case where we only have one attribute.
             if zelf.items.len() == 1 {
                 return obj.get_item(&*zelf.items[0], vm);
@@ -586,13 +585,8 @@ mod _operator {
         args: FuncArgs,
     }
 
-    #[pyclass(with(Callable, Constructor, Representable))]
+    #[pyclass(with(Callable, Constructor, Representable), instance_text_signature)]
     impl Py<PyMethodCaller> {
-        #[pygetset]
-        fn __text_signature__(&self) -> &'static str {
-            "(obj, /)"
-        }
-
         #[pymethod]
         fn __reduce__(zelf: PyRef<PyMethodCaller>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             // With no kwargs, return (type(obj), (name, *args)) tuple.
@@ -656,10 +650,11 @@ mod _operator {
     }
 
     impl Callable for PyMethodCaller {
-        type Args = PyObjectRef;
+        type Args = GetterCallArgs;
 
         #[inline]
-        fn call(zelf: &Py<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            let obj = args.obj;
             obj.get_attr(&zelf.name, vm)?.call(zelf.args.clone(), vm)
         }
     }

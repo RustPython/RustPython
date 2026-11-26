@@ -155,6 +155,75 @@ finally:
     monitoring.free_tool_id(2)
 assert records == ["RAISE", "PY_UNWIND"], records
 
+
+# Unlike starred calls, ordinary monitored calls expand a bound method before
+# reporting the callable and first argument.
+def test_monitored_bound_methods():
+    from types import MethodType
+
+    class Receiver:
+        def method(self, x=1):
+            if x < 0:
+                raise ValueError("negative")
+            return x
+
+    class Callable:
+        def __call__(self, receiver):
+            assert receiver is instance
+            return 1
+
+    instance = Receiver()
+    receiver = [1]
+    bound = instance.method
+    native = MethodType(len, receiver)
+    wrapped = Callable()
+    bound_callable = MethodType(wrapped, instance)
+
+    cases = (
+        (lambda: instance.method(1), Receiver.method, instance, ()),
+        (lambda: bound(), Receiver.method, instance, ()),
+        (lambda: bound(x=1), Receiver.method, instance, ()),
+        (lambda: bound(-1), Receiver.method, instance, ()),
+        (lambda: native(), len, receiver, ("C_RETURN",)),
+        (lambda: native(1), len, receiver, ("C_RAISE",)),
+        (lambda: bound_callable(), wrapped, instance, ("C_RETURN",)),
+    )
+
+    events = monitoring.events
+    records = []
+    monitoring.use_tool_id(2, "bound-method")
+    try:
+        for name in ("CALL", "C_RETURN", "C_RAISE"):
+
+            def callback(code, offset, func, arg, name=name):
+                records.append((name, func, arg))
+
+            monitoring.register_callback(2, getattr(events, name), callback)
+
+        for index, (invoke, func, arg, returns) in enumerate(cases):
+            records.clear()
+            monitoring.set_local_events(2, invoke.__code__, events.CALL)
+            try:
+                if index == 3:
+                    with assert_raises(ValueError):
+                        invoke()
+                elif index == 5:
+                    with assert_raises(TypeError):
+                        invoke()
+                else:
+                    assert invoke() == 1
+            finally:
+                monitoring.set_local_events(2, invoke.__code__, 0)
+            assert tuple(name for name, _, _ in records) == ("CALL", *returns), records
+            assert all(f is func and a is arg for _, f, a in records), records
+    finally:
+        for name in ("CALL", "C_RETURN", "C_RAISE"):
+            monitoring.register_callback(2, getattr(events, name), None)
+        monitoring.free_tool_id(2)
+
+
+test_monitored_bound_methods()
+
 # A loop body large enough to require EXTENDED_ARG on its jump targets.
 namespace = {}
 exec(
@@ -618,3 +687,165 @@ for set_hook, get_hook in [
             set_hook(old)
         assert not any(name == "suppressed_after_change" for name, _ in changed_events)
         assert (("later", "call") in changed_events) == replace_hook
+
+
+# Legacy profiling excludes constructors and callable instances, and binds a
+# method descriptor independently for each event (legacy_tracing.c).
+def check_profile_callables():
+    class Constructor:
+        pass
+
+    class CallableInstance:
+        def __call__(self):
+            pass
+
+    import _lsprof
+
+    # cProfile's table width includes the profiler's disable descriptor label.
+    assert (
+        repr(_lsprof.Profiler.disable)
+        == "<method 'disable' of '_lsprof.Profiler' objects>"
+    )
+
+    events = []
+
+    def record(frame, event, arg):
+        if event.startswith("c_") and arg is not sys.setprofile:
+            events.append((event, arg))
+
+    def capture(func):
+        events.clear()
+        sys.setprofile(record)
+        try:
+            func()
+        except TypeError:
+            pass
+        finally:
+            sys.setprofile(None)
+        return list(events)
+
+    assert capture(Constructor) == []
+    assert capture(list) == []
+    assert capture(CallableInstance()) == []
+    assert capture(lambda: list.append()) == []
+    assert capture(lambda: list.append(1, 2)) == []
+    receiver = []
+    result = capture(lambda: list.append(receiver, 1))
+    assert [event for event, _ in result] == ["c_call", "c_return"]
+    assert all(type(arg) is type(len) and arg.__self__ is receiver for _, arg in result)
+    assert result[0][1] is not result[1][1]
+    result = capture(lambda: list.append(receiver))
+    assert [event for event, _ in result] == ["c_call", "c_exception"]
+    assert all(type(arg) is type(len) and arg.__self__ is receiver for _, arg in result)
+    result = capture(lambda: len(1))
+    assert result == [("c_call", len), ("c_exception", len)]
+
+    class NativeMethod:
+        select = classmethod(max)
+
+    method = NativeMethod.select
+    assert capture(lambda: method(1)) == [("c_call", max), ("c_exception", max)]
+    assert capture(lambda: method(*(1,))) == []
+
+    def key_with_native_call(value):
+        return len(())
+
+    # EX suppresses only the wrapped native dispatch, not calls in callbacks.
+    assert capture(lambda: method(*(1,), key=key_with_native_call)) == [
+        ("c_call", len),
+        ("c_return", len),
+        ("c_call", len),
+        ("c_return", len),
+    ]
+
+    def native_calls():
+        values = []
+        for value in range(20):
+            values.append(value)
+            len(values)
+            isinstance(value, int)
+            values.count(value)
+            "aaa".replace("a", "b")
+            values.sort(reverse=True)
+            values.sort()
+            values.clear()
+
+    native_calls()  # Warm native-call specializations before profiling.
+    for _ in range(3):
+        result = capture(native_calls)
+        assert len(result) == 320
+        assert [event for event, _ in result] == ["c_call", "c_return"] * 160
+        native_calls()  # Disable/re-enable must preserve warmed call sites.
+
+    # Enabling profiling inside an unprofiled native call must not invent an
+    # unmatched c_return, even when sys.settrace was already active.
+    events.clear()
+
+    def enable_profile(value):
+        sys.setprofile(record)
+        return value
+
+    sys.settrace(lambda *args: None)
+    try:
+        sorted([1], key=enable_profile)
+    finally:
+        sys.setprofile(None)
+        sys.settrace(None)
+    assert not any(arg is sorted for _, arg in events)
+
+
+check_profile_callables()
+
+
+def check_bound_ex_monitoring():
+    class NativeMethod:
+        select = classmethod(max)
+
+    def success():
+        return NativeMethod.select(*(1,), key=lambda value: 0)
+
+    def failure():
+        return NativeMethod.select(*(1,))
+
+    monitoring.use_tool_id(2, "bound-ex")
+    try:
+        for function in (success, failure):
+            events = []
+            for name in ("CALL", "C_RETURN", "C_RAISE"):
+
+                def callback(code, offset, callee, arg, name=name):
+                    if (
+                        code is function.__code__
+                        and getattr(callee, "__func__", None) is max
+                    ):
+                        events.append(name)
+
+                monitoring.register_callback(
+                    2, getattr(monitoring.events, name), callback
+                )
+            monitoring.set_events(
+                2,
+                monitoring.events.CALL
+                | monitoring.events.C_RETURN
+                | monitoring.events.C_RAISE,
+            )
+            try:
+                if function is success:
+                    assert function() is NativeMethod
+                else:
+                    try:
+                        function()
+                    except TypeError:
+                        pass
+                    else:
+                        raise AssertionError(
+                            "bound max must reject incomparable operands"
+                        )
+            finally:
+                monitoring.set_events(2, 0)
+            assert events == ["CALL"], events
+    finally:
+        monitoring.free_tool_id(2)
+
+
+check_bound_ex_monitoring()

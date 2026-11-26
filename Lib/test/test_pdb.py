@@ -242,7 +242,7 @@ def test_pdb_breakpoint_commands():
     the breakpoint list outputs a tab for the "stop only" and "ignore next"
     lines, which we don't want to put in here.
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     'break 3',
     ...     'break 4, +',
     ...     'disable 1',
@@ -417,7 +417,7 @@ def test_pdb_breakpoint_on_annotated_function_def():
     ...     import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
     ...     pass
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     'break foo',
     ...     'break bar',
     ...     'break foobar',
@@ -444,7 +444,7 @@ def test_pdb_commands():
     ...     print(2)
     ...     print(3)
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     'b 3',
     ...     'commands',
     ...     'silent',      # suppress the frame status output
@@ -491,7 +491,7 @@ def test_pdb_breakpoint_with_filename():
     ...     mod2.func88()
     ...     mod2.func114()
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +ELLIPSIS +SKIP
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE +ELLIPSIS
     ...     'break test.test_inspect.inspect_fodder2:90',
     ...     'continue', # will stop at func88
     ...     'break test/test_inspect/inspect_fodder2.py:115',
@@ -578,7 +578,7 @@ def test_pdb_breakpoints_preserved_across_interactive_sessions():
     2   breakpoint   keep yes   at ...test_pdb.py:...
     (Pdb) continue
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     ...    'break',
     ...    'break pdb.find_function',
     ...    'break',
@@ -602,7 +602,7 @@ def test_pdb_breakpoints_preserved_across_interactive_sessions():
     Deleted breakpoint 1 at ...test_pdb.py:...
     (Pdb) continue
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     ...    'break',
     ...    'clear 2',
     ...    'clear 3',
@@ -642,7 +642,7 @@ def test_pdb_break_anywhere():
     >>> def test_function():
     ...     caller()
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     'b 3',
     ...     'c',
     ... ]):
@@ -1755,7 +1755,7 @@ def test_pdb_return_to_different_file():
     ...     import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
     ...     pprint.pprint(A())
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     ...     'b A.__repr__',
     ...     'continue',
     ...     'return',
@@ -1918,7 +1918,7 @@ def test_pdb_continue_in_bottomframe():
     ...     print(3)
     ...     print(4)
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS +SKIP
+    >>> with PdbTestInput([  # doctest: +ELLIPSIS
     ...     'step',
     ...     'next',
     ...     'break 7',
@@ -1961,12 +1961,12 @@ def test_pdb_run_with_incorrect_argument():
     """Testing run and runeval with incorrect first argument.
 
     >>> pti = PdbTestInput(['continue',])
-    >>> with pti:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> with pti:
     ...     pdb_invoke('run', lambda x: x)
     Traceback (most recent call last):
     TypeError: exec() arg 1 must be a string, bytes or code object
 
-    >>> with pti:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> with pti:
     ...     pdb_invoke('runeval', lambda x: x)
     Traceback (most recent call last):
     TypeError: eval() arg 1 must be a string, bytes or code object
@@ -2009,7 +2009,7 @@ def test_next_until_return_at_return_event():
     ...     test_function_2()
     ...     end = 1
 
-    >>> with PdbTestInput(['break test_function_2',  # TODO: RUSTPYTHON # doctest: +SKIP
+    >>> with PdbTestInput(['break test_function_2',
     ...                    'continue',
     ...                    'return',
     ...                    'next',
@@ -2078,7 +2078,7 @@ def test_pdb_next_command_for_generator():
     ...             raise AssertionError
     ...     print("finished")
 
-    >>> with PdbTestInput(['step', # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> with PdbTestInput(['step',
     ...                    'step',
     ...                    'step',
     ...                    'step',
@@ -2228,7 +2228,7 @@ if not SKIP_CORO_TESTS:
             >>> def test_function():
             ...     asyncio.run(main(), loop_factory=asyncio.EventLoop)
 
-            >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS +SKIP
+            >>> with PdbTestInput([  # doctest: +ELLIPSIS
             ...     'b test',
             ...     'k = await task',
             ...     'n',
@@ -2459,7 +2459,7 @@ def test_pdb_return_command_for_generator():
     ...             raise AssertionError
     ...     print("finished")
 
-    >>> with PdbTestInput(['step',  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> with PdbTestInput(['step',
     ...                    'step',
     ...                    'step',
     ...                    'step',
@@ -2651,7 +2651,7 @@ def test_pdb_next_command_in_generator_for_loop():
     ...         print('value', i)
     ...     x = 123
 
-    >>> with PdbTestInput(['break test_gen',  # TODO: RUSTPYTHON # doctest: +SKIP
+    >>> with PdbTestInput(['break test_gen',
     ...                    'continue',
     ...                    'next',
     ...                    'next',
@@ -2954,7 +2954,7 @@ def test_pdb_issue_20766():
     ...         print('pdb %d: %s' % (i, sess._previous_sigint_handler))
     ...         i += 1
 
-    >>> with PdbTestInput(['continue',  # TODO: RUSTPYTHON # doctest: +SKIP
+    >>> with PdbTestInput(['continue',
     ...                    'continue']):
     ...     test_function()
     > <doctest test.test_pdb.test_pdb_issue_20766[0]>(5)test_function()
@@ -3266,6 +3266,35 @@ def test_pdb_issue_gh_136057():
     """
 
 
+def test_pdb_until_skip_comprehension():
+    """See GH-152373
+    "until" should get over a list comprehension with a breakpoint set on it
+    >>> def test_function():
+    ...     import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
+    ...     lst = [i for i in range(10)]
+    ...     for i in lst: pass
+
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
+    ...     'break 3',
+    ...     'continue',
+    ...     'until',
+    ...     'continue',
+    ... ]):
+    ...     test_function()
+    > <doctest test.test_pdb.test_pdb_until_skip_comprehension[0]>(2)test_function()
+    -> import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
+    (Pdb) break 3
+    Breakpoint 1 at <doctest test.test_pdb.test_pdb_until_skip_comprehension[0]>:3
+    (Pdb) continue
+    > <doctest test.test_pdb.test_pdb_until_skip_comprehension[0]>(3)test_function()
+    -> lst = [i for i in range(10)]
+    (Pdb) until
+    > <doctest test.test_pdb.test_pdb_until_skip_comprehension[0]>(4)test_function()
+    -> for i in lst: pass
+    (Pdb) continue
+    """
+
+
 def test_pdb_issue_gh_80731():
     """See GH-80731
 
@@ -3409,7 +3438,7 @@ def test_pdb_function_break():
     >>> def test_function():
     ...     import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +ELLIPSIS +NORMALIZE_WHITESPACE
     ...     'break foo',
     ...     'break bar',
     ...     'break boo',
@@ -4934,6 +4963,18 @@ class PdbTestInline(unittest.TestCase):
         """
         stdout, _ = self._run_script(script, commands)
         self.assertIn("42", stdout)
+
+    def test_nested_set_trace(self):
+        # Calling breakpoint() in pdb prompt should just be ignored.
+        script = "breakpoint()"
+        commands = """
+            breakpoint()
+            p 40 + 2
+            c
+        """
+        stdout, stderr = self._run_script(script, commands)
+        self.assertIn('42', stdout)
+        self.assertEqual(stderr, '')
 
     def test_readline_not_imported(self):
         """GH-138860

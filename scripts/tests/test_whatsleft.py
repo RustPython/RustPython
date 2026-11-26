@@ -20,6 +20,7 @@ import types
 import unittest
 import warnings
 from contextlib import redirect_stdout
+from unittest.mock import patch
 
 SOURCE = pathlib.Path(__file__).resolve().parents[1] / "whats_left.py"
 tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
@@ -1178,6 +1179,21 @@ class GateTests(unittest.TestCase):
             path = pathlib.Path(tmp) / "baseline.json"
             gate.write_baseline(path, state)
             self.assertEqual(json.loads(path.read_text()), state)
+
+    def test_require_parity_rejects_a_known_mismatch_without_a_baseline(self):
+        pair = self.result["raw_text_signatures"]["builtins"]["Thing.f"]
+        pair["rustpython"]["value"] = "($self, value, /)"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "scan.json"
+            path.write_text(json.dumps(self.result), encoding="utf-8")
+            with patch.object(sys, "argv", [str(PATH), str(path), "--require-parity"]):
+                with redirect_stdout(io.StringIO()) as out:
+                    self.assertTrue(gate.main())
+                    self.assertIn("raw:builtin/Thing.f", out.getvalue())
+            path.write_text(json.dumps(fixture()), encoding="utf-8")
+            with patch.object(sys, "argv", [str(PATH), str(path), "--require-parity"]):
+                with redirect_stdout(io.StringIO()):
+                    self.assertFalse(gate.main())
 
     def test_required_schema(self):
         for field in fixture():

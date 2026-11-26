@@ -154,21 +154,22 @@ fn checked_future_features(
         let source_code = source_file.to_source_code();
         let location = source_code.source_location(err.range.start(), PositionEncoding::Utf8);
         let end_location = source_code.source_location(err.range.end(), PositionEncoding::Utf8);
-        let error = match err.kind {
-            preprocess::FutureFeatureErrorKind::InvalidFeature(feature) => {
-                CodegenErrorType::InvalidFutureFeature(feature)
-            }
-            preprocess::FutureFeatureErrorKind::InvalidBraces => {
-                CodegenErrorType::InvalidFutureBraces
-            }
-        };
         CodegenError {
             location: Some(location),
             end_location: Some(end_location),
-            error,
+            error: future_feature_error_type(err.kind),
             source_path: source_file.name().to_owned(),
         }
     })
+}
+
+fn future_feature_error_type(kind: preprocess::FutureFeatureErrorKind) -> CodegenErrorType {
+    match kind {
+        preprocess::FutureFeatureErrorKind::InvalidFeature(feature) => {
+            CodegenErrorType::InvalidFutureFeature(feature)
+        }
+        preprocess::FutureFeatureErrorKind::InvalidBraces => CodegenErrorType::InvalidFutureBraces,
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -177,6 +178,7 @@ enum NameUsage {
     Store,
     Delete,
 }
+
 /// Main structure holding the state of compilation.
 struct Compiler<'a> {
     code_stack: Vec<ir::CodeInfo>,
@@ -193,10 +195,6 @@ struct Compiler<'a> {
     /// True when compiling in "single" (interactive) mode.
     /// Expression statements at module scope emit CALL_INTRINSIC_1(Print).
     interactive: bool,
-    /// Counter for dead-code elimination during constant folding.
-    /// When > 0, the compiler walks AST (consuming sub_tables) but emits no bytecode.
-    /// Mirrors CPython's `c_do_not_emit_bytecode`.
-    do_not_emit_bytecode: u32,
     /// Mirrors `c_disable_warning` while compiling FINALLY_END copies.
     disable_warning: u32,
     syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
@@ -437,9 +435,23 @@ pub fn compile_top_with_syntax_warning_handler<'a>(
 pub fn compile_ast_with_syntax_warning_handler<'a>(
     input: AstInput,
     mode: Mode,
-    mut opts: CompileOpts,
-    mut syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
+    opts: CompileOpts,
+    syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
 ) -> CompileResult<CodeObject> {
+    let mut compiler = lower_ast(input, mode, opts, false, syntax_warning_handler)?;
+    Ok(compiler.exit_scope())
+}
+
+// Like CPython's compiler_setup followed by compiler_codegen, keep the
+// preparation and lowering shared between normal compilation and the
+// codegen test entry point.
+fn lower_ast<'a>(
+    input: AstInput,
+    mode: Mode,
+    mut opts: CompileOpts,
+    save_nested_seqs: bool,
+    mut syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
+) -> CompileResult<Compiler<'a>> {
     let AstInput {
         mut ast,
         source_file,
@@ -499,6 +511,7 @@ pub fn compile_ast_with_syntax_warning_handler<'a>(
         syntax_warning_handler,
     );
     compiler.ast_locations = locations;
+    compiler.save_nested_seqs = save_nested_seqs;
     match ast {
         ast::Mod::Module(module) => {
             let symbols = scan_module_symbols(&module, &source_file, &compiler.opts)?;
@@ -513,7 +526,7 @@ pub fn compile_ast_with_syntax_warning_handler<'a>(
             compiler.compile_eval(&expression, symbols)?;
         }
     }
-    Ok(compiler.exit_scope())
+    Ok(compiler)
 }
 
 /// Unoptimized instruction sequence and the metadata needed by optimize_cfg.
@@ -557,90 +570,10 @@ fn compile_codegen_with_syntax_warning_handler<'a>(
 pub fn compile_codegen_ast<'a>(
     input: AstInput,
     mode: Mode,
-    mut opts: CompileOpts,
-    mut syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
+    opts: CompileOpts,
+    syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
 ) -> CompileResult<CodegenOutput> {
-    let AstInput {
-        mut ast,
-        source_file,
-        mut locations,
-    } = input;
-    opts.future_features |= checked_future_features(&ast, &source_file)?;
-    let future_annotations = opts
-        .future_features
-        .contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
-    if let Some(handler) = syntax_warning_handler.as_deref_mut() {
-        preprocess::warn_control_flow_in_finally(&ast, |range, message| {
-            warn_ast_preprocess_syntax(&source_file, handler, range, message)
-        })?;
-    }
-    let location_error = if matches!(mode, Mode::Single)
-        && let ruff_python_ast::Mod::Module(module) = &mut ast
-    {
-        if let Some(locations) = &mut locations {
-            preprocess::preprocess_statements_with_locations(
-                &mut module.body,
-                opts.optimize,
-                future_annotations,
-                false,
-                locations,
-            )
-        } else {
-            preprocess::preprocess_statements(
-                &mut module.body,
-                opts.optimize,
-                future_annotations,
-                false,
-            );
-            Ok(())
-        }
-    } else if let Some(locations) = &mut locations {
-        preprocess::preprocess_mod_with_locations(
-            &mut ast,
-            opts.optimize,
-            future_annotations,
-            false,
-            locations,
-        )
-    } else {
-        preprocess::preprocess_mod(&mut ast, opts.optimize, future_annotations, false);
-        Ok(())
-    };
-    location_error.map_err(|error| CodegenError {
-        error: CodegenErrorType::AstLocation(error),
-        location: None,
-        end_location: None,
-        source_path: source_file.name().to_owned(),
-    })?;
-
-    let mut compiler = Compiler::new_with_syntax_warning_handler(
-        opts,
-        source_file.clone(),
-        "<module>",
-        syntax_warning_handler,
-    );
-    compiler.ast_locations = locations;
-    compiler.save_nested_seqs = true;
-    match ast {
-        ruff_python_ast::Mod::Module(module) => match mode {
-            Mode::Exec | Mode::Eval => {
-                let symbol_table = scan_module_symbols(&module, &source_file, &compiler.opts)?;
-                compiler.compile_program(&module, symbol_table)?;
-            }
-            Mode::Single => {
-                let symbol_table = scan_module_symbols(&module, &source_file, &compiler.opts)?;
-                compiler.compile_program_single(&module.body, symbol_table)?;
-            }
-            Mode::BlockExpr => {
-                let symbol_table = scan_module_symbols(&module, &source_file, &compiler.opts)?;
-                compiler.compile_block_expr(&module.body, symbol_table)?;
-            }
-        },
-        ruff_python_ast::Mod::Expression(expr) => {
-            let symbol_table = scan_expr_symbols(&expr, &source_file, &compiler.opts)?;
-            compiler.compile_eval(&expr, symbol_table)?;
-        }
-    }
+    let mut compiler = lower_ast(input, mode, opts, true, syntax_warning_handler)?;
 
     let mut unit = compiler
         .code_stack
@@ -1325,7 +1258,6 @@ impl<'warnings> Compiler<'warnings> {
             opts,
             in_annotation: false,
             interactive: false,
-            do_not_emit_bytecode: 0,
             disable_warning: 0,
             syntax_warning_handler,
             save_nested_seqs: false,
@@ -1715,14 +1647,14 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     /// Get the index of a global name.
-    fn get_global_name_index(&mut self, name: &str) -> u32 {
+    fn get_global_name_index(&mut self, name: &str) -> oparg::NameIdx {
         let info = self.code_stack.last_mut().unwrap();
         let idx = info
             .metadata
             .names
             .get_index_of(name)
             .unwrap_or_else(|| info.metadata.names.insert_full(name.to_owned()).0);
-        idx.to_u32()
+        oparg::NameIdx::from_u32(idx.to_u32())
     }
 
     /// Push the next symbol table on to the stack
@@ -2871,7 +2803,7 @@ impl<'warnings> Compiler<'warnings> {
     // could take impl Into<Cow<str>>, but everything is borrowed from ast structs; we never
     // actually have a `String` to pass
     fn name(&mut self, name: &str) -> bytecode::NameIdx {
-        self._name_inner(name, |i| &mut i.metadata.names)
+        oparg::NameIdx::from_u32(self._name_inner(name, |i| &mut i.metadata.names))
     }
 
     fn varname(&mut self, name: &str) -> oparg::VarNum {
@@ -2924,79 +2856,48 @@ impl<'warnings> Compiler<'warnings> {
             return current_obj_name;
         }
 
-        // Check parent scope
         let mut parent_idx = stack_size - 2;
         let mut parent = &self.code_stack[parent_idx];
+        let mut parent_table = &self.symbol_table_stack[parent.symbol_table_index];
 
-        let mut parent_scope = self
-            .symbol_table_stack
-            .get(parent_idx)
-            .map(|table| table.typ);
-
-        // CPython skips both generic-parameter scopes and annotation scopes
-        // when building qualnames for the contained function/class code object.
+        // CPython compiler units skip the annotation scope (including generic
+        // parameters). If that scope was directly under the module, the
+        // current unit keeps its bare name, even for a signature annotation.
         if matches!(
-            parent_scope,
-            Some(
-                CompilerScope::TypeParams
-                    | CompilerScope::Annotation
-                    | CompilerScope::TypeAlias
-                    | CompilerScope::TypeVariable,
-            )
-        ) || parent.metadata.name.starts_with("<generic parameters of ")
-        {
-            if stack_size == 2 {
-                // If we're immediately within the module, qualname is just the name
+            parent_table.typ,
+            CompilerScope::TypeParams
+                | CompilerScope::Annotation
+                | CompilerScope::TypeAlias
+                | CompilerScope::TypeVariable
+        ) {
+            if parent_idx <= 1 {
                 return current_obj_name;
             }
-            // Use grandparent
-            parent_idx = stack_size - 3;
+            parent_idx -= 1;
             parent = &self.code_stack[parent_idx];
-            parent_scope = self
-                .symbol_table_stack
-                .get(parent_idx)
-                .map(|table| table.typ);
+            parent_table = &self.symbol_table_stack[parent.symbol_table_index];
         }
 
-        // Check if this is a global class/function.
-        // CPython compiler_set_qualname() only applies this GLOBAL_EXPLICIT
-        // shortcut to function, async-function, and class scopes. Annotation
-        // scopes, including type-alias value scopes, still inherit the parent
-        // function's .<locals> qualname.
-        let mut force_global = false;
+        // CPython looks up a mangled definition name in the same enclosing
+        // unit used for qualification, not in the intervening annotation
+        // scope. A global function or class is bound in the module.
         let current_scope = self
             .code_stack
             .last()
             .map(|code| self.symbol_table_stack[code.symbol_table_index].typ);
-        if matches!(
+        let force_global = if matches!(
             current_scope,
             Some(CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Class)
         ) {
-            if stack_size > self.symbol_table_stack.len() {
-                // We might be in a situation where symbol table isn't pushed yet
-                // In this case, check the parent symbol table
-                if let Some(parent_table) = self.symbol_table_stack.last()
-                    && let Some(symbol) = parent_table.lookup(&current_obj_name.clone().into())
-                    && symbol.scope == SymbolScope::GlobalExplicit
-                {
-                    force_global = true;
-                }
-            } else if let Some(_current_table) = self.symbol_table_stack.last() {
-                // Mangle the name if necessary (for private names in classes)
-                let target = &current_obj_name.clone().into();
-                let mangled_name = self.mangle(target);
-
-                // Look up in parent symbol table to check scope
-                if self.symbol_table_stack.len() >= 2 {
-                    let parent_table = &self.symbol_table_stack[self.symbol_table_stack.len() - 2];
-                    if let Some(symbol) = parent_table.lookup(&mangled_name)
-                        && symbol.scope == SymbolScope::GlobalExplicit
-                    {
-                        force_global = true;
-                    }
-                }
-            }
-        }
+            let target = current_obj_name.as_str().into();
+            let private = parent.private.as_deref().map(Name::from);
+            let mangled_name = symboltable::mangle_name(private.as_ref(), &target);
+            parent_table
+                .lookup(&mangled_name)
+                .is_some_and(|symbol| symbol.scope == SymbolScope::GlobalExplicit)
+        } else {
+            false
+        };
 
         // Build the prefix the current name is qualified by, if any
         let base = if force_global {
@@ -3008,10 +2909,8 @@ impl<'warnings> Compiler<'warnings> {
 
             // Determine if parent is a function-like scope
             let is_function_parent = matches!(
-                parent_scope,
-                Some(
-                    CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda
-                )
+                parent_table.typ,
+                CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda
             );
 
             // Use parent's qualname if available, otherwise use parent_obj_name
@@ -3721,7 +3620,10 @@ impl<'warnings> Compiler<'warnings> {
                         value: num_traits::Zero::zero(),
                     });
                     self.emit_load_const(ConstantData::None);
-                    let namei = (self.name(&name.name) << 2) | self.import_policy(*is_lazy, false);
+                    let namei = oparg::ImportName::new(
+                        self.name(&name.name),
+                        self.import_policy(*is_lazy, false),
+                    );
                     emit!(self, Instruction::ImportName { namei });
                     if let Some(alias) = &name.asname {
                         let parts: Vec<&str> = name.name.split('.').skip(1).collect();
@@ -3767,8 +3669,10 @@ impl<'warnings> Compiler<'warnings> {
                 });
 
                 let module_name = module.as_ref().map_or("", |s| s.as_str());
-                let module_idx =
-                    (self.name(module_name) << 2) | self.import_policy(*is_lazy, import_star);
+                let module_idx = oparg::ImportName::new(
+                    self.name(module_name),
+                    self.import_policy(*is_lazy, import_star),
+                );
                 emit!(self, Instruction::ImportName { namei: module_idx });
 
                 if import_star {
@@ -3853,21 +3757,9 @@ impl<'warnings> Compiler<'warnings> {
                 is_async,
                 ..
             }) => self.compile_with(items, body, *is_async)?,
-            ast::Stmt::For(ast::StmtFor {
-                target,
-                iter,
-                body,
-                orelse,
-                is_async,
-                ..
-            }) => self.compile_for(
-                target,
-                iter,
-                body,
-                orelse,
-                *is_async,
-                self.node_span(statement),
-            )?,
+            ast::Stmt::For(for_stmt) => {
+                self.compile_for_statement(for_stmt, self.node_span(statement))?
+            }
             ast::Stmt::Match(ast::StmtMatch { subject, cases, .. }) => {
                 self.compile_match(subject, cases)?
             }
@@ -4130,8 +4022,8 @@ impl<'warnings> Compiler<'warnings> {
                 };
                 let name_string = name.id();
 
+                self.set_source_node(statement.range(), statement.node_index());
                 if let Some(type_params) = type_params {
-                    self.set_source_node(statement.range(), statement.node_index());
                     self.push_symbol_table()?;
                     let key = self.symbol_table_stack.len() - 1;
                     let lineno = self.get_source_line_number().get().to_u32();
@@ -4174,7 +4066,6 @@ impl<'warnings> Compiler<'warnings> {
                     emit!(self, Instruction::PushNull);
                     emit!(self, Instruction::Call { argc: 0 });
                 } else {
-                    self.set_source_node(statement.range(), statement.node_index());
                     self.emit_load_const(ConstantData::Str {
                         value: name_string.as_str().into(),
                     });
@@ -4781,7 +4672,6 @@ impl<'warnings> Compiler<'warnings> {
                 self.use_cpython_label_block(cleanup_end);
                 self.emit_no_location_exception_name_cleanup(alias.id())?;
                 emit!(self, Instruction::Reraise { depth: 1 });
-                self.set_no_location();
             } else {
                 let cleanup_body = self.new_block();
 
@@ -4806,8 +4696,8 @@ impl<'warnings> Compiler<'warnings> {
                     self,
                     PseudoInstruction::JumpNoInterrupt { delta: end_block }
                 );
-                self.set_no_location();
             }
+            self.set_no_location();
 
             self.use_cpython_label_block(next_handler);
         }
@@ -5908,8 +5798,8 @@ impl<'warnings> Compiler<'warnings> {
             self.restore_source_span(def_source_span);
             self.make_closure(type_params_code, bytecode::MakeFunctionFlags::new())?;
 
+            self.restore_source_span(def_source_span);
             if num_typeparam_args > 0 {
-                self.restore_source_span(def_source_span);
                 emit!(
                     self,
                     Instruction::Swap {
@@ -5925,7 +5815,6 @@ impl<'warnings> Compiler<'warnings> {
                 );
             } else {
                 // Stack: [closure]
-                self.restore_source_span(def_source_span);
                 emit!(self, Instruction::PushNull);
                 // Stack: [closure, NULL]
                 self.restore_source_span(def_source_span);
@@ -6040,7 +5929,12 @@ impl<'warnings> Compiler<'warnings> {
                     }
                 };
 
-                emit!(self, PseudoInstruction::LoadClosure { i: idx.to_u32() });
+                emit!(
+                    self,
+                    PseudoInstruction::LoadClosure {
+                        i: oparg::VarNum::from_u32(idx.to_u32())
+                    }
+                );
             }
 
             // Build tuple of closure variables
@@ -6265,7 +6159,7 @@ impl<'warnings> Compiler<'warnings> {
 
         // Store __classdictcell__ if __classdict__ is a cell variable
         if self.current_symbol_table().needs_classdict {
-            let classdict_idx = u32::from(self.get_cell_var_index("__classdict__"));
+            let classdict_idx = self.get_cell_var_index("__classdict__");
             emit!(self, PseudoInstruction::LoadClosure { i: classdict_idx });
             self.set_no_location();
             self.store_name(&"__classdictcell__".into())?;
@@ -6276,18 +6170,18 @@ impl<'warnings> Compiler<'warnings> {
             emit!(
                 self,
                 PseudoInstruction::LoadClosure {
-                    i: classcell_idx.to_u32()
+                    i: oparg::VarNum::from_u32(classcell_idx.to_u32())
                 }
             );
             self.set_no_location();
             emit!(self, Instruction::Copy { i: 1 });
             self.set_no_location();
             self.store_name(&"__classcell__".into())?;
-            self.set_no_location();
         } else {
             self.emit_load_const(ConstantData::None);
-            self.set_no_location();
         }
+
+        self.set_no_location();
 
         // Return the class namespace
         self.emit_return_value();
@@ -6398,18 +6292,18 @@ impl<'warnings> Compiler<'warnings> {
         self.restore_source_span(class_source_span);
 
         // Step 3: Generate the rest of the code for the call
+        // Generate class creation code
+        emit!(self, Instruction::LoadBuildClass);
+        emit!(self, Instruction::PushNull);
+
+        // Create the class body function with closure. For generic classes the
+        // .type_params closure is captured through the class code object's freevars.
+        self.make_closure(class_code, bytecode::MakeFunctionFlags::new())?;
+        self.emit_load_const(ConstantData::Str {
+            value: name.as_str().into(),
+        });
+
         if is_generic {
-            // Generate class creation code
-            emit!(self, Instruction::LoadBuildClass);
-            emit!(self, Instruction::PushNull);
-
-            // Create the class body function with the .type_params closure
-            // captured through the class code object's freevars.
-            self.make_closure(class_code, bytecode::MakeFunctionFlags::new())?;
-            self.emit_load_const(ConstantData::Str {
-                value: name.as_str().into(),
-            });
-
             // Create .generic_base after the class function and name are on the
             // stack so the remaining call shape matches CPython's ordering.
             self.restore_source_span(class_source_span);
@@ -6452,15 +6346,6 @@ impl<'warnings> Compiler<'warnings> {
             emit!(self, Instruction::Call { argc: 0 });
         } else {
             // Non-generic class: standard path
-            emit!(self, Instruction::LoadBuildClass);
-            emit!(self, Instruction::PushNull);
-
-            // Create class function with closure
-            self.make_closure(class_code, bytecode::MakeFunctionFlags::new())?;
-            self.emit_load_const(ConstantData::Str {
-                value: name.as_str().into(),
-            });
-
             if let Some(arguments) = arguments {
                 self.codegen_call_helper(2, arguments, class_source_span, None)?;
             } else {
@@ -6768,137 +6653,150 @@ impl<'warnings> Compiler<'warnings> {
         Ok(())
     }
 
-    fn compile_for(
+    fn compile_for_statement(
         &mut self,
-        target: &ast::Expr,
-        iter: &ast::Expr,
-        body: &[ast::Stmt],
-        orelse: &[ast::Stmt],
-        is_async: bool,
+        for_stmt: &ast::StmtFor,
         for_span: CompilerSourceSpan,
     ) -> CompileResult<()> {
         self.enter_conditional_block();
 
-        // Start loop
-        let for_block = self.new_block();
-        let (body_label, send_block) = if is_async {
-            (None, self.new_block())
+        let after_block = if for_stmt.is_async {
+            self.compile_async_for(for_stmt, for_span)?
         } else {
-            let body_label = self.current_code_info().new_instr_sequence_label();
-            (Some(body_label), BlockIdx::NULL)
+            self.compile_for(for_stmt)?
         };
-        let else_block = self.new_block();
+        self.compile_statements(&for_stmt.orelse)?;
+        self.use_cpython_label_block(after_block);
+
+        // Implicit return after for-loop should be attributed to the iterator.
+        self.set_source_node(for_stmt.iter.range(), for_stmt.iter.node_index());
+
+        self.leave_conditional_block();
+        Ok(())
+    }
+
+    /// CPython `codegen_for()`: the loop fblock encloses iterable evaluation
+    /// and remains active through the iterator cleanup.
+    fn compile_for(&mut self, for_stmt: &ast::StmtFor) -> CompileResult<BlockIdx> {
+        let for_block = self.new_block();
+        let body_label = self.current_code_info().new_instr_sequence_label();
+        let cleanup_block = self.new_block();
         let after_block = self.new_block();
         let for_label = self.instr_sequence_label_for_block(for_block);
         let after_label = self.instr_sequence_label_for_block(after_block);
-        let mut end_async_for_target = BlockIdx::NULL;
 
-        if !is_async {
-            // CPython codegen_for() pushes the loop fblock before compiling
-            // the iterable expression.
-            self.push_fblock_labels(
-                FBlockType::ForLoop,
-                for_label,
-                after_label,
-                FBlockDatum::None,
-            )?;
-        }
+        self.push_fblock_labels(
+            FBlockType::ForLoop,
+            for_label,
+            after_label,
+            FBlockDatum::None,
+        )?;
+        self.compile_expression(&for_stmt.iter)?;
+        self.set_source_node(for_stmt.iter.range(), for_stmt.iter.node_index());
+        emit!(self, Instruction::GetIter { mode: 0 });
 
-        // The thing iterated:
-        self.compile_expression(iter)?;
-
-        if is_async {
-            if self.ctx.func != FunctionContext::AsyncFunction
-                && !self.allows_top_level_await_in_current_context()
-            {
-                return Err(self.error(CodegenErrorType::InvalidAsyncFor));
+        self.use_cpython_label_block(for_block);
+        emit!(
+            self,
+            Instruction::ForIter {
+                delta: cleanup_block
             }
-            self.set_source_node(iter.range(), iter.node_index());
-            emit!(self, Instruction::GetAiter);
+        );
 
-            self.use_cpython_label_block(for_block);
-            self.restore_source_span(for_span);
+        // Keep the raw sequence body label after the traceable target NOP.
+        let saved_range = self.current_source_span;
+        let target = &for_stmt.target;
+        self.set_source_node(target.range(), target.node_index());
+        emit!(self, Instruction::Nop);
+        let result = self
+            .current_code_info()
+            .use_raw_instr_sequence_label(body_label);
+        unwrap_internal(self, result);
+        self.compile_store(target)?;
+        self.restore_source_span(saved_range);
 
-            // codegen_async_for: push fblock BEFORE SETUP_FINALLY
-            self.push_fblock_labels(
-                FBlockType::AsyncForLoop,
-                for_label,
-                after_label,
-                FBlockDatum::None,
-            )?;
+        self.compile_for_body_and_backedge(&for_stmt.body, for_block)?;
+        self.use_cpython_label_block(cleanup_block);
+        // Keep END_FOR before POP_ITER for flowgraph line propagation and tracing.
+        emit!(self, Instruction::EndFor);
+        self.set_no_location();
+        emit!(self, Instruction::PopIter);
+        self.set_no_location();
+        self.pop_fblock_label(FBlockType::ForLoop, for_label);
 
-            // SETUP_FINALLY to guard the __anext__ call
-            emit!(self, PseudoInstruction::SetupFinally { delta: else_block });
-            emit!(self, Instruction::GetAnext);
-            emit!(self, Instruction::PushNull);
-            self.emit_load_const(ConstantData::None);
-            self.use_cpython_label_block(send_block);
-            let _ = self.compile_yield_from_sequence(true);
-            end_async_for_target = send_block;
-            // POP_BLOCK for SETUP_FINALLY - only GetANext/yield_from are protected
-            emit!(self, PseudoInstruction::PopBlock);
-            emit!(self, Instruction::NotTaken);
+        Ok(after_block)
+    }
 
-            // Success block for __anext__
-            self.compile_store(target)?;
-        } else {
-            // Retrieve Iterator
-            self.set_source_node(iter.range(), iter.node_index());
-            emit!(self, Instruction::GetIter { mode: 0 });
+    /// CPython `codegen_async_for()`: protect only __anext__ and its await,
+    /// and pop the loop fblock before handling exhaustion.
+    fn compile_async_for(
+        &mut self,
+        for_stmt: &ast::StmtFor,
+        for_span: CompilerSourceSpan,
+    ) -> CompileResult<BlockIdx> {
+        let for_block = self.new_block();
+        let send_block = self.new_block();
+        let except_block = self.new_block();
+        let after_block = self.new_block();
+        let for_label = self.instr_sequence_label_for_block(for_block);
+        let after_label = self.instr_sequence_label_for_block(after_block);
 
-            self.use_cpython_label_block(for_block);
+        let iter = &for_stmt.iter;
+        self.compile_expression(iter)?;
+        if self.ctx.func != FunctionContext::AsyncFunction
+            && !self.allows_top_level_await_in_current_context()
+        {
+            return Err(self.error(CodegenErrorType::InvalidAsyncFor));
+        }
+        self.set_source_node(iter.range(), iter.node_index());
+        emit!(self, Instruction::GetAiter);
 
-            emit!(self, Instruction::ForIter { delta: else_block });
+        self.use_cpython_label_block(for_block);
+        self.restore_source_span(for_span);
+        self.push_fblock_labels(
+            FBlockType::AsyncForLoop,
+            for_label,
+            after_label,
+            FBlockDatum::None,
+        )?;
 
-            let saved_range = self.current_source_span;
-            self.set_source_node(target.range(), target.node_index());
-            emit!(self, Instruction::Nop);
-            let result = self
-                .current_code_info()
-                .use_raw_instr_sequence_label(body_label.expect("sync for must have body label"));
-            unwrap_internal(self, result);
-            self.compile_store(target)?;
-            self.restore_source_span(saved_range);
-        };
+        emit!(
+            self,
+            PseudoInstruction::SetupFinally {
+                delta: except_block
+            }
+        );
+        emit!(self, Instruction::GetAnext);
+        emit!(self, Instruction::PushNull);
+        self.emit_load_const(ConstantData::None);
+        self.use_cpython_label_block(send_block);
+        let _ = self.compile_yield_from_sequence(true);
+        emit!(self, PseudoInstruction::PopBlock);
+        emit!(self, Instruction::NotTaken);
 
+        self.compile_store(&for_stmt.target)?;
+        self.compile_for_body_and_backedge(&for_stmt.body, for_block)?;
+        self.pop_fblock_label(FBlockType::AsyncForLoop, for_label);
+
+        // END_ASYNC_FOR uses the iterator location but leaves the current
+        // source span unchanged for the common else suite.
+        self.use_cpython_label_block(except_block);
+        let saved_range = self.current_source_span;
+        self.set_source_node(iter.range(), iter.node_index());
+        self.emit_end_async_for(send_block);
+        self.restore_source_span(saved_range);
+
+        Ok(after_block)
+    }
+
+    fn compile_for_body_and_backedge(
+        &mut self,
+        body: &[ast::Stmt],
+        for_block: BlockIdx,
+    ) -> CompileResult<()> {
         self.compile_loop_body_statements(body)?;
         emit!(self, PseudoInstruction::Jump { delta: for_block });
         self.set_no_location();
-
-        if is_async {
-            // codegen_async_for() pops the loop fblock before the
-            // END_ASYNC_FOR exception block. Sync codegen_for() keeps the
-            // fblock through END_FOR/POP_ITER and pops below.
-            self.pop_fblock_label(FBlockType::AsyncForLoop, for_label);
-        }
-
-        self.use_cpython_label_block(else_block);
-
-        // Except block for __anext__ / end of sync for
-        if is_async {
-            // codegen_async_for emits END_ASYNC_FOR at the iterator location,
-            // after the for-loop fblock has already been popped.
-            let saved_range = self.current_source_span;
-            self.set_source_node(iter.range(), iter.node_index());
-            self.emit_end_async_for(end_async_for_target);
-            self.restore_source_span(saved_range);
-        } else {
-            // codegen_for emits END_FOR/POP_ITER with NO_LOCATION. Line numbers
-            // are propagated later by flowgraph.c::resolve_line_numbers().
-            emit!(self, Instruction::EndFor);
-            self.set_no_location();
-            emit!(self, Instruction::PopIter);
-            self.set_no_location();
-            self.pop_fblock_label(FBlockType::ForLoop, for_label);
-        }
-        self.compile_statements(orelse)?;
-
-        self.use_cpython_label_block(after_block);
-
-        // Implicit return after for-loop should be attributed to the `for` line
-        self.set_source_node(iter.range(), iter.node_index());
-
-        self.leave_conditional_block();
         Ok(())
     }
 
@@ -7028,7 +6926,6 @@ impl<'warnings> Compiler<'warnings> {
             None => {
                 self.restore_source_span(loc);
                 emit!(self, Instruction::PopTop);
-                Ok(())
             }
             Some(name) => {
                 // Ensure we don't store the same name twice.
@@ -7046,9 +6943,9 @@ impl<'warnings> Compiler<'warnings> {
 
                 // Append the name to the captured stores.
                 pc.stores.push(name.id().clone());
-                Ok(())
             }
         }
+        Ok(())
     }
 
     fn pattern_wildcard_check(pattern: &ast::Pattern) -> bool {
@@ -7148,14 +7045,13 @@ impl<'warnings> Compiler<'warnings> {
             // Duplicate the subject.
             self.restore_source_span(loc);
             emit!(self, Instruction::Copy { i: 1 });
+            self.restore_source_span(loc);
             if i < star {
                 // For indices before the star, use a nonnegative index equal to i.
-                self.restore_source_span(loc);
                 self.emit_load_const(ConstantData::Integer { value: i.into() });
             } else {
                 // For indices after the star, compute a nonnegative index:
                 // index = len(subject) - (size - i)
-                self.restore_source_span(loc);
                 emit!(self, Instruction::GetLen);
                 self.restore_source_span(loc);
                 self.emit_load_const(ConstantData::Integer {
@@ -7538,12 +7434,12 @@ impl<'warnings> Compiler<'warnings> {
         pc.on_top -= 2;
 
         // Step 4: Handle rest pattern or cleanup
+        self.set_source_node(p.range, &p.node_index);
         if let Some(rest_name) = star_target {
             // Build rest dict for **rest pattern
             // Stack: [subject, keys_tuple]
 
             // Build rest dict exactly
-            self.set_source_node(p.range, &p.node_index);
             emit!(self, Instruction::BuildMap { count: 0 });
             // Stack: [subject, keys_tuple, {}]
             self.set_source_node(p.range, &p.node_index);
@@ -7584,7 +7480,6 @@ impl<'warnings> Compiler<'warnings> {
             // Non-rest pattern: just clean up the stack
 
             // Pop them as we're not using them
-            self.set_source_node(p.range, &p.node_index);
             emit!(self, Instruction::PopTop); // Pop keys_tuple
             self.set_source_node(p.range, &p.node_index);
             emit!(self, Instruction::PopTop); // Pop subject
@@ -9923,20 +9818,6 @@ impl<'warnings> Compiler<'warnings> {
                 // NOP for line tracking at .method( line
                 self.restore_source_span(attr_access_range);
                 emit!(self, Instruction::Nop);
-                // CALL at .method( line (not the full expression line)
-                self.compile_method_call_arguments(
-                    args,
-                    self.update_start_span_to_match_attr(
-                        call_range,
-                        self.node_span(func),
-                        attr.as_str(),
-                    )?,
-                    self.update_start_span_to_match_attr(
-                        self.node_span(func),
-                        self.node_span(func),
-                        attr.as_str(),
-                    )?,
-                )?;
             } else {
                 self.compile_expression(value)?;
                 let idx = self.name(attr.as_str());
@@ -9947,20 +9828,21 @@ impl<'warnings> Compiler<'warnings> {
                 )?;
                 self.restore_source_span(attr_access_range);
                 self.emit_load_attr_method(idx);
-                self.compile_method_call_arguments(
-                    args,
-                    self.update_start_span_to_match_attr(
-                        call_range,
-                        self.node_span(func),
-                        attr.as_str(),
-                    )?,
-                    self.update_start_span_to_match_attr(
-                        self.node_span(func),
-                        self.node_span(func),
-                        attr.as_str(),
-                    )?,
-                )?;
             }
+            // CALL at .method( line (not the full expression line)
+            self.compile_method_call_arguments(
+                args,
+                self.update_start_span_to_match_attr(
+                    call_range,
+                    self.node_span(func),
+                    attr.as_str(),
+                )?,
+                self.update_start_span_to_match_attr(
+                    self.node_span(func),
+                    self.node_span(func),
+                    attr.as_str(),
+                )?,
+            )?;
         } else if let Some(kind) =
             genexpr_call_name.and_then(|name| self.detect_builtin_generator_call(name))
         {
@@ -10575,12 +10457,10 @@ impl<'warnings> Compiler<'warnings> {
                     }) => {
                         self.visit_parameter_defaults(parameters);
                         self.visit_decorators(decorator_list);
-                        if type_params.is_some() {
-                            self.consume_scope();
-                        } else {
+                        if type_params.is_none() {
                             self.consume_function_annotation_scope_if_used();
-                            self.consume_scope();
                         }
+                        self.consume_scope();
                     }
                     ast::Stmt::ClassDef(ast::StmtClassDef {
                         arguments,
@@ -11153,14 +11033,13 @@ impl<'warnings> Compiler<'warnings> {
                 // POP_BLOCK before store: only __anext__/yield_from are
                 // protected by SetupFinally targeting END_ASYNC_FOR.
                 emit!(self, PseudoInstruction::PopBlock);
-                self.compile_store(&generator.target)?;
             } else {
                 let saved_range = self.current_source_span;
                 self.set_source_node(generator.iter.range(), generator.iter.node_index());
                 emit!(self, Instruction::ForIter { delta: after_block });
                 self.restore_source_span(saved_range);
-                self.compile_store(&generator.target)?;
             }
+            self.compile_store(&generator.target)?;
             real_loop_depth += if generator.is_async { 1 } else { 2 };
             let backedge_range = if gen_index + 1 == generators.len() {
                 element_range
@@ -11532,14 +11411,13 @@ impl<'warnings> Compiler<'warnings> {
                     let _ = self.compile_yield_from_sequence(true);
                     end_async_for_target = send_block;
                     emit!(self, PseudoInstruction::PopBlock);
-                    self.compile_store(&generator.target)?;
                 } else {
                     let saved_range = self.current_source_span;
                     self.set_source_node(generator.iter.range(), generator.iter.node_index());
                     emit!(self, Instruction::ForIter { delta: after_block });
                     self.restore_source_span(saved_range);
-                    self.compile_store(&generator.target)?;
                 }
+                self.compile_store(&generator.target)?;
 
                 real_loop_depth += if generator.is_async { 1 } else { 2 };
                 let backedge_range = if i + 1 == generators.len() {
@@ -11637,7 +11515,7 @@ impl<'warnings> Compiler<'warnings> {
                     }
                 );
                 for name in pushed_locals.iter().rev() {
-                    let var_num = self.varname(name).as_u32();
+                    let var_num = self.varname(name);
                     emit!(self, PseudoInstruction::StoreFastMaybeNull { var_num });
                 }
                 // Re-raise the exception
@@ -11661,7 +11539,7 @@ impl<'warnings> Compiler<'warnings> {
 
             // Restore saved locals (StoreFast restores the saved cell object for merged cells)
             for name in pushed_locals.iter().rev() {
-                let var_num = self.varname(name).as_u32();
+                let var_num = self.varname(name);
                 emit!(self, PseudoInstruction::StoreFastMaybeNull { var_num });
             }
             self.restore_source_span(saved_source_range_span);
@@ -11686,41 +11564,15 @@ impl<'warnings> Compiler<'warnings> {
 
     fn compile_future_features(&mut self, features: &[ast::Alias]) -> Result<(), CodegenError> {
         for feature in features {
-            let future_feature = feature.name.as_str().try_into().map_err(|name| {
-                self.error_ranged(CodegenErrorType::InvalidFutureFeature(name), feature.range)
+            let flags = preprocess::future_alias_flags(feature.name.as_str()).map_err(|kind| {
+                self.error_ranged(future_feature_error_type(kind), feature.range)
             })?;
-
-            match future_feature {
-                FutureFeature::Braces => {
-                    return Err(
-                        self.error_ranged(CodegenErrorType::InvalidFutureBraces, feature.range)
-                    );
-                }
-                FutureFeature::Annotations => {
-                    self.future_annotations = true;
-                    self.future_features
-                        .insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
-                    self.current_code_info()
-                        .flags
-                        .insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
-                }
-                FutureFeature::BarryAsFLUFL => {
-                    self.future_features
-                        .insert(bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL);
-                    self.current_code_info()
-                        .flags
-                        .insert(bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL);
-                }
-                FutureFeature::AbsoluteImport
-                | FutureFeature::Division
-                | FutureFeature::GeneratorStop
-                | FutureFeature::Generators
-                | FutureFeature::NestedScopes
-                | FutureFeature::PrintFunction
-                | FutureFeature::UnicodeLiterals
-                | FutureFeature::WithStatement => {
-                    // Python 3 features. They are already implemented by default.
-                }
+            if flags.contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS) {
+                self.future_annotations = true;
+            }
+            if !flags.is_empty() {
+                self.future_features |= flags;
+                self.current_code_info().flags |= flags;
             }
         }
         Ok(())
@@ -11769,9 +11621,6 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn _emit<I: Into<AnyInstruction>>(&mut self, instr: I, arg: OpArg, target: BlockIdx) {
-        if self.do_not_emit_bytecode > 0 {
-            return;
-        }
         let instr = instr.into();
         let opcode = AnyOpcode::from(instr);
         debug_assert!(
@@ -11810,9 +11659,6 @@ impl<'warnings> Compiler<'warnings> {
         instr: I,
         target_label: ir::InstructionSequenceLabel,
     ) {
-        if self.do_not_emit_bytecode > 0 {
-            return;
-        }
         let instr = instr.into();
         debug_assert!(
             instr.has_target(),
@@ -11826,15 +11672,12 @@ impl<'warnings> Compiler<'warnings> {
         let source = self.source_file.to_source_code();
         let location = source.source_location(range.start(), PositionEncoding::Utf8);
         let end_location = source.source_location(range.end(), PositionEncoding::Utf8);
-        let target = self
-            .current_code_info()
-            .block_for_instr_sequence_label(target_label);
         self.maybe_start_cpython_cfg_addop_block();
         self.push_emitted_instruction_with_target_label(
             ir::InstructionInfo {
                 instr,
                 arg: OpArg::NULL,
-                target,
+                target: BlockIdx::NULL,
                 location,
                 end_location,
                 except_handler: None,
@@ -12493,49 +12336,49 @@ impl<'warnings> Compiler<'warnings> {
 
     /// Emit LOAD_ATTR for attribute access (method=false).
     /// Encodes: (name_idx << 1) | 0
-    fn emit_load_attr(&mut self, name_idx: u32) {
+    fn emit_load_attr(&mut self, name_idx: oparg::NameIdx) {
         let encoded = LoadAttr::new(name_idx, false);
         self.emit_arg(encoded, |namei| Instruction::LoadAttr { namei })
     }
 
     /// Emit LOAD_ATTR with method flag set (for method calls).
     /// Encodes: (name_idx << 1) | 1
-    fn emit_load_attr_method(&mut self, name_idx: u32) {
+    fn emit_load_attr_method(&mut self, name_idx: oparg::NameIdx) {
         let encoded = LoadAttr::new(name_idx, true);
         self.emit_arg(encoded, |namei| Instruction::LoadAttr { namei })
     }
 
     /// Emit LOAD_GLOBAL.
     /// Encodes: (name_idx << 1) | push_null_bit
-    fn emit_load_global(&mut self, name_idx: u32, push_null: bool) {
-        let encoded = (name_idx << 1) | u32::from(push_null);
+    fn emit_load_global(&mut self, name_idx: oparg::NameIdx, push_null: bool) {
+        let encoded = oparg::LoadGlobal::new(name_idx, push_null);
         self.emit_arg(encoded, |namei| Instruction::LoadGlobal { namei });
     }
 
     /// Emit LOAD_SUPER_ATTR for 2-arg super().attr access.
     /// Encodes: (name_idx << 2) | 0b10 (method=0, class=1)
-    fn emit_load_super_attr(&mut self, name_idx: u32) {
+    fn emit_load_super_attr(&mut self, name_idx: oparg::NameIdx) {
         let encoded = LoadSuperAttr::new(name_idx, false, true);
         self.emit_arg(encoded, |namei| Instruction::LoadSuperAttr { namei })
     }
 
     /// Emit LOAD_SUPER_ATTR for 2-arg super().method() call.
     /// Encodes: (name_idx << 2) | 0b11 (method=1, class=1)
-    fn emit_load_super_method(&mut self, name_idx: u32) {
+    fn emit_load_super_method(&mut self, name_idx: oparg::NameIdx) {
         let encoded = LoadSuperAttr::new(name_idx, true, true);
         self.emit_arg(encoded, |namei| Instruction::LoadSuperAttr { namei })
     }
 
     /// Emit LOAD_SUPER_ATTR for 0-arg super().attr access.
     /// Encodes: (name_idx << 2) | 0b00 (method=0, class=0)
-    fn emit_load_zero_super_attr(&mut self, name_idx: u32) {
+    fn emit_load_zero_super_attr(&mut self, name_idx: oparg::NameIdx) {
         let encoded = LoadSuperAttr::new(name_idx, false, false);
         self.emit_arg(encoded, |namei| Instruction::LoadSuperAttr { namei })
     }
 
     /// Emit LOAD_SUPER_ATTR for 0-arg super().method() call.
     /// Encodes: (name_idx << 2) | 0b01 (method=1, class=0)
-    fn emit_load_zero_super_method(&mut self, name_idx: u32) {
+    fn emit_load_zero_super_method(&mut self, name_idx: oparg::NameIdx) {
         let encoded = LoadSuperAttr::new(name_idx, true, false);
         self.emit_arg(encoded, |namei| Instruction::LoadSuperAttr { namei })
     }
@@ -12576,34 +12419,6 @@ impl<'warnings> Compiler<'warnings> {
         is_break: bool,
     ) -> CompileResult<()> {
         let range = span.range;
-        if self.do_not_emit_bytecode > 0 {
-            // Still validate that we're inside a loop even in dead code
-            let code = self.current_code_info();
-            let mut found_loop = false;
-            for i in (0..code.fblock.len()).rev() {
-                match code.fblock[i].fb_type {
-                    FBlockType::WhileLoop | FBlockType::ForLoop | FBlockType::AsyncForLoop => {
-                        found_loop = true;
-                        break;
-                    }
-                    FBlockType::ExceptionGroupHandler => {
-                        return Err(self.error_ranged(
-                            CodegenErrorType::BreakContinueReturnInExceptStar,
-                            range,
-                        ));
-                    }
-                    _ => {}
-                }
-            }
-            if !found_loop {
-                if is_break {
-                    return Err(self.error_ranged(CodegenErrorType::InvalidBreak, range));
-                }
-                return Err(self.error_ranged(CodegenErrorType::InvalidContinue, range));
-            }
-            return Ok(());
-        }
-
         let prev_source_range = self.current_source_span;
         self.restore_source_span(span);
         emit!(self, Instruction::Nop);
@@ -12713,7 +12528,7 @@ impl<'warnings> Compiler<'warnings> {
             && code.blocks[block.idx()].next == BlockIdx::NULL;
 
         if !can_reuse_current {
-            let result = code.mark_cpython_cfg_label(block);
+            let result = code.instr_sequence_label_for_block(block);
             unwrap_internal(self, result);
             self.switch_to_block(block);
             return;
@@ -12726,7 +12541,9 @@ impl<'warnings> Compiler<'warnings> {
             debug_assert_eq!(target.start_depth, ir::START_DEPTH_UNSET);
             debug_assert!(!target.cold);
         }
-        let result = code.mark_cpython_cfg_label(cur);
+        // Reserve the canonical block's sequence label before aliasing this
+        // target. The real CFG will get its labels from the sequence offsets.
+        let result = code.instr_sequence_label_for_block(cur);
         unwrap_internal(self, result);
 
         let result = self
@@ -13815,16 +13632,11 @@ impl<'warnings> Compiler<'warnings> {
                             )?;
                         }
                         current_string.push_str(&text);
-                        strings.push((
-                            core::mem::take(current_string),
-                            current_string_range.take().unwrap_or(template_range),
-                        ));
-                    } else {
-                        strings.push((
-                            core::mem::take(current_string),
-                            current_string_range.take().unwrap_or(template_range),
-                        ));
                     }
+                    strings.push((
+                        core::mem::take(current_string),
+                        current_string_range.take().unwrap_or(template_range),
+                    ));
                     *interp_count += 1;
                 }
             }
@@ -15610,7 +15422,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "fail"
+                    f.names[load_attr.name_idx()].as_str() == "fail"
                 }
                 _ => false,
             })
@@ -16002,8 +15814,7 @@ def f(self, os, tempfile, oldmode):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "assertEqual"
+                    f.names[load_attr.name_idx()].as_str() == "assertEqual"
                 }
                 _ => false,
             })
@@ -16212,7 +16023,7 @@ def f(self):
                 ) && matches!(
                     window[1].op,
                     Instruction::LoadAttr { namei }
-                        if f.names[usize::try_from(namei.get(attr_arg).name_idx()).unwrap()]
+                        if f.names[namei.get(attr_arg).name_idx()]
                             == "assertFalse"
                 ) && matches!(
                     window[2].op,
@@ -16270,7 +16081,7 @@ def f(self):
                 ) && matches!(
                     window[1].op,
                     Instruction::LoadAttr { namei }
-                        if f.names[usize::try_from(namei.get(attr_arg).name_idx()).unwrap()]
+                        if f.names[namei.get(attr_arg).name_idx()]
                             == "assertFalse"
                 ) && matches!(
                     window[2].op,
@@ -16410,7 +16221,7 @@ def f(self):
                 ) && matches!(
                     window[1].op,
                     Instruction::LoadAttr { namei }
-                        if f.names[usize::try_from(namei.get(attr_arg).name_idx()).unwrap()]
+                        if f.names[namei.get(attr_arg).name_idx()]
                             == "close"
                 ) && matches!(window[2].op, Instruction::Call { .. })
                     && matches!(window[3].op, Instruction::PopTop)
@@ -16536,7 +16347,7 @@ def f(self, cm):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "close"
+                    f.names[load_attr.name_idx()].as_str() == "close"
                 }
                 _ => false,
             })
@@ -16575,7 +16386,7 @@ def f(self, g):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "close"
+                    f.names[load_attr.name_idx()].as_str() == "close"
                 }
                 _ => false,
             })
@@ -16662,7 +16473,7 @@ def f(self, x):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "use"
+                    f.names[load_attr.name_idx()].as_str() == "use"
                 }
                 _ => false,
             })
@@ -16823,7 +16634,7 @@ def f(self, block=True):
                 .position(|unit| match unit.op {
                     Instruction::LoadAttr { namei } => {
                         let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                        f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == name
+                        f.names[load_attr.name_idx()].as_str() == name
                     }
                     _ => false,
                 })
@@ -18054,64 +17865,17 @@ class C:
     }
 
     #[test]
-    fn or_return_not_taken_before_jump_target_splits_exception_table_like_cpython() {
-        let code = compile_exec_with_options(
+    fn generator_conditional_jumps_keep_stopiteration_handler() {
+        // CPython 3.15.2 keeps the generator's StopIteration handler around
+        // both branches of the normalized conditional, including NOT_TAKEN
+        // and any inserted JUMP_BACKWARD.
+        for source in [
             r#"
 def f(self, maintype):
     if maintype != "multipart" or not self.is_multipart():
         return
     yield 1
 "#,
-            CompileOpts::default(),
-        );
-        let f = find_code(&code, "f").expect("missing f");
-        let not_taken_before_return = u32::try_from(
-            f.instructions
-                .windows(3)
-                .position(|window| {
-                    matches!(
-                        window,
-                        [
-                            CodeUnit {
-                                op: Instruction::NotTaken,
-                                ..
-                            },
-                            CodeUnit {
-                                op: Instruction::LoadCommonConstant { .. },
-                                ..
-                            },
-                            CodeUnit {
-                                op: Instruction::ReturnValue,
-                                ..
-                            },
-                        ]
-                    )
-                })
-                .expect("missing NOT_TAKEN before return"),
-        )
-        .unwrap();
-        let return_load = not_taken_before_return + 1;
-        let entries = bytecode::decode_exception_table(&f.exceptiontable);
-
-        assert!(
-            entries.iter().all(|entry| {
-                not_taken_before_return < entry.start || not_taken_before_return >= entry.end
-            }),
-            "CPython normalize_jumps() can leave a NOT_TAKEN before a separately labelled jump target outside the generator StopIteration range; entries={entries:?}, instructions={:?}",
-            f.instructions
-        );
-        assert!(
-            entries
-                .iter()
-                .any(|entry| entry.start <= return_load && return_load < entry.end),
-            "the return block after that NOT_TAKEN is still protected by the StopIteration handler; entries={entries:?}, instructions={:?}",
-            f.instructions
-        );
-    }
-
-    #[test]
-    fn loop_break_condition_splits_exception_table_like_cpython() {
-        let code = compile_exec_with_options(
             r#"
 def f(start, items):
     if start:
@@ -18120,120 +17884,12 @@ def f(start, items):
                 break
     yield 1
 "#,
-            CompileOpts::default(),
-        );
-        let f = find_code(&code, "f").expect("missing f");
-        let break_jump = u32::try_from(
-            f.instructions
-                .windows(3)
-                .position(|window| {
-                    matches!(
-                        window,
-                        [
-                            CodeUnit {
-                                op: Instruction::PopJumpIfTrue { .. },
-                                ..
-                            },
-                            CodeUnit {
-                                op: Instruction::Cache,
-                                ..
-                            },
-                            CodeUnit {
-                                op: Instruction::NotTaken,
-                                ..
-                            },
-                        ]
-                    ) || matches!(
-                        window,
-                        [
-                            CodeUnit {
-                                op: Instruction::PopJumpIfTrue { .. },
-                                ..
-                            },
-                            CodeUnit {
-                                op: Instruction::NotTaken,
-                                ..
-                            },
-                            CodeUnit {
-                                op: Instruction::JumpBackward { .. },
-                                ..
-                            },
-                        ]
-                    )
-                })
-                .expect("missing loop break conditional jump"),
-        )
-        .unwrap();
-        let entries = bytecode::decode_exception_table(&f.exceptiontable);
-
-        assert!(
-            entries
-                .iter()
-                .all(|entry| break_jump < entry.start || break_jump >= entry.end),
-            "CPython normalize_jumps() leaves the loop-break conditional before the synthetic NOT_TAKEN/JUMP_BACKWARD block outside the StopIteration table; break_jump={break_jump}, entries={entries:?}, instructions={:?}",
-            f.instructions
-        );
-    }
-
-    #[test]
-    fn nested_ifexp_not_taken_splits_exception_table_like_cpython() {
-        let code = compile_exec_with_options(
             r#"
 def f(flag, subparts):
     if flag:
         candidate = subparts[0] if subparts else None
     yield 1
 "#,
-            CompileOpts::default(),
-        );
-        let f = find_code(&code, "f").expect("missing f");
-        let conditional_expr_not_taken = u32::try_from(
-            f.instructions
-                .iter()
-                .enumerate()
-                .find_map(|(idx, unit)| {
-                    if !matches!(unit.op, Instruction::NotTaken) {
-                        return None;
-                    }
-                    let prev = f.instructions[..idx]
-                        .iter()
-                        .rev()
-                        .find(|unit| !matches!(unit.op, Instruction::Cache))?;
-                    let mut following = f.instructions[idx + 1..]
-                        .iter()
-                        .filter(|unit| !matches!(unit.op, Instruction::Cache));
-                    let next = following.next()?;
-                    let after_next = following.next()?;
-                    (matches!(prev.op, Instruction::PopJumpIfFalse { .. })
-                        && matches!(next.op, Instruction::LoadFastBorrow { .. })
-                        && matches!(after_next.op, Instruction::LoadSmallInt { .. }))
-                    .then_some(idx)
-                })
-                .expect("missing conditional expression NOT_TAKEN"),
-        )
-        .unwrap();
-        let body_start = conditional_expr_not_taken + 1;
-        let entries = bytecode::decode_exception_table(&f.exceptiontable);
-
-        assert!(
-            entries.iter().all(|entry| {
-                conditional_expr_not_taken < entry.start || conditional_expr_not_taken >= entry.end
-            }),
-            "CPython codegen_ifexp() uses a separate orelse label inside conditional statements, leaving the normalize_jumps NOT_TAKEN outside the StopIteration table; not_taken={conditional_expr_not_taken}, entries={entries:?}, instructions={:?}",
-            f.instructions
-        );
-        assert!(
-            entries
-                .iter()
-                .any(|entry| entry.start <= body_start && body_start < entry.end),
-            "the conditional-expression body after that NOT_TAKEN remains protected; body_start={body_start}, entries={entries:?}, instructions={:?}",
-            f.instructions
-        );
-    }
-
-    #[test]
-    fn bool_not_taken_after_conditional_yield_splits_like_cpython() {
-        let code = compile_exec_with_options(
             r#"
 def f(a, b, c):
     if a:
@@ -18244,38 +17900,41 @@ def f(a, b, c):
         x = 3
     yield 4
 "#,
-            CompileOpts::default(),
-        );
-        let f = find_code(&code, "f").expect("missing f");
-        let split_not_taken = f
-            .instructions
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, unit)| {
-                if !matches!(unit.op, Instruction::NotTaken) {
-                    return None;
+        ] {
+            let code = compile_exec_with_options(source, CompileOpts::default());
+            let f = find_code(&code, "f").expect("missing f");
+            let entries = bytecode::decode_exception_table(&f.exceptiontable);
+            let [entry] = entries.as_slice() else {
+                panic!("expected a single StopIteration range, got {entries:?} for {source}");
+            };
+            assert!(entry.push_lasti);
+            assert_eq!(entry.depth, 0);
+            let target = &f.instructions[entry.target as usize];
+            assert!(matches!(
+                target.op,
+                Instruction::CallIntrinsic1 { func }
+                    if func.get(OpArg::new(u32::from(u8::from(target.arg))))
+                        == oparg::IntrinsicFunction1::StopIterationError
+            ));
+            let mut branches = 0;
+            for (offset, unit) in f.instructions.iter().enumerate() {
+                if matches!(
+                    unit.op,
+                    Instruction::PopJumpIfFalse { .. }
+                        | Instruction::PopJumpIfTrue { .. }
+                        | Instruction::NotTaken
+                        | Instruction::JumpBackward { .. }
+                ) {
+                    branches += 1;
+                    let offset = u32::try_from(offset).unwrap();
+                    assert!(
+                        entry.start <= offset && offset < entry.end,
+                        "unprotected branch at {offset} in {source}; exception entry: {entry:?}"
+                    );
                 }
-                let prev = f.instructions[..idx]
-                    .iter()
-                    .rev()
-                    .find(|unit| !matches!(unit.op, Instruction::Cache))?;
-                matches!(
-                    prev.op,
-                    Instruction::PopJumpIfFalse { .. } | Instruction::PopJumpIfTrue { .. }
-                )
-                .then(|| u32::try_from(idx).unwrap())
-            })
-            .nth(1)
-            .expect("missing second bool conditional NOT_TAKEN");
-        let entries = bytecode::decode_exception_table(&f.exceptiontable);
-
-        assert!(
-            entries
-                .iter()
-                .all(|entry| split_not_taken < entry.start || split_not_taken >= entry.end),
-            "CPython labels exception targets before normalize_jumps(), so the general bool-jump NOT_TAKEN after a conditional yield is outside the StopIteration table; not_taken={split_not_taken}, entries={entries:?}, instructions={:?}",
-            f.instructions
-        );
+            }
+            assert!(branches > 0);
+        }
     }
 
     fn non_cache_instructions(code: &CodeObject) -> impl Iterator<Item = &CodeUnit> {
@@ -20444,8 +20103,7 @@ def f(template):
                 continue;
             };
             let load_attr = namei.get(OpArg::new(u32::from(u8::from(attr.arg))));
-            if f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() != "interpolations"
-            {
+            if f.names[load_attr.name_idx()].as_str() != "interpolations" {
                 continue;
             }
             saw_interpolations = true;
@@ -20477,7 +20135,7 @@ class C:
         assert!(code.instructions.iter().any(|unit| match unit.op {
             Instruction::StoreGlobal { namei } => {
                 let idx = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                code.names[usize::try_from(idx).unwrap()].as_str() == "_address_fmt_re"
+                code.names[idx].as_str() == "_address_fmt_re"
             }
             _ => false,
         }));
@@ -20487,8 +20145,7 @@ class C:
         code.instructions.iter().find_map(|unit| match unit.op {
             Instruction::StoreName { namei } | Instruction::StoreGlobal { namei } => {
                 let idx = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                (code.names[usize::try_from(idx).unwrap()].as_str() == "__doc__")
-                    .then_some(&unit.op)
+                (code.names[idx].as_str() == "__doc__").then_some(&unit.op)
             }
             _ => None,
         })
@@ -22129,8 +21786,10 @@ def f(one: int):
         let loads_global = |name: &str| {
             f.instructions.iter().any(|unit| match unit.op {
                 Instruction::LoadGlobal { namei } => {
-                    let namei = namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) >> 1;
-                    f.names[usize::try_from(namei).unwrap()].as_str() == name
+                    let namei = namei
+                        .get(OpArg::new(u32::from(u8::from(unit.arg))))
+                        .name_idx();
+                    f.names[namei].as_str() == name
                 }
                 _ => false,
             })
@@ -22252,8 +21911,10 @@ def f():
             .collect();
         let load_global_name = |unit: &&bytecode::CodeUnit| match unit.op {
             Instruction::LoadGlobal { namei } => {
-                let name = namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) >> 1;
-                Some(f.names[usize::try_from(name).unwrap()].as_str())
+                let name = namei
+                    .get(OpArg::new(u32::from(u8::from(unit.arg))))
+                    .name_idx();
+                Some(f.names[name].as_str())
             }
             _ => None,
         };
@@ -22816,8 +22477,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "assertRaises"
+                    f.names[load_attr.name_idx()].as_str() == "assertRaises"
                 }
                 _ => false,
             })
@@ -22837,7 +22497,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "KEY"
+                    f.names[load_attr.name_idx()].as_str() == "KEY"
                 }
                 _ => false,
             })
@@ -22875,7 +22535,7 @@ def f(self, groupby):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "b"
+                    f.names[load_attr.name_idx()].as_str() == "b"
                 }
                 _ => false,
             })
@@ -22921,7 +22581,7 @@ def f(self, typ, dat):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "debug"
+                    f.names[load_attr.name_idx()].as_str() == "debug"
                 }
                 _ => false,
             })
@@ -22937,7 +22597,7 @@ def f(self, typ, dat):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "_mesg"
+                    f.names[load_attr.name_idx()].as_str() == "_mesg"
                 }
                 _ => false,
             })
@@ -22974,7 +22634,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "debug"
+                    f.names[load_attr.name_idx()].as_str() == "debug"
                 }
                 _ => false,
             })
@@ -23430,8 +23090,10 @@ def f(module, fromlist, import_, recursive=False):
         let is_load_global =
             |unit: &&rustpython_compiler_core::bytecode::CodeUnit, name: &str| match unit.op {
                 Instruction::LoadGlobal { namei } => {
-                    let namei = namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) >> 1;
-                    f.names[usize::try_from(namei).unwrap()].as_str() == name
+                    let namei = namei
+                        .get(OpArg::new(u32::from(u8::from(unit.arg))))
+                        .name_idx();
+                    f.names[namei].as_str() == name
                 }
                 _ => false,
             };
@@ -24237,7 +23899,7 @@ def f(tar1, x):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "close"
+                    f.names[load_attr.name_idx()].as_str() == "close"
                 }
                 _ => false,
             })
@@ -24275,7 +23937,7 @@ def f(tar1, x):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "close"
+                    f.names[load_attr.name_idx()].as_str() == "close"
                 }
                 _ => false,
             })
@@ -25257,7 +24919,7 @@ def f(value):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "defects"
+                    f.names[load_attr.name_idx()].as_str() == "defects"
                 }
                 _ => false,
             })
@@ -25275,7 +24937,7 @@ def f(value):
             .rposition(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "format"
+                    f.names[load_attr.name_idx()].as_str() == "format"
                 }
                 _ => false,
             })
@@ -26150,7 +25812,7 @@ def f(self, action):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "_dedent"
+                    f.names[load_attr.name_idx()].as_str() == "_dedent"
                 }
                 _ => false,
             })
@@ -26244,7 +25906,7 @@ async def f(g, self, x):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "aclose"
+                    f.names[load_attr.name_idx()].as_str() == "aclose"
                 }
                 _ => false,
             })
@@ -26639,7 +26301,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if class_code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__classdictcell__"
                 )
@@ -26684,7 +26346,7 @@ class C:
             matches!(
                 unit.op,
                 Instruction::StoreName { namei }
-                    if namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize
+                    if namei.get(OpArg::new(u32::from(u8::from(unit.arg)))).as_usize()
                         == class_name_index
             )
         }));
@@ -26729,7 +26391,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if class_code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__static_attributes__"
                 )
@@ -26762,7 +26424,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if class_code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__classdictcell__"
                 )
@@ -26876,7 +26538,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if class_code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__firstlineno__"
                 )
@@ -26946,7 +26608,7 @@ def f():
                     unit.op,
                     Instruction::StoreName { namei }
                         if class_code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__firstlineno__"
                 )
@@ -27098,7 +26760,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__doc__"
                 )
@@ -27124,7 +26786,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if class_code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__doc__"
                 )
@@ -27163,7 +26825,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__doc__"
                 )
@@ -27187,7 +26849,7 @@ class C:
                     unit.op,
                     Instruction::StoreName { namei }
                         if class_code.names
-                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize]
+                            [namei.get(OpArg::new(u32::from(u8::from(unit.arg))))]
                             .as_str()
                             == "__doc__"
                 )
@@ -27299,6 +26961,62 @@ def outer():
                 "outer.<locals>.inner.__annotate__"
             ]
         );
+    }
+
+    #[test]
+    fn generic_definition_qualnames_use_the_enclosing_scope() {
+        let code = compile_exec(
+            "\
+def annotate[T](x: T):
+    pass
+
+def outer():
+    global publish, Publish
+    async def publish[T](x: T):
+        pass
+    class Publish[T]:
+        pass
+    def private[T](x: T):
+        pass
+
+class Owner:
+    global _Owner__method
+    def __method[T](x: T):
+        pass
+",
+        );
+        let annotation = |generic: &str| {
+            let generic = find_code(&code, generic).unwrap();
+            find_direct_child_code(generic, "__annotate__")
+                .unwrap()
+                .qualname
+                .as_str()
+        };
+        for (name, expected) in [
+            ("publish", "publish"),
+            ("Publish", "Publish"),
+            ("private", "outer.<locals>.private"),
+            ("__method", "__method"),
+        ] {
+            assert_eq!(find_code(&code, name).unwrap().qualname, expected);
+        }
+        for (name, expected) in [
+            ("<generic parameters of annotate>", "__annotate__"),
+            (
+                "<generic parameters of publish>",
+                "outer.<locals>.publish.__annotate__",
+            ),
+            (
+                "<generic parameters of private>",
+                "outer.<locals>.private.__annotate__",
+            ),
+            (
+                "<generic parameters of __method>",
+                "Owner.__method.__annotate__",
+            ),
+        ] {
+            assert_eq!(annotation(name), expected);
+        }
     }
 
     #[test]
@@ -27729,19 +27447,14 @@ def bug():
         .unwrap();
 
         assert!(
-            entries
-                .iter()
-                .all(|entry| { not_taken_idx < entry.start || not_taken_idx >= entry.end })
-        );
-        assert!(
             entries.iter().any(|entry| {
-                entry.start <= alias_store_idx
+                entry.start <= not_taken_idx
                     && alias_store_idx < entry.end
                     && entry.target == copy_idx
                     && entry.depth == 1
                     && entry.push_lasti
             }),
-            "CPython codegen_try_except() stores the exception alias before the inner SETUP_CLEANUP, so the alias store stays covered by the outer cleanup entry; entries={entries:?}, instructions={:?}",
+            "CPython 3.15.2 keeps the normalized branch and alias store covered by the outer cleanup entry; entries={entries:?}, instructions={:?}",
             bug.instructions
         );
     }
@@ -28211,8 +27924,7 @@ def f(self, x):
                     return None;
                 };
                 let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                (f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "fail")
-                    .then_some(idx)
+                (f.names[load_attr.name_idx()].as_str() == "fail").then_some(idx)
             })
             .collect::<Vec<_>>();
         assert!(
@@ -28863,7 +28575,7 @@ def f(self, typ, dat):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "debug"
+                    f.names[load_attr.name_idx()].as_str() == "debug"
                 }
                 _ => false,
             })
@@ -28873,7 +28585,7 @@ def f(self, typ, dat):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "_mesg"
+                    f.names[load_attr.name_idx()].as_str() == "_mesg"
                 }
                 _ => false,
             })
@@ -28920,7 +28632,7 @@ def f(self, literal):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "send"
+                    f.names[load_attr.name_idx()].as_str() == "send"
                 }
                 _ => false,
             })
@@ -28931,7 +28643,7 @@ def f(self, literal):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "send"
+                    f.names[load_attr.name_idx()].as_str() == "send"
                 }
                 _ => false,
             })
@@ -28982,8 +28694,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "do_disassembly_test"
+                    f.names[load_attr.name_idx()].as_str() == "do_disassembly_test"
                 }
                 _ => false,
             })
@@ -30483,9 +30194,7 @@ def f(x):
             .filter(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    load_attr.is_method()
-                        && f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                            == "join"
+                    load_attr.is_method() && f.names[load_attr.name_idx()].as_str() == "join"
                 }
                 _ => false,
             })
@@ -31287,7 +30996,7 @@ class C:
             .filter_map(|unit| match unit.op {
                 Instruction::LoadName { namei } => {
                     let idx = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    Some(class_code.names[usize::try_from(idx).unwrap()].as_str())
+                    Some(class_code.names[idx].as_str())
                 }
                 _ => None,
             })
@@ -33212,7 +32921,7 @@ def f(seq, value):
         assert!(f.instructions.iter().any(|unit| match unit.op {
             Instruction::StoreGlobal { namei } => {
                 let idx = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                f.names[usize::try_from(idx).unwrap()] == "G"
+                f.names[idx] == "G"
             }
             _ => false,
         }));
@@ -36324,7 +36033,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "waiter"
+                    f.names[load_attr.name_idx()].as_str() == "waiter"
                 }
                 _ => false,
             })
@@ -36387,8 +36096,7 @@ def f(self, fut=None):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "add_done_callback"
+                    f.names[load_attr.name_idx()].as_str() == "add_done_callback"
                 }
                 _ => false,
             })
@@ -36450,7 +36158,7 @@ def f(self, fut=None):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "recv"
+                    f.names[load_attr.name_idx()].as_str() == "recv"
                 }
                 _ => false,
             })
@@ -36460,8 +36168,7 @@ def f(self, fut=None):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "add_done_callback"
+                    f.names[load_attr.name_idx()].as_str() == "add_done_callback"
                 }
                 _ => false,
             })
@@ -36521,7 +36228,7 @@ def f(self, cm, p, platform):
                 .position(|unit| match unit.op {
                     Instruction::LoadAttr { namei } => {
                         let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                        f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == name
+                        f.names[load_attr.name_idx()].as_str() == name
                     }
                     _ => false,
                 })
@@ -37443,7 +37150,7 @@ async def wait_for(fut, timeout):
                 matches!(window[0].op, Instruction::LoadFastBorrow { .. })
                     && loaded_names(window[0]).iter().any(|name| name == "fut")
                     && matches!(window[1].op, Instruction::LoadAttr { namei }
-                        if f.names[usize::try_from(namei.get(OpArg::new(u32::from(u8::from(window[1].arg)))).name_idx()).unwrap()] == "result")
+                        if f.names[namei.get(OpArg::new(u32::from(u8::from(window[1].arg)))).name_idx()] == "result")
                     && matches!(window[2].op, Instruction::Call { .. })
                     && matches!(window[3].op, Instruction::ReturnValue)
             }),
@@ -37785,7 +37492,7 @@ def f(x):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "rpartition"
+                    f.names[load_attr.name_idx()].as_str() == "rpartition"
                 }
                 _ => false,
             })
@@ -37827,7 +37534,7 @@ def f(x):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "rpartition"
+                    f.names[load_attr.name_idx()].as_str() == "rpartition"
                 }
                 _ => false,
             })
@@ -37866,7 +37573,7 @@ def f():
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "argv"
+                    f.names[load_attr.name_idx()].as_str() == "argv"
                 }
                 _ => false,
             })
@@ -38144,7 +37851,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::StoreAttr { namei } => {
                     let namei = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(namei).unwrap()].as_str() == "PROTOCOL_VERSION"
+                    f.names[namei].as_str() == "PROTOCOL_VERSION"
                 }
                 _ => false,
             })
@@ -39294,7 +39001,7 @@ def f(p, errors, s, pos, look, final, escape_start, st):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "append"
+                    f.names[load_attr.name_idx()].as_str() == "append"
                 }
                 _ => false,
             })
@@ -39441,7 +39148,7 @@ def f(args):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "_setoption"
+                    f.names[load_attr.name_idx()].as_str() == "_setoption"
                 }
                 _ => false,
             })
@@ -39545,8 +39252,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "get_disassemble_as_string"
+                    f.names[load_attr.name_idx()].as_str() == "get_disassemble_as_string"
                 }
                 _ => false,
             })
@@ -39641,7 +39347,7 @@ def f(self, cm, E):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "x"
+                    f.names[load_attr.name_idx()].as_str() == "x"
                 }
                 _ => false,
             })
@@ -40030,7 +39736,7 @@ def f(self, fd, file, closefd, owned_fd, OSError, AttributeError, errno, os, sta
             Instruction::LoadAttr { namei } => {
                 let arg = OpArg::new(u32::from(u8::from(unit.arg)));
                 let load_attr = namei.get(arg);
-                f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == expected
+                f.names[load_attr.name_idx()].as_str() == expected
             }
             _ => false,
         };
@@ -40043,7 +39749,7 @@ def f(self, fd, file, closefd, owned_fd, OSError, AttributeError, errno, os, sta
             .position(|unit| match unit.op {
                 Instruction::StoreAttr { namei } => {
                     let arg = OpArg::new(u32::from(u8::from(unit.arg)));
-                    f.names[usize::try_from(namei.get(arg)).unwrap()].as_str() == "_fd"
+                    f.names[namei.get(arg)].as_str() == "_fd"
                 }
                 _ => false,
             })
@@ -40215,8 +39921,7 @@ def f(self, fobj, unlink, TESTFN, C):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "assertEqual"
+                    f.names[load_attr.name_idx()].as_str() == "assertEqual"
                 }
                 _ => false,
             })
@@ -40285,7 +39990,7 @@ def f(self, os, alive_r, alive_w, address, pid):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "close"
+                    f.names[load_attr.name_idx()].as_str() == "close"
                 }
                 _ => false,
             })
@@ -40339,7 +40044,7 @@ def f(resource, desired_fds, max_fds):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "getrlimit"
+                    f.names[load_attr.name_idx()].as_str() == "getrlimit"
                 }
                 _ => false,
             })
@@ -40569,7 +40274,7 @@ def f(self, cm):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "y"
+                    f.names[load_attr.name_idx()].as_str() == "y"
                 }
                 _ => false,
             })
@@ -40609,7 +40314,7 @@ def f(self, factory):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "join"
+                    f.names[load_attr.name_idx()].as_str() == "join"
                 }
                 _ => false,
             })
@@ -40651,7 +40356,7 @@ def f(self, cm, E):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "shutdown"
+                    f.names[load_attr.name_idx()].as_str() == "shutdown"
                 }
                 _ => false,
             })
@@ -40695,8 +40400,7 @@ def f(self, cm, E, obj):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "saved_details"
+                    f.names[load_attr.name_idx()].as_str() == "saved_details"
                 }
                 _ => false,
             })
@@ -40745,8 +40449,7 @@ def f(self, cm):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "_exit_callbacks"
+                    f.names[load_attr.name_idx()].as_str() == "_exit_callbacks"
                 }
                 _ => false,
             })
@@ -40792,8 +40495,7 @@ def f(self, arc, tmp_filename, new_mode):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "check_context"
+                    f.names[load_attr.name_idx()].as_str() == "check_context"
                 }
                 _ => false,
             })
@@ -40851,7 +40553,7 @@ def f(self, fd, appending, errno):
             .position(|unit| match unit.op {
                 Instruction::StoreAttr { namei } => {
                     let arg = OpArg::new(u32::from(u8::from(unit.arg)));
-                    f.names[usize::try_from(namei.get(arg)).unwrap()].as_str() == "_fd"
+                    f.names[namei.get(arg)].as_str() == "_fd"
                 }
                 _ => false,
             })
@@ -40891,7 +40593,7 @@ def f(self, cm):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "x"
+                    f.names[load_attr.name_idx()].as_str() == "x"
                 }
                 _ => false,
             })
@@ -40946,7 +40648,7 @@ def f(re, proc, unittest):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "search"
+                    f.names[load_attr.name_idx()].as_str() == "search"
                 }
                 _ => false,
             })
@@ -41219,7 +40921,7 @@ def f(charset, failobj, E):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "lower"
+                    f.names[load_attr.name_idx()].as_str() == "lower"
                 }
                 _ => false,
             })
@@ -41315,8 +41017,7 @@ def f(self, OSError):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let arg = OpArg::new(u32::from(u8::from(unit.arg)));
-                    f.names[usize::try_from(namei.get(arg).name_idx()).unwrap()].as_str()
-                        == "verify_request"
+                    f.names[namei.get(arg).name_idx()].as_str() == "verify_request"
                 }
                 _ => false,
             })
@@ -41675,7 +41376,7 @@ def f(self, E, Event):
             .position(|unit| match unit.op {
                 Instruction::StoreAttr { namei } => {
                     let arg = OpArg::new(u32::from(u8::from(unit.arg)));
-                    f.names[usize::try_from(namei.get(arg)).unwrap()].as_str() == "keymap"
+                    f.names[namei.get(arg)].as_str() == "keymap"
                 }
                 _ => false,
             })
@@ -41685,7 +41386,7 @@ def f(self, E, Event):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "insert"
+                    f.names[load_attr.name_idx()].as_str() == "insert"
                 }
                 _ => false,
             })
@@ -41801,7 +41502,7 @@ def f(items, chunk, out, packI, Error):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "append"
+                    f.names[load_attr.name_idx()].as_str() == "append"
                 }
                 _ => false,
             })
@@ -41915,7 +41616,7 @@ def f(items, decoded, b32rev):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "to_bytes"
+                    f.names[load_attr.name_idx()].as_str() == "to_bytes"
                 }
                 _ => false,
             })
@@ -42759,7 +42460,7 @@ def f(formatstr, args, output, overflowok):
             .position(|unit| match unit.op {
                 Instruction::LoadGlobal { namei } => {
                     let load_global = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_global >> 1).unwrap()].as_str() == "AssertionError"
+                    f.names[load_global.name_idx()].as_str() == "AssertionError"
                 }
                 _ => false,
             })
@@ -42904,8 +42605,7 @@ def f(self, data, length):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                        == "data_received"
+                    f.names[load_attr.name_idx()].as_str() == "data_received"
                 }
                 _ => false,
             })
@@ -43033,7 +42733,7 @@ async def f(self, cm):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "fail"
+                    f.names[load_attr.name_idx()].as_str() == "fail"
                 }
                 _ => false,
             })
@@ -43074,7 +42774,7 @@ def f(self, cm):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "x"
+                    f.names[load_attr.name_idx()].as_str() == "x"
                 }
                 _ => false,
             })
@@ -43198,8 +42898,7 @@ def f(self, obj, expected, buf):
                 .rposition(|unit| match unit.op {
                     Instruction::LoadAttr { namei } => {
                         let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                        f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str()
-                            == attr_name
+                        f.names[load_attr.name_idx()].as_str() == attr_name
                     }
                     _ => false,
                 })
@@ -43291,8 +42990,8 @@ def f(self, cls, fns):
         let load_global_name = |unit: &&CodeUnit, name: &str| match unit.op {
             Instruction::LoadGlobal { namei } => {
                 let arg = OpArg::new(u32::from(u8::from(unit.arg)));
-                let load_global = namei.get(arg) >> 1;
-                f.names[usize::try_from(load_global).unwrap()].as_str() == name
+                let load_global = namei.get(arg).name_idx();
+                f.names[load_global].as_str() == name
             }
             _ => false,
         };
@@ -43424,7 +43123,7 @@ def f(s, size, errors, final):
             match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    let name = f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str();
+                    let name = f.names[load_attr.name_idx()].as_str();
                     if name == "warn" {
                         after_warn_attr = true;
                     }
@@ -43488,7 +43187,7 @@ def f(self, exc_type, CRLF, OSError):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "_mesg"
+                    f.names[load_attr.name_idx()].as_str() == "_mesg"
                 }
                 _ => false,
             })
@@ -43574,7 +43273,7 @@ def f(self):
             .position(|unit| match unit.op {
                 Instruction::LoadAttr { namei } => {
                     let load_attr = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
-                    f.names[usize::try_from(load_attr.name_idx()).unwrap()].as_str() == "assertIs"
+                    f.names[load_attr.name_idx()].as_str() == "assertIs"
                 }
                 _ => false,
             })
@@ -43612,8 +43311,10 @@ def f(w):
             .iter()
             .position(|unit| match unit.op {
                 Instruction::LoadGlobal { namei } => {
-                    let name = namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) >> 1;
-                    f.names[usize::try_from(name).unwrap()].as_str() == "locals"
+                    let name = namei
+                        .get(OpArg::new(u32::from(u8::from(unit.arg))))
+                        .name_idx();
+                    f.names[name].as_str() == "locals"
                 }
                 _ => false,
             })

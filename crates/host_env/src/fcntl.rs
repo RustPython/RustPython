@@ -3,6 +3,9 @@ use std::io;
 #[cfg(unix)]
 use std::os::fd::BorrowedFd;
 
+#[cfg(not(target_os = "wasi"))]
+use rustix::fs::{self, FlockOperation};
+
 use crate::os::CheckLibcResult;
 
 pub use libc::{F_GETFD, F_GETFL, F_SETFD, F_SETFL, FD_CLOEXEC};
@@ -19,10 +22,13 @@ pub use libc::{F_GETFD, F_GETFL, F_SETFD, F_SETFL, FD_CLOEXEC};
 pub use libc::{F_LOCK, F_TEST, F_TLOCK, F_ULOCK};
 
 #[cfg(not(target_os = "wasi"))]
-pub use libc::{F_DUPFD, F_DUPFD_CLOEXEC, F_GETLK, F_SETLK, F_SETLKW};
+pub use libc::{
+    F_DUPFD, F_DUPFD_CLOEXEC, F_GETLK, F_RDLCK, F_SETLK, F_SETLKW, F_UNLCK, F_WRLCK, LOCK_EX,
+    LOCK_NB, LOCK_SH, LOCK_UN,
+};
 
 #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
-pub use libc::{F_GETOWN, F_RDLCK, F_SETOWN, F_UNLCK, F_WRLCK, LOCK_EX, LOCK_NB, LOCK_SH, LOCK_UN};
+pub use libc::{F_GETOWN, F_SETOWN};
 
 #[cfg(target_vendor = "apple")]
 pub use libc::{F_FULLFSYNC, F_NOCACHE};
@@ -127,19 +133,29 @@ pub fn ioctl_int(fd: i32, request: libc::c_ulong, arg: i32) -> io::Result<i32> {
     unsafe { libc::ioctl(fd, request as _, arg) }.check_libc_neg()
 }
 
-#[cfg(not(any(target_os = "wasi", target_os = "redox")))]
-pub fn flock(fd: i32, operation: i32) -> io::Result<i32> {
-    unsafe { libc::flock(fd, operation) }.check_libc_neg()
+#[cfg(not(target_os = "wasi"))]
+pub fn flock(fd: &BorrowedFd<'_>, operation: i32) -> io::Result<()> {
+    let operation = match operation {
+        libc::LOCK_SH => FlockOperation::LockShared,
+        libc::LOCK_EX => FlockOperation::LockExclusive,
+        libc::LOCK_UN => FlockOperation::Unlock,
+        f if f == (libc::LOCK_SH | libc::LOCK_NB) => FlockOperation::NonBlockingLockShared,
+        f if f == (libc::LOCK_EX | libc::LOCK_NB) => FlockOperation::NonBlockingLockExclusive,
+        f if f == (libc::LOCK_UN | libc::LOCK_NB) => FlockOperation::NonBlockingUnlock,
+        _ => return Err(std::io::Error::from_raw_os_error(libc::EINVAL)),
+    };
+
+    fs::flock(fd, operation).map_err(Into::into)
 }
 
-#[cfg(not(any(target_os = "wasi", target_os = "redox")))]
+#[cfg(not(target_os = "wasi"))]
 pub enum LockfError {
     InvalidCmd,
     Overflow(String),
     Io(io::Error),
 }
 
-#[cfg(not(any(target_os = "wasi", target_os = "redox")))]
+#[cfg(not(target_os = "wasi"))]
 pub fn lockf_type(cmd: i32) -> Result<libc::c_int, LockfError> {
     let l_type = if cmd == libc::LOCK_UN {
         libc::F_UNLCK
@@ -156,7 +172,7 @@ pub fn lockf_type(cmd: i32) -> Result<libc::c_int, LockfError> {
     Ok(l_type as libc::c_int)
 }
 
-#[cfg(not(any(target_os = "wasi", target_os = "redox")))]
+#[cfg(not(target_os = "wasi"))]
 pub fn lockf(fd: i32, cmd: i32, len: i64, start: i64, whence: i32) -> Result<i32, LockfError> {
     fn convert_field<T, U>(value: T) -> Result<U, LockfError>
     where
