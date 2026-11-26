@@ -2235,93 +2235,44 @@ fn python_to_ffi(
         vm.run_unraisable(exc, Some(msg), vm.ctx.none());
     };
 
-    let type_code = ty.type_code(vm);
-    match type_code.as_deref() {
-        Some("b" | "h" | "i" | "l" | "q") => match obj.try_int(vm) {
-            Ok(i) => unsafe {
-                rustpython_host_env::ctypes::write_callback_result(
-                    type_code.as_deref(),
+    let Some(type_code) = ty.type_code(vm) else {
+        return;
+    };
+
+    match super::simple::assignment_value(&type_code, &obj, false, vm) {
+        Err(exc) => report_err(exc, vm),
+        Ok((mut bytes, keep, hidden)) => {
+            unsafe {
+                rustpython_host_env::ctypes::write_callback_result_bytes(
+                    Some(&type_code),
                     result,
-                    rustpython_host_env::ctypes::CallbackResultValue::Signed(
-                        i.as_bigint().to_i64().unwrap_or(0),
-                    ),
+                    &bytes,
                 );
-            },
-            Err(exc) => report_err(exc, vm),
-        },
-        Some("B" | "c" | "H" | "I" | "L" | "Q") => match obj.try_int(vm) {
-            Ok(i) => unsafe {
-                rustpython_host_env::ctypes::write_callback_result(
-                    type_code.as_deref(),
-                    result,
-                    rustpython_host_env::ctypes::CallbackResultValue::Unsigned(
-                        i.as_bigint().to_u64().unwrap_or(0),
-                    ),
-                );
-            },
-            Err(exc) => report_err(exc, vm),
-        },
-        Some("f" | "d") => match obj.try_float(vm) {
-            Ok(f) => unsafe {
-                rustpython_host_env::ctypes::write_callback_result(
-                    type_code.as_deref(),
-                    result,
-                    rustpython_host_env::ctypes::CallbackResultValue::Float(f.to_f64()),
-                );
-            },
-            Err(exc) => report_err(exc, vm),
-        },
-        #[cfg(windows)]
-        Some("X") => match super::simple::assignment_value("X", &obj, false, vm) {
-            Ok((mut bytes, _, _)) => {
-                let address = rustpython_host_env::ctypes::read_pointer_from_buffer(&bytes);
-                // libffi's result slot is fresh storage, not a previous BSTR.
-                bytes.commit();
-                unsafe {
-                    rustpython_host_env::ctypes::write_callback_result(
-                        Some("X"),
-                        result,
-                        rustpython_host_env::ctypes::CallbackResultValue::Pointer(address),
-                    );
-                }
             }
-            Err(exc) => report_err(exc, vm),
-        },
-        Some("P" | "z" | "Z") => {
-            if vm.is_none(&obj) {
-                unsafe {
-                    rustpython_host_env::ctypes::write_callback_result(
-                        type_code.as_deref(),
-                        result,
-                        rustpython_host_env::ctypes::CallbackResultValue::Pointer(0),
-                    );
+            // Fresh libffi result storage is not a previous BSTR slot.
+            bytes.commit();
+
+            if type_code == "O" {
+                // The result slot holds a borrowed pointer; leak one reference
+                // so the object stays alive after this callback returns.
+                core::mem::forget(obj);
+            } else if keep.is_some() || hidden.is_some() {
+                if let Some(keep) = keep {
+                    core::mem::forget(keep);
                 }
-            } else {
-                match obj.try_int(vm) {
-                    Ok(i) => unsafe {
-                        rustpython_host_env::ctypes::write_callback_result(
-                            type_code.as_deref(),
-                            result,
-                            rustpython_host_env::ctypes::CallbackResultValue::Pointer(
-                                i.as_bigint().to_usize().unwrap_or(0),
-                            ),
-                        );
-                    },
-                    Err(exc) => report_err(exc, vm),
+                if let Some(hidden) = hidden {
+                    core::mem::forget(hidden);
+                }
+                if let Err(exc) = crate::stdlib::_warnings::warn(
+                    vm.ctx.exceptions.runtime_warning,
+                    "memory leak in callback function.",
+                    1,
+                    vm,
+                ) {
+                    report_err(exc, vm);
                 }
             }
         }
-        Some("?") => match obj.is_true(vm) {
-            Ok(b) => unsafe {
-                rustpython_host_env::ctypes::write_callback_result(
-                    type_code.as_deref(),
-                    result,
-                    rustpython_host_env::ctypes::CallbackResultValue::Bool(b),
-                );
-            },
-            Err(exc) => report_err(exc, vm),
-        },
-        _ => {}
     }
 }
 

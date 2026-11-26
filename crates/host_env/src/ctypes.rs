@@ -680,12 +680,43 @@ pub enum DecodedValue {
     None,
 }
 
-pub enum CallbackResultValue {
-    Signed(i64),
-    Unsigned(u64),
-    Float(f64),
-    Pointer(usize),
-    Bool(bool),
+fn callback_narrow_int_result(type_code: &str, bytes: &[u8]) -> Option<CallbackIntResult> {
+    let size = simple_type_size(type_code)?;
+    if size >= core::mem::size_of::<CallbackIntResult>() {
+        return None;
+    }
+    let signed = match type_code {
+        "b" | "h" | "i" | "l" | "q" | "v" => true,
+        "B" | "c" | "?" | "H" | "I" | "L" | "Q" | "u" => false,
+        _ => return None,
+    };
+    Some(match size {
+        1 => {
+            let value = *bytes.first()?;
+            if signed {
+                value as i8 as CallbackIntResult
+            } else {
+                value as CallbackIntResult
+            }
+        }
+        2 => {
+            let value = u16::from_ne_bytes(*bytes.first_chunk()?);
+            if signed {
+                value as i16 as CallbackIntResult
+            } else {
+                value as CallbackIntResult
+            }
+        }
+        4 => {
+            let value = u32::from_ne_bytes(*bytes.first_chunk()?);
+            if signed {
+                value as i32 as CallbackIntResult
+            } else {
+                value as CallbackIntResult
+            }
+        }
+        _ => return None,
+    })
 }
 
 #[cfg(all(
@@ -1211,7 +1242,7 @@ pub fn clone_as_null_terminated(bytes: &[u8]) -> Vec<u8> {
 
 pub fn decode_type_code(type_code: &str, bytes: &[u8]) -> DecodedValue {
     match type_code {
-        "c" => DecodedValue::Bytes(bytes.to_vec()),
+        "c" => DecodedValue::Bytes(vec![bytes.first().copied().unwrap_or(0)]),
         "b" => DecodedValue::Signed(if !bytes.is_empty() {
             bytes[0] as i8 as i64
         } else {
@@ -1430,45 +1461,39 @@ pub unsafe fn callback_arg_value_at(
     unsafe { callback_arg_value(type_code, ptr) }
 }
 
+/// Write converted callback result bytes into libffi result storage.
+///
+/// Integral results narrower than `ffi_arg` are written as a full `ffi_arg`,
+/// sign-extended when signed and zero-extended when unsigned (`?` and `c`
+/// included). Float, long double, and pointer results are copied at their
+/// natural size.
+///
 /// # Safety
 ///
 /// `result` must point to valid callback result storage for the given ctypes
 /// `type_code`.
-pub unsafe fn write_callback_result(
+pub unsafe fn write_callback_result_bytes(
     type_code: Option<&str>,
     result: *mut c_void,
-    value: CallbackResultValue,
+    bytes: &[u8],
 ) {
-    match (type_code, value) {
-        (Some("b"), CallbackResultValue::Signed(v)) => unsafe { *(result as *mut i8) = v as i8 },
-        (Some("B" | "c"), CallbackResultValue::Unsigned(v)) => unsafe {
-            *(result as *mut u8) = v as u8
-        },
-        (Some("h"), CallbackResultValue::Signed(v)) => unsafe { *(result as *mut i16) = v as i16 },
-        (Some("H"), CallbackResultValue::Unsigned(v)) => unsafe {
-            *(result as *mut u16) = v as u16
-        },
-        (Some("i"), CallbackResultValue::Signed(v)) => unsafe {
-            *(result as *mut CallbackIntResult) = v as i32 as CallbackIntResult
-        },
-        (Some("I"), CallbackResultValue::Unsigned(v)) => unsafe {
-            *(result as *mut u32) = v as u32
-        },
-        (Some("l"), CallbackResultValue::Signed(v)) => unsafe {
-            *(result as *mut c_long) = v as c_long
-        },
-        (Some("L"), CallbackResultValue::Unsigned(v)) => unsafe {
-            *(result as *mut c_ulong) = v as c_ulong
-        },
-        (Some("q"), CallbackResultValue::Signed(v)) => unsafe { *(result as *mut i64) = v },
-        (Some("Q"), CallbackResultValue::Unsigned(v)) => unsafe { *(result as *mut u64) = v },
-        (Some("f"), CallbackResultValue::Float(v)) => unsafe { *(result as *mut f32) = v as f32 },
-        (Some("d"), CallbackResultValue::Float(v)) => unsafe { *(result as *mut f64) = v },
-        (Some("P" | "z" | "Z" | "X"), CallbackResultValue::Pointer(v)) => unsafe {
-            *(result as *mut usize) = v
-        },
-        (Some("?"), CallbackResultValue::Bool(v)) => unsafe { *(result as *mut u8) = u8::from(v) },
-        _ => {}
+    let Some(type_code) = type_code else {
+        return;
+    };
+    if let Some(widened) = callback_narrow_int_result(type_code, bytes) {
+        unsafe {
+            *(result as *mut CallbackIntResult) = widened;
+        }
+        return;
+    }
+    let size = simple_type_size(type_code)
+        .unwrap_or(bytes.len())
+        .min(bytes.len());
+    if size == 0 {
+        return;
+    }
+    unsafe {
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), result as *mut u8, size);
     }
 }
 

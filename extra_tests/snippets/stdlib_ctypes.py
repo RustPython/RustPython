@@ -1836,64 +1836,99 @@ class _CtypesTypeIdentityTests(_unittest.TestCase):
             )
 
     def test_callback_return_conversion_unraisable(self):
+        import warnings
+
         saved_hook = _sys.unraisablehook
         unraisable_calls = []
+
+        def check_unraisable(func, exc_type, count):
+            self.assertEqual(len(unraisable_calls), count)
+            hook = unraisable_calls[-1]
+            self.assertIs(hook.exc_type, exc_type)
+            self.assertEqual(
+                hook.err_msg,
+                f"Exception ignored while converting result of ctypes callback function {func!r}",
+            )
+            self.assertIsNone(hook.object)
+
         try:
             _sys.unraisablehook = unraisable_calls.append
 
-            # Invalid int return with non-convertible tuple produces TypeError
-            def bad_int():
-                return ("tuple",)
-
-            cb_int = ctypes.CFUNCTYPE(ctypes.c_int)(bad_int)
-            cb_int()
-            self.assertEqual(len(unraisable_calls), 1)
-            self.assertIs(unraisable_calls[-1].exc_type, TypeError)
-            self.assertEqual(
-                unraisable_calls[-1].err_msg,
-                f"Exception ignored while converting result of ctypes callback function {bad_int!r}",
-            )
-            self.assertIsNone(unraisable_calls[-1].object)
-
-            # Invalid float return with string produces TypeError
             def bad_float():
                 return "not a float"
 
-            cb_float = ctypes.CFUNCTYPE(ctypes.c_float)(bad_float)
-            cb_float()
-            self.assertEqual(len(unraisable_calls), 2)
-            self.assertIs(unraisable_calls[-1].exc_type, TypeError)
-            self.assertEqual(
-                unraisable_calls[-1].err_msg,
-                f"Exception ignored while converting result of ctypes callback function {bad_float!r}",
-            )
-            self.assertIsNone(unraisable_calls[-1].object)
+            ctypes.CFUNCTYPE(ctypes.c_float)(bad_float)()
+            check_unraisable(bad_float, TypeError, 1)
 
-            # Exception raised in __bool__ for bool return
             class BadBool:
                 def __bool__(self):
                     raise ValueError("bad bool")
 
-            bad_bool = BadBool()
-
             def bad_bool_fn():
-                return bad_bool
+                return BadBool()
 
-            cb_bool = ctypes.CFUNCTYPE(ctypes.c_bool)(bad_bool_fn)
-            cb_bool()
-            self.assertEqual(len(unraisable_calls), 3)
-            self.assertIs(unraisable_calls[-1].exc_type, ValueError)
-            self.assertEqual(
-                unraisable_calls[-1].err_msg,
-                f"Exception ignored while converting result of ctypes callback function {bad_bool_fn!r}",
-            )
-            self.assertIsNone(unraisable_calls[-1].object)
+            ctypes.CFUNCTYPE(ctypes.c_bool)(bad_bool_fn)()
+            check_unraisable(bad_bool_fn, ValueError, 2)
 
-            # c_void_p returning None should NOT trigger unraisablehook
-            cb_void_p = ctypes.CFUNCTYPE(ctypes.c_void_p)(lambda: None)
-            res = cb_void_p()
-            self.assertEqual(len(unraisable_calls), 3)
+            def ret_none():
+                return None
+
+            res = ctypes.CFUNCTYPE(ctypes.c_void_p)(ret_none)()
+            self.assertEqual(len(unraisable_calls), 2)
             self.assertIsNone(res)
+
+            def ret_float():
+                return 3.7
+
+            ctypes.CFUNCTYPE(ctypes.c_int)(ret_float)()
+            check_unraisable(ret_float, TypeError, 3)
+
+            def ret_str():
+                return "12"
+
+            ctypes.CFUNCTYPE(ctypes.c_int)(ret_str)()
+            check_unraisable(ret_str, TypeError, 4)
+
+            def ret_char():
+                return b"a"
+
+            char_result = ctypes.CFUNCTYPE(ctypes.c_char)(ret_char)()
+            self.assertEqual(char_result, b"a")
+            self.assertEqual(len(unraisable_calls), 4)
+
+            class IndexOnly:
+                def __index__(self):
+                    return 42
+
+            def ret_index():
+                return IndexOnly()
+
+            ctypes.CFUNCTYPE(ctypes.c_void_p)(ret_index)()
+            check_unraisable(ret_index, TypeError, 5)
+
+            payload = b"abc"
+
+            def ret_bytes():
+                return payload
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                bytes_result = ctypes.CFUNCTYPE(ctypes.c_char_p)(ret_bytes)()
+            self.assertEqual(bytes_result, payload)
+            self.assertEqual(len(unraisable_calls), 5)
+            self.assertEqual(len(caught), 1)
+            self.assertIs(caught[0].category, RuntimeWarning)
+            self.assertEqual(
+                str(caught[0].message), "memory leak in callback function."
+            )
+
+            def ret_bytes_warn_error():
+                return b"abc"
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                ctypes.CFUNCTYPE(ctypes.c_char_p)(ret_bytes_warn_error)()
+            check_unraisable(ret_bytes_warn_error, RuntimeWarning, 6)
         finally:
             _sys.unraisablehook = saved_hook
 
