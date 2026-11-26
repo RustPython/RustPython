@@ -1835,6 +1835,103 @@ class _CtypesTypeIdentityTests(_unittest.TestCase):
                 {"_type_": ctypes.c_char, "_length_": _sys.maxsize + 1},
             )
 
+    def test_callback_return_conversion_unraisable(self):
+        import warnings
+
+        saved_hook = _sys.unraisablehook
+        unraisable_calls = []
+
+        def check_unraisable(func, exc_type, count):
+            self.assertEqual(len(unraisable_calls), count)
+            hook = unraisable_calls[-1]
+            self.assertIs(hook.exc_type, exc_type)
+            self.assertEqual(
+                hook.err_msg,
+                f"Exception ignored while converting result of ctypes callback function {func!r}",
+            )
+            self.assertIsNone(hook.object)
+
+        try:
+            _sys.unraisablehook = unraisable_calls.append
+
+            def bad_float():
+                return "not a float"
+
+            ctypes.CFUNCTYPE(ctypes.c_float)(bad_float)()
+            check_unraisable(bad_float, TypeError, 1)
+
+            class BadBool:
+                def __bool__(self):
+                    raise ValueError("bad bool")
+
+            def bad_bool_fn():
+                return BadBool()
+
+            ctypes.CFUNCTYPE(ctypes.c_bool)(bad_bool_fn)()
+            check_unraisable(bad_bool_fn, ValueError, 2)
+
+            def ret_none():
+                return None
+
+            res = ctypes.CFUNCTYPE(ctypes.c_void_p)(ret_none)()
+            self.assertEqual(len(unraisable_calls), 2)
+            self.assertIsNone(res)
+
+            def ret_float():
+                return 3.7
+
+            ctypes.CFUNCTYPE(ctypes.c_int)(ret_float)()
+            check_unraisable(ret_float, TypeError, 3)
+
+            def ret_str():
+                return "12"
+
+            ctypes.CFUNCTYPE(ctypes.c_int)(ret_str)()
+            check_unraisable(ret_str, TypeError, 4)
+
+            def ret_char():
+                return b"a"
+
+            char_result = ctypes.CFUNCTYPE(ctypes.c_char)(ret_char)()
+            self.assertEqual(char_result, b"a")
+            self.assertEqual(len(unraisable_calls), 4)
+
+            class IndexOnly:
+                def __index__(self):
+                    return 42
+
+            def ret_index():
+                return IndexOnly()
+
+            ctypes.CFUNCTYPE(ctypes.c_void_p)(ret_index)()
+            check_unraisable(ret_index, TypeError, 5)
+
+            payload = b"abc"
+
+            def ret_bytes():
+                return payload
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                bytes_result = ctypes.CFUNCTYPE(ctypes.c_char_p)(ret_bytes)()
+            self.assertEqual(bytes_result, payload)
+            self.assertEqual(len(unraisable_calls), 5)
+            self.assertEqual(len(caught), 1)
+            self.assertIs(caught[0].category, RuntimeWarning)
+            self.assertEqual(
+                str(caught[0].message), "memory leak in callback function."
+            )
+
+            def ret_bytes_warn_error():
+                return b"abc"
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                ctypes.CFUNCTYPE(ctypes.c_char_p)(ret_bytes_warn_error)()
+            check_unraisable(ret_bytes_warn_error, RuntimeWarning, 6)
+        finally:
+            _sys.unraisablehook = saved_hook
+
 
 for _identity_test_name in _CtypesTypeIdentityTests.__dict__:
     if _identity_test_name.startswith("test_"):
