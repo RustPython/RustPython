@@ -3,8 +3,9 @@
 use crate::methodobject::PyMethodDef;
 use crate::slots::{PySlot, PySlotKind, PySlotModule};
 use crate::util::CStrExt;
-use core::ffi::c_int;
-use rustpython_vm::{AsObject, PyObject, PyResult, TryFromObject, VirtualMachine};
+use core::ffi::{CStr, c_int, c_void};
+use rustpython_vm::builtins::{PyCapsule, PyTuple};
+use rustpython_vm::{AsObject, PyObject, PyPayload, PyResult, VirtualMachine};
 
 type ExecSlot = unsafe extern "C" fn(*mut PyObject) -> c_int;
 
@@ -12,6 +13,7 @@ type ExecSlot = unsafe extern "C" fn(*mut PyObject) -> c_int;
 /// `_imp.exec_dynamic` runs them, once importlib has set the module attributes and added the
 /// module to `sys.modules` (PEP 489). Living in the module dict, they go away with the module.
 const PENDING_EXEC_KEY: &str = "__rustpython_pending_exec__";
+const PENDING_EXEC_NAME: &CStr = c"rustpython.pending_exec";
 
 /// Make `_imp.create_dynamic` able to load extension modules built for the stable ABI.
 ///
@@ -105,7 +107,12 @@ fn load_extension_module(vm: &VirtualMachine, name: &str, export_fn: usize) -> P
     if !execs.is_empty() {
         let pending = execs
             .into_iter()
-            .map(|exec| vm.ctx.new_int(exec as usize).into())
+            .map(|exec| {
+                // Capsules cannot be created from Python, so Python code cannot forge a slot.
+                PyCapsule::new(exec as *mut c_void, Some(PENDING_EXEC_NAME), None)
+                    .into_ref(&vm.ctx)
+                    .into()
+            })
             .collect();
         module
             .dict()
@@ -125,10 +132,18 @@ fn exec_extension_module(vm: &VirtualMachine, module: &PyObject) -> PyResult<()>
     };
     dict.del_item(PENDING_EXEC_KEY, vm)?;
     let module_ptr = module.as_object().as_raw().cast_mut();
-    for address in pending.try_to_value::<Vec<rustpython_vm::PyObjectRef>>(vm)? {
-        let address = usize::try_from_object(vm, address)?;
-        // Safety: the address was stored by `load_extension_module` from an exec slot.
-        let exec: ExecSlot = unsafe { core::mem::transmute(address as *const ()) };
+    let pending = pending.downcast_ref::<PyTuple>().ok_or_else(|| {
+        vm.new_system_error("corrupted pending exec slots of an extension module")
+    })?;
+    for slot in pending {
+        let slot = slot
+            .downcast_ref::<PyCapsule>()
+            .filter(|slot| slot.name() == Some(PENDING_EXEC_NAME))
+            .ok_or_else(|| {
+                vm.new_system_error("corrupted pending exec slots of an extension module")
+            })?;
+        // Safety: the capsule was created by `load_extension_module` from an exec slot.
+        let exec: ExecSlot = unsafe { core::mem::transmute(slot.pointer()) };
         if unsafe { exec(module_ptr) } != 0 {
             return Err(vm.take_raised_exception().unwrap_or_else(|| {
                 vm.new_system_error("exec slot of an extension module failed without an exception")
