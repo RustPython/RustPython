@@ -244,31 +244,7 @@ mod _pyexpat {
 
     impl DeclarationPrefix {
         fn text(&self) -> String {
-            let bytes = &self.bytes;
-            let (little, offset) = if bytes.starts_with(&[0xff, 0xfe]) {
-                (true, 2)
-            } else if bytes.starts_with(&[0xfe, 0xff]) {
-                (false, 2)
-            } else if bytes.starts_with(&[b'<', 0]) {
-                (true, 0)
-            } else if bytes.starts_with(&[0, b'<']) {
-                (false, 0)
-            } else {
-                return String::from_utf8_lossy(
-                    bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes),
-                )
-                .into_owned();
-            };
-            let units = bytes[offset..].as_chunks::<2>().0.iter().map(|&pair| {
-                if little {
-                    u16::from_le_bytes(pair)
-                } else {
-                    u16::from_be_bytes(pair)
-                }
-            });
-            char::decode_utf16(units)
-                .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
-                .collect()
+            PreambleLayout::detect(&self.bytes).decode(&self.bytes)
         }
 
         fn record(&mut self, chunk: &[u8]) {
@@ -279,7 +255,7 @@ mod _pyexpat {
                 self.bytes.push(byte);
                 if self.bytes.len() >= 2
                     && self.bytes.len() <= 16
-                    && ![0xef, 0xbb, 0xbf].starts_with(&self.bytes)
+                    && !PreambleLayout::UTF8_BOM.starts_with(&self.bytes)
                 {
                     let text = self.text();
                     if (!"<?xml".starts_with(&text) && !text.starts_with("<?xml"))
@@ -1049,6 +1025,57 @@ mod _pyexpat {
         }
     }
 
+    #[derive(Clone, Copy)]
+    enum Utf16Order {
+        Little,
+        Big,
+    }
+
+    #[derive(Clone, Copy)]
+    struct PreambleLayout {
+        bom_len: usize,
+        utf16: Option<Utf16Order>,
+    }
+
+    impl PreambleLayout {
+        const UTF8_BOM: [u8; 3] = [0xef, 0xbb, 0xbf];
+
+        fn detect(raw: &[u8]) -> Self {
+            let (bom_len, utf16) = match raw {
+                [0xff, 0xfe, ..] => (2, Some(Utf16Order::Little)),
+                [0xfe, 0xff, ..] => (2, Some(Utf16Order::Big)),
+                [b'<', 0, ..] => (0, Some(Utf16Order::Little)),
+                [0, b'<', ..] => (0, Some(Utf16Order::Big)),
+                _ if raw.starts_with(&Self::UTF8_BOM) => (Self::UTF8_BOM.len(), None),
+                _ => (0, None),
+            };
+            Self { bom_len, utf16 }
+        }
+
+        fn decode(self, bytes: &[u8]) -> String {
+            let bytes = &bytes[self.bom_len..];
+            let Some(order) = self.utf16 else {
+                return String::from_utf8_lossy(bytes).into_owned();
+            };
+            let units = bytes.as_chunks::<2>().0.iter().map(|&pair| match order {
+                Utf16Order::Little => u16::from_le_bytes(pair),
+                Utf16Order::Big => u16::from_be_bytes(pair),
+            });
+            char::decode_utf16(units)
+                .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
+                .collect()
+        }
+
+        fn byte_index(self, text: &str) -> usize {
+            self.bom_len
+                + if self.utf16.is_some() {
+                    text.encode_utf16().count() * 2
+                } else {
+                    text.len()
+                }
+        }
+    }
+
     #[derive(Debug)]
     struct SingleByteEncoding {
         map: [u32; 256],
@@ -1059,22 +1086,15 @@ mod _pyexpat {
     }
 
     impl SingleByteEncoding {
-        fn set_preamble(&mut self, raw: &[u8], text: &str) {
-            self.raw_preamble_len = raw.len();
-            let utf16 = raw.starts_with(&[0xff, 0xfe])
-                || raw.starts_with(&[0xfe, 0xff])
-                || raw.starts_with(&[b'<', 0])
-                || raw.starts_with(&[0, b'<']);
-            let bom = raw.starts_with(&[0xef, 0xbb, 0xbf])
-                || raw.starts_with(&[0xff, 0xfe])
-                || raw.starts_with(&[0xfe, 0xff]);
-            self.bom_column = bom;
+        fn set_preamble(&mut self, raw_len: usize, text: &str, layout: PreambleLayout) {
+            self.raw_preamble_len = raw_len;
+            self.bom_column = layout.bom_len > 0;
             self.preamble = text.as_bytes().to_vec();
-            let mut offset = if bom { if utf16 { 2 } else { 3 } } else { 0 };
+            let mut offset = layout.bom_len;
             self.prefix_positions.push(vec![offset]);
             let mut previous_cr = false;
             for ch in text.chars() {
-                offset += if utf16 {
+                offset += if layout.utf16.is_some() {
                     ch.len_utf16() * 2
                 } else {
                     ch.len_utf8()
@@ -2507,6 +2527,100 @@ mod _pyexpat {
             result
         }
 
+        /// Resolve the encoding before starting xml-rs. Non-native encodings
+        /// need a byte map because xml-rs has no unknown-encoding callback.
+        fn resolve_input_encoding(
+            &self,
+            vm: &VirtualMachine,
+            unicode_input: bool,
+        ) -> PyResult<Option<alloc::sync::Arc<SingleByteEncoding>>> {
+            if unicode_input {
+                return Ok(None);
+            }
+
+            let mut preamble = None;
+            let encoding = if let Some(encoding) = &self.encoding {
+                encoding.clone()
+            } else {
+                let declaration = self.declaration.read();
+                let layout = PreambleLayout::detect(&declaration.bytes);
+                let header = layout.decode(&declaration.bytes);
+                let Some(encoding) = header
+                    .strip_prefix("<?xml")
+                    .and_then(|text| declaration_value(text, "encoding"))
+                else {
+                    return Ok(None);
+                };
+                let name_offset = encoding.as_ptr() as usize - header.as_ptr() as usize;
+                let encoding = encoding.to_owned();
+                preamble = Some((declaration.bytes.len(), header, layout, name_offset));
+                encoding
+            };
+            if native_encoding(&encoding).is_some() {
+                return Ok(None);
+            }
+
+            if let Some((_, header, layout, name_offset)) = &preamble {
+                // A malformed declaration must fail before codec lookup.
+                // This reader validates only the already complete header.
+                if !encoding
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphabetic)
+                    || !encoding
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-'))
+                {
+                    self.terminal_error_code.store(30, Ordering::SeqCst);
+                    return Err(self.handler_error(vm, 30, "XML declaration not well-formed")?);
+                }
+                let mut validation = xml::ParserConfig::new()
+                    .override_encoding(Some(xml::Encoding::Utf8))
+                    .ignore_invalid_encoding_declarations(true)
+                    .create_reader(header.as_bytes());
+                let event = match validation.next() {
+                    Ok(event) => event,
+                    Err(error) => return Err(self.parse_error(vm, error)?),
+                };
+                *self.current_byte_index.write() = layout.bom_len as i64;
+                *self.current_line.write() = 1;
+                *self.current_column.write() = i64::from(layout.bom_len > 0);
+                if let Err(error) = self.dispatch(vm, event, None) {
+                    self.terminal_error_code.store(18, Ordering::SeqCst);
+                    return Err(error);
+                }
+                let prefix = &header[..*name_offset];
+                *self.current_byte_index.write() = layout.byte_index(prefix) as i64;
+                let (mut line, mut column, mut previous_cr) =
+                    (1, i64::from(layout.bom_len > 0), false);
+                for character in prefix.chars() {
+                    if character == '\r' || (character == '\n' && !previous_cr) {
+                        line += 1;
+                        column = 0;
+                    } else if character != '\n' {
+                        column += 1;
+                    }
+                    previous_cr = character == '\r';
+                }
+                *self.current_line.write() = line;
+                *self.current_column.write() = column;
+            }
+            match self.encoding_map(&encoding, vm) {
+                Ok(mut map) => {
+                    if let Some((raw_len, header, layout, _)) = preamble {
+                        alloc::sync::Arc::get_mut(&mut map)
+                            .unwrap()
+                            .set_preamble(raw_len, &header, layout);
+                    }
+                    Ok(Some(map))
+                }
+                Err(error) => {
+                    self.terminal_error_code.store(18, Ordering::SeqCst);
+                    Err(error)
+                }
+            }
+        }
+
         fn feed_inner(
             &self,
             vm: &VirtualMachine,
@@ -2562,117 +2676,7 @@ mod _pyexpat {
                 }
                 // Drop every parser lock before invoking a user-registered codec.
                 drop(initial);
-                let header = self.declaration.read().text();
-                let declared = header
-                    .strip_prefix("<?xml")
-                    .and_then(|text| declaration_value(text, "encoding").map(str::to_owned));
-                let encoding = if unicode_input {
-                    None
-                } else {
-                    self.encoding.clone().or(declared)
-                };
-                let mapping = if let Some(encoding) =
-                    encoding.filter(|name| native_encoding(name).is_none())
-                {
-                    let preamble = if self.encoding.is_none() {
-                        let declaration = self.declaration.read();
-                        Some((declaration.bytes.clone(), declaration.text()))
-                    } else {
-                        None
-                    };
-                    if let Some((raw, header)) = &preamble {
-                        // A malformed declaration must fail before codec lookup.
-                        // This reader validates only the already complete header.
-                        if !encoding
-                            .as_bytes()
-                            .first()
-                            .is_some_and(u8::is_ascii_alphabetic)
-                            || !encoding.bytes().all(|c| {
-                                c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-')
-                            })
-                        {
-                            self.terminal_error_code.store(30, Ordering::SeqCst);
-                            return Err(self.handler_error(
-                                vm,
-                                30,
-                                "XML declaration not well-formed",
-                            )?);
-                        }
-                        let mut validation = xml::ParserConfig::new()
-                            .override_encoding(Some(xml::Encoding::Utf8))
-                            .ignore_invalid_encoding_declarations(true)
-                            .create_reader(header.as_bytes());
-                        let event = match validation.next() {
-                            Ok(event) => event,
-                            Err(error) => return Err(self.parse_error(vm, error)?),
-                        };
-                        let bom = if raw.starts_with(&[0xef, 0xbb, 0xbf]) {
-                            3
-                        } else if raw.starts_with(&[0xff, 0xfe]) || raw.starts_with(&[0xfe, 0xff]) {
-                            2
-                        } else {
-                            0
-                        };
-                        *self.current_byte_index.write() = bom;
-                        *self.current_line.write() = 1;
-                        *self.current_column.write() = i64::from(bom > 0);
-                        if let Err(error) = self.dispatch(vm, event, None) {
-                            self.terminal_error_code.store(18, Ordering::SeqCst);
-                            return Err(error);
-                        }
-                    }
-                    if let Some((raw, header)) = &preamble
-                        && let Some(name) = declaration_value(header, "encoding")
-                    {
-                        let prefix = &header[..name.as_ptr() as usize - header.as_ptr() as usize];
-                        let utf16 = raw.starts_with(&[0xff, 0xfe])
-                            || raw.starts_with(&[0xfe, 0xff])
-                            || raw.starts_with(&[b'<', 0])
-                            || raw.starts_with(&[0, b'<']);
-                        let bom = if raw.starts_with(&[0xef, 0xbb, 0xbf]) {
-                            3
-                        } else if raw.starts_with(&[0xff, 0xfe]) || raw.starts_with(&[0xfe, 0xff]) {
-                            2
-                        } else {
-                            0
-                        };
-                        *self.current_byte_index.write() = (bom
-                            + if utf16 {
-                                prefix.encode_utf16().count() * 2
-                            } else {
-                                prefix.len()
-                            }) as i64;
-                        let (mut line, mut column, mut previous_cr) =
-                            (1, i64::from(bom > 0), false);
-                        for character in prefix.chars() {
-                            if character == '\r' || (character == '\n' && !previous_cr) {
-                                line += 1;
-                                column = 0;
-                            } else if character != '\n' {
-                                column += 1;
-                            }
-                            previous_cr = character == '\r';
-                        }
-                        *self.current_line.write() = line;
-                        *self.current_column.write() = column;
-                    }
-                    match self.encoding_map(&encoding, vm) {
-                        Ok(mut map) => {
-                            if let Some((raw, header)) = &preamble {
-                                alloc::sync::Arc::get_mut(&mut map)
-                                    .unwrap()
-                                    .set_preamble(raw, header);
-                            }
-                            Some(map)
-                        }
-                        Err(error) => {
-                            self.terminal_error_code.store(18, Ordering::SeqCst);
-                            return Err(error);
-                        }
-                    }
-                } else {
-                    None
-                };
+                let mapping = self.resolve_input_encoding(vm, unicode_input)?;
                 let sniffed = match input.as_ref() {
                     [0, _, ..] => Some(xml::Encoding::Utf16Be),
                     [_, 0, ..] => Some(xml::Encoding::Utf16Le),
