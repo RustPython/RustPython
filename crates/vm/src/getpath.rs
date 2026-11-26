@@ -11,27 +11,11 @@ use std::ffi::OsString;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-#[derive(Clone, Copy)]
-enum Layout {
-    Legacy,
-    #[cfg(not(windows))]
-    Tagged,
-}
-
-impl Layout {
-    #[cfg(not(windows))]
-    const fn abi_suffix(self) -> &'static str {
-        match self {
-            Self::Legacy => "",
-            Self::Tagged => crate::stdlib::sys::sys::ABIFLAGS,
-        }
-    }
-}
-
 // Platform-specific landmarks (ref: getpath.py PLATFORM CONSTANTS)
 
 #[cfg(not(windows))]
 mod platform {
+    use crate::stdlib::sys::sys::{ABIFLAGS, PLATLIBDIR};
     use crate::version;
 
     pub(super) const BUILDDIR_TXT: &str = "pybuilddir.txt";
@@ -40,30 +24,28 @@ mod platform {
     pub(super) const BUILDSTDLIB_LANDMARK: &str = "Lib/os.py";
     pub(super) const DEFAULT_PROGRAM_NAME: &str = "python3";
 
-    pub(super) fn stdlib_subdir(layout: super::Layout) -> String {
+    pub(super) fn stdlib_subdir() -> String {
         format!(
-            "lib/python{}.{}{}",
+            "{PLATLIBDIR}/python{}.{}{ABIFLAGS}",
             version::MAJOR,
-            version::MINOR,
-            layout.abi_suffix(),
+            version::MINOR
         )
     }
 
-    pub(super) fn stdlib_landmarks(layout: super::Layout) -> [String; 2] {
-        let subdir = stdlib_subdir(layout);
+    pub(super) fn stdlib_landmarks() -> [String; 2] {
+        let subdir = stdlib_subdir();
         [format!("{subdir}/os.py"), format!("{subdir}/os.pyc")]
     }
 
-    pub(super) fn platstdlib_landmark(layout: super::Layout) -> String {
-        format!("{}/lib-dynload", stdlib_subdir(layout))
+    pub(super) fn platstdlib_landmark() -> String {
+        format!("{}/lib-dynload", stdlib_subdir())
     }
 
-    pub(super) fn zip_landmark(layout: super::Layout) -> String {
+    pub(super) fn zip_landmark() -> String {
         format!(
-            "lib/python{}{}{}.zip",
+            "{PLATLIBDIR}/python{}{}{ABIFLAGS}.zip",
             version::MAJOR,
-            version::MINOR,
-            layout.abi_suffix(),
+            version::MINOR
         )
     }
 }
@@ -79,15 +61,15 @@ mod platform {
     pub(super) const STDLIB_SUBDIR: &str = "Lib";
     pub(super) const DEFAULT_PROGRAM_NAME: &str = "python";
 
-    pub(super) fn stdlib_landmarks(_layout: super::Layout) -> [String; 2] {
+    pub(super) fn stdlib_landmarks() -> [String; 2] {
         ["Lib\\os.py".into(), "Lib\\os.pyc".into()]
     }
 
-    pub(super) fn platstdlib_landmark(_layout: super::Layout) -> String {
+    pub(super) fn platstdlib_landmark() -> String {
         "DLLs".into()
     }
 
-    pub(super) fn zip_landmark(_layout: super::Layout) -> String {
+    pub(super) fn zip_landmark() -> String {
         format!("python{}{}.zip", version::MAJOR, version::MINOR)
     }
 }
@@ -96,21 +78,13 @@ mod platform {
 
 /// Search upward from a directory for landmark files/directories
 /// Returns the directory where a landmark was found
-fn search_up<P, F>(
-    start: P,
-    landmarks: &[&str],
-    stop_before: Option<&Path>,
-    test: F,
-) -> Option<PathBuf>
+fn search_up<P, F>(start: P, landmarks: &[&str], test: F) -> Option<PathBuf>
 where
     P: AsRef<Path>,
     F: Fn(&Path) -> bool,
 {
     let mut current = start.as_ref().to_path_buf();
     loop {
-        if stop_before == Some(current.as_path()) {
-            return None;
-        }
         for landmark in landmarks {
             let path = current.join(landmark);
             if test(&path) {
@@ -125,13 +99,13 @@ where
 
 /// Search upward for a file landmark
 fn search_up_file<P: AsRef<Path>>(start: P, landmarks: &[&str]) -> Option<PathBuf> {
-    search_up(start, landmarks, None, Path::is_file)
+    search_up(start, landmarks, |p| p.is_file())
 }
 
 /// Search upward for a directory landmark
 #[cfg(not(windows))]
 fn search_up_dir<P: AsRef<Path>>(start: P, landmarks: &[&str]) -> Option<PathBuf> {
-    search_up(start, landmarks, None, Path::is_dir)
+    search_up(start, landmarks, |p| p.is_dir())
 }
 
 // Path computation functions
@@ -322,24 +296,18 @@ pub fn init_path_config(settings: &Settings) -> Paths {
         home.split_once(if cfg!(windows) { ';' } else { ':' })
             .unwrap_or((home, home))
     });
-    let allow_tagged = settings.under_pth.is_none();
-    let (base_prefix, layout) = if let Some(prefix) = home_prefixes
+    paths.base_prefix = home_prefixes
         .map(|(prefix, _)| prefix)
         .filter(|prefix| !prefix.is_empty())
-    {
-        (
-            prefix.to_owned(),
-            locate_layout(Path::new(prefix), allow_tagged),
-        )
-    } else {
-        calculate_prefix(search_dir.as_ref(), build_prefix.as_ref(), allow_tagged)
-    };
-    paths.base_prefix = base_prefix;
+        .map_or_else(
+            || calculate_prefix(search_dir.as_ref(), build_prefix.as_ref()),
+            str::to_owned,
+        );
     paths.base_exec_prefix = home_prefixes
         .map(|(_, exec_prefix)| exec_prefix)
         .filter(|exec_prefix| !exec_prefix.is_empty())
         .map_or_else(
-            || calculate_exec_prefix(search_dir.as_ref(), &paths.base_prefix, layout),
+            || calculate_exec_prefix(search_dir.as_ref(), &paths.base_prefix),
             str::to_owned,
         );
     // The venv overlays public prefixes, not the base library search paths.
@@ -356,14 +324,9 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     paths.module_search_paths = if settings.under_pth == Some(UnderPth::Isolated) {
         settings.path_list.clone()
     } else {
-        build_module_search_paths(
-            settings,
-            &paths.base_prefix,
-            &paths.base_exec_prefix,
-            layout,
-        )
+        build_module_search_paths(settings, &paths.base_prefix, &paths.base_exec_prefix)
     };
-    paths.stdlib_dir = calculate_stdlib_dir(&paths.base_prefix, layout);
+    paths.stdlib_dir = calculate_stdlib_dir(&paths.base_prefix);
 
     paths
 }
@@ -427,135 +390,63 @@ fn detect_venv(exe_dir: Option<&PathBuf>) -> (Option<PathBuf>, Option<PathBuf>) 
     (None, None)
 }
 
-enum BuildPrefix {
-    Marked(PathBuf),
-    UnpackedLib(PathBuf),
-}
-
-impl BuildPrefix {
-    fn path(&self) -> &Path {
-        match self {
-            Self::Marked(path) | Self::UnpackedLib(path) => path,
-        }
-    }
-}
-
-/// Detect if running from a build directory.
-fn detect_build_directory(exe_dir: Option<&PathBuf>) -> Option<BuildPrefix> {
+/// Detect if running from a build directory
+fn detect_build_directory(exe_dir: Option<&PathBuf>) -> Option<PathBuf> {
     let dir = exe_dir?;
 
     // Check for pybuilddir.txt (indicates build directory)
     if dir.join(platform::BUILDDIR_TXT).exists() {
-        return Some(BuildPrefix::Marked(dir.clone()));
+        return Some(dir.clone());
     }
 
     // Check for Modules/Setup.local (build landmark)
     if dir.join(platform::BUILD_LANDMARK).exists() {
-        return Some(BuildPrefix::Marked(dir.clone()));
+        return Some(dir.clone());
     }
 
     // Search up for Lib/os.py (build stdlib landmark)
-    search_up_file(dir, &[platform::BUILDSTDLIB_LANDMARK]).map(BuildPrefix::UnpackedLib)
+    search_up_file(dir, &[platform::BUILDSTDLIB_LANDMARK])
 }
 
 /// Calculate prefix by searching for landmarks
-fn calculate_prefix(
-    exe_dir: Option<&PathBuf>,
-    build_prefix: Option<&BuildPrefix>,
-    allow_tagged: bool,
-) -> (String, Layout) {
-    if let Some(build) = build_prefix {
-        // A loose ancestor Lib is not a build marker for a separately
-        // installed tagged runtime below it. Only consider landmarks strictly
-        // below that ancestor; authoritative build markers still win outright.
-        #[cfg(not(windows))]
-        if allow_tagged
-            && let BuildPrefix::UnpackedLib(root) = build
-            && let Some(dir) = exe_dir
-            && let Some(prefix) = search_layout(dir, Layout::Tagged, Some(root))
-            && search_layout(dir, Layout::Legacy, None).is_none()
-        {
-            return (prefix.to_string_lossy().into_owned(), Layout::Tagged);
-        }
-        return (build.path().to_string_lossy().into_owned(), Layout::Legacy);
+fn calculate_prefix(exe_dir: Option<&PathBuf>, build_prefix: Option<&PathBuf>) -> String {
+    // 1. If build directory detected, use it
+    if let Some(bp) = build_prefix {
+        return bp.to_string_lossy().into_owned();
     }
 
     if let Some(dir) = exe_dir {
-        if let Some(prefix) = search_layout(dir, Layout::Legacy, None) {
-            return (prefix.to_string_lossy().into_owned(), Layout::Legacy);
+        // 2. Search for ZIP landmark
+        let zip = platform::zip_landmark();
+        if let Some(prefix) = search_up_file(dir, &[&zip]) {
+            return prefix.to_string_lossy().into_owned();
         }
 
-        // Keep the entire existing layout search ahead of the tagged fallback,
-        // even when the legacy installation is farther from the executable.
-        #[cfg(not(windows))]
-        if allow_tagged && let Some(prefix) = search_layout(dir, Layout::Tagged, None) {
-            return (prefix.to_string_lossy().into_owned(), Layout::Tagged);
+        // 3. Search for stdlib landmarks (os.py)
+        let landmarks = platform::stdlib_landmarks();
+        let refs: Vec<&str> = landmarks.iter().map(|s| s.as_str()).collect();
+        if let Some(prefix) = search_up_file(dir, &refs) {
+            return prefix.to_string_lossy().into_owned();
         }
     }
 
-    let prefix = default_prefix(exe_dir);
-    let layout = locate_layout(Path::new(&prefix), allow_tagged);
-    (prefix, layout)
-}
-
-fn search_layout(dir: &Path, layout: Layout, stop_before: Option<&Path>) -> Option<PathBuf> {
-    search_up(
-        dir,
-        &[&platform::zip_landmark(layout)],
-        stop_before,
-        Path::is_file,
-    )
-    .or_else(|| {
-        let landmarks = platform::stdlib_landmarks(layout);
-        search_up(
-            dir,
-            &[&landmarks[0], &landmarks[1]],
-            stop_before,
-            Path::is_file,
-        )
-    })
-}
-
-// An explicit/default prefix stays fixed. Check only its own layouts, keeping
-// the old archive, loose library or unpacked Lib ahead of a tagged fallback.
-#[cfg(not(windows))]
-fn locate_layout(prefix: &Path, allow_tagged: bool) -> Layout {
-    fn has_layout(prefix: &Path, layout: Layout) -> bool {
-        prefix.join(platform::zip_landmark(layout)).is_file()
-            || platform::stdlib_landmarks(layout)
-                .iter()
-                .any(|landmark| prefix.join(landmark).is_file())
-    }
-
-    if allow_tagged
-        && has_layout(prefix, Layout::Tagged)
-        && !prefix.join(platform::BUILDSTDLIB_LANDMARK).is_file()
-        && !has_layout(prefix, Layout::Legacy)
-    {
-        Layout::Tagged
-    } else {
-        Layout::Legacy
-    }
-}
-
-#[cfg(windows)]
-fn locate_layout(_prefix: &Path, _allow_tagged: bool) -> Layout {
-    Layout::Legacy
+    // 4. Fallback to default
+    default_prefix(exe_dir)
 }
 
 /// Calculate exec_prefix
-fn calculate_exec_prefix(exe_dir: Option<&PathBuf>, prefix: &str, layout: Layout) -> String {
+fn calculate_exec_prefix(exe_dir: Option<&PathBuf>, prefix: &str) -> String {
     #[cfg(windows)]
     {
         // Windows: exec_prefix == prefix
-        let _ = (exe_dir, layout);
+        let _ = exe_dir; // silence unused warning
         prefix.to_owned()
     }
 
     #[cfg(not(windows))]
     {
         // Prefer the platform library under prefix before executable ancestors.
-        let landmark = platform::platstdlib_landmark(layout);
+        let landmark = platform::platstdlib_landmark();
         if Path::new(prefix).join(&landmark).is_dir() {
             return prefix.to_owned();
         }
@@ -654,12 +545,10 @@ fn calculate_base_executable(executable: Option<&PathBuf>, home_dir: Option<&Pat
 
 /// Calculate stdlib_dir (sys._stdlib_dir)
 /// Returns None if the stdlib directory doesn't exist
-fn calculate_stdlib_dir(prefix: &str, layout: Layout) -> Option<String> {
-    #[cfg(windows)]
-    let _ = layout;
+fn calculate_stdlib_dir(prefix: &str) -> Option<String> {
     let stdlib_dir = Path::new(prefix).join(cfg_select! {
         windows => platform::STDLIB_SUBDIR,
-        _ => platform::stdlib_subdir(layout),
+        _ => platform::stdlib_subdir(),
     });
 
     if stdlib_dir.is_dir() {
@@ -676,21 +565,9 @@ pub fn add_build_time_paths(settings: &Settings, paths: &mut Paths, extra: Vec<S
     if settings.under_pth.is_some() {
         return;
     }
-    let is_calculated = |layout| {
-        paths.module_search_paths
-            == build_module_search_paths(
-                settings,
-                &paths.base_prefix,
-                &paths.base_exec_prefix,
-                layout,
-            )
-    };
-    let is_calculated = is_calculated(Layout::Legacy)
-        || cfg_select! {
-            windows => false,
-            _ => is_calculated(Layout::Tagged),
-        };
-    let index = if is_calculated {
+    let calculated =
+        build_module_search_paths(settings, &paths.base_prefix, &paths.base_exec_prefix);
+    let index = if paths.module_search_paths == calculated {
         settings.path_list.len() + 1
     } else {
         paths.module_search_paths.len()
@@ -705,7 +582,6 @@ fn build_module_search_paths(
     settings: &Settings,
     prefix: &str,
     exec_prefix: &str,
-    layout: Layout,
 ) -> Vec<OsString> {
     let mut paths = Vec::new();
 
@@ -713,24 +589,24 @@ fn build_module_search_paths(
     paths.extend(settings.path_list.iter().cloned());
 
     // 2. ZIP file path
-    let zip_path = PathBuf::from(prefix).join(platform::zip_landmark(layout));
+    let zip_path = PathBuf::from(prefix).join(platform::zip_landmark());
     paths.push(zip_path.into_os_string());
 
     // 3. stdlib and platstdlib directories
     #[cfg(not(windows))]
     {
         // POSIX: stdlib first, then lib-dynload
-        let stdlib_dir = PathBuf::from(prefix).join(platform::stdlib_subdir(layout));
+        let stdlib_dir = PathBuf::from(prefix).join(platform::stdlib_subdir());
         paths.push(stdlib_dir.into_os_string());
 
-        let platstdlib = PathBuf::from(exec_prefix).join(platform::platstdlib_landmark(layout));
+        let platstdlib = PathBuf::from(exec_prefix).join(platform::platstdlib_landmark());
         paths.push(platstdlib.into_os_string());
     }
 
     #[cfg(windows)]
     {
         // Windows: DLLs first, then Lib
-        let platstdlib = PathBuf::from(exec_prefix).join(platform::platstdlib_landmark(layout));
+        let platstdlib = PathBuf::from(exec_prefix).join(platform::platstdlib_landmark());
         paths.push(platstdlib.into_os_string());
 
         let stdlib_dir = PathBuf::from(prefix).join(platform::STDLIB_SUBDIR);
@@ -826,12 +702,6 @@ mod tests {
 
     #[test]
     fn build_time_paths_follow_configured_paths_and_zip() {
-        check_build_time_paths_follow_configured_paths_and_zip(Layout::Legacy);
-        #[cfg(not(windows))]
-        check_build_time_paths_follow_configured_paths_and_zip(Layout::Tagged);
-    }
-
-    fn check_build_time_paths_follow_configured_paths_and_zip(layout: Layout) {
         for configured in [
             vec![],
             vec![OsString::from("first"), OsString::from("second")],
@@ -840,7 +710,7 @@ mod tests {
                 path_list: configured,
                 ..Settings::default()
             };
-            let calculated = build_module_search_paths(&settings, "prefix", "exec-prefix", layout);
+            let calculated = build_module_search_paths(&settings, "prefix", "exec-prefix");
             let mut paths = Paths {
                 base_prefix: "prefix".to_owned(),
                 base_exec_prefix: "exec-prefix".to_owned(),
@@ -863,17 +733,9 @@ mod tests {
             path_list: vec!["configured".into()],
             ..Settings::default()
         };
-        let mutated_search_paths = |layout| {
-            let mut paths = build_module_search_paths(&settings, "prefix", "exec-prefix", layout);
-            paths.push("custom".into());
-            paths
-        };
-        for custom in [
-            vec![],
-            mutated_search_paths(Layout::Legacy),
-            #[cfg(not(windows))]
-            mutated_search_paths(Layout::Tagged),
-        ] {
+        let mut modified = build_module_search_paths(&settings, "prefix", "exec-prefix");
+        modified.push("custom".into());
+        for custom in [vec![], modified] {
             let mut paths = Paths {
                 base_prefix: "prefix".to_owned(),
                 base_exec_prefix: "exec-prefix".to_owned(),
@@ -885,6 +747,79 @@ mod tests {
             expected.push("build".into());
             assert_eq!(paths.module_search_paths, expected);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn posix_install_uses_one_abi_tagged_layout() -> io::Result<()> {
+        use crate::stdlib::sys::sys::{ABIFLAGS, PLATLIBDIR};
+        use crate::version;
+
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        let root = std::env::temp_dir().join(format!("rustpython-getpath-{}", std::process::id()));
+        std::fs::create_dir(&root)?;
+        let root = Fixture(root);
+        let prefix = root.0.join("install");
+        let bin = prefix.join("bin");
+        std::fs::create_dir_all(&bin)?;
+
+        let lib = prefix.join(PLATLIBDIR);
+        let untagged = lib.join(format!("python{}.{}", version::MAJOR, version::MINOR));
+        let untagged_zip = lib.join(format!("python{}{}.zip", version::MAJOR, version::MINOR));
+        std::fs::create_dir_all(&untagged)?;
+        std::fs::write(untagged.join("os.py"), "")?;
+        std::fs::write(&untagged_zip, "")?;
+
+        let explicit_home = Settings {
+            home: Some(prefix.to_string_lossy().into_owned()),
+            ..Settings::default()
+        };
+        let paths = init_path_config(&explicit_home);
+        let tagged = lib.join(format!(
+            "python{}.{}{ABIFLAGS}",
+            version::MAJOR,
+            version::MINOR
+        ));
+        let zip = lib.join(format!(
+            "python{}{}{ABIFLAGS}.zip",
+            version::MAJOR,
+            version::MINOR
+        ));
+        let dynload = tagged.join("lib-dynload");
+        assert_eq!(paths.stdlib_dir, None);
+        assert_eq!(
+            paths.module_search_paths,
+            [&zip, &tagged, &dynload].map(|path| path.as_os_str().to_owned())
+        );
+
+        // A closer untagged install cannot override the tagged landmark above it.
+        let nested = bin.join("nested");
+        let nested_legacy = nested.join(PLATLIBDIR).join(untagged.file_name().unwrap());
+        std::fs::create_dir_all(&nested_legacy)?;
+        std::fs::write(nested_legacy.join("os.py"), "")?;
+        std::fs::create_dir_all(&dynload)?;
+        std::fs::write(tagged.join("os.py"), "")?;
+        assert_eq!(calculate_prefix(Some(&nested), None), paths.base_prefix);
+        assert_eq!(
+            calculate_exec_prefix(Some(&nested), &paths.base_prefix),
+            paths.base_prefix
+        );
+        assert_eq!(
+            init_path_config(&explicit_home).stdlib_dir.as_deref(),
+            tagged.to_str()
+        );
+
+        // The tagged ZIP also works on its own as the prefix landmark.
+        std::fs::remove_file(tagged.join("os.py"))?;
+        std::fs::write(zip, "")?;
+        assert_eq!(calculate_prefix(Some(&nested), None), paths.base_prefix);
+        Ok(())
     }
 
     #[test]
