@@ -366,7 +366,6 @@ class ParseTest(unittest.TestCase):
         external_ref_args = ('ext', None, 'entity.file', None)
         ExternalEntityRefHandler.assert_called_once_with(*external_ref_args)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @support.subTests('encoding', [
         'utf-8', 'utf-16', 'utf-16be', 'utf-16le',
         'iso8859-1', 'iso8859-2', 'iso8859-3', 'iso8859-4', 'iso8859-5',
@@ -396,7 +395,6 @@ class ParseTest(unittest.TestCase):
             "End element: 'root'",
         ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @support.subTests('encoding', [
         'UTF-8', 'utf-8', 'utf-16', 'utf-16le', 'utf-16be',
         'koi8-u', 'cp1125', 'cp1251', 'iso8859-5', 'mac-cyrillic',
@@ -780,7 +778,6 @@ class PositionTest(unittest.TestCase):
 
 
 class sf1296433Test(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'str' but 'bytes' found.
     def test_parse_only_xml_data(self):
         # https://bugs.python.org/issue1296433
         #
@@ -808,7 +805,6 @@ class ChardataBufferTest(unittest.TestCase):
     def test_1025_bytes(self):
         self.assertEqual(self.small_buffer_test(1025), 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_1000_bytes(self):
         self.assertEqual(self.small_buffer_test(1000), 1)
 
@@ -921,7 +917,6 @@ class ChardataBufferTest(unittest.TestCase):
         parser.Parse(xml)
         return self.n
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_change_size_1(self):
         xml1 = b"<?xml version='1.0' encoding='iso8859'?><a><s>" + b'a' * 1024
         xml2 = b'aaa</s><s>' + b'a' * 1025 + b'</s></a>'

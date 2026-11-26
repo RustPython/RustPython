@@ -313,7 +313,7 @@ mod _pyexpat {
         }
     }
 
-    // Called only after xml-rs validated the declaration's attribute grammar.
+    // Extract an attribute; validate declaration grammar before callbacks or codec lookup.
     fn declaration_value<'a>(text: &'a str, name: &str) -> Option<&'a str> {
         let (_, value) = text.split_once(name)?;
         let value = value.trim_start().strip_prefix('=')?.trim_start();
@@ -537,6 +537,11 @@ mod _pyexpat {
     /// the previous whole-buffer implementation made.
     #[derive(Default)]
     struct LineTracker {
+        single_byte: bool,
+        previous_cr: bool,
+        prefix_remaining: usize,
+        prefix_positions: Vec<Vec<usize>>,
+        bom_column: bool,
         total_read: usize,
         line_starts: Vec<usize>,
         /// Unscanned tail of the current line (bytes at or after
@@ -551,6 +556,11 @@ mod _pyexpat {
     impl LineTracker {
         fn new() -> Self {
             Self {
+                single_byte: false,
+                previous_cr: false,
+                prefix_remaining: 0,
+                prefix_positions: Vec::new(),
+                bom_column: false,
                 total_read: 0,
                 line_starts: vec![0],
                 current_line: VecDeque::new(),
@@ -559,7 +569,47 @@ mod _pyexpat {
             }
         }
 
+        fn set_encoding(&mut self, mapping: Option<&SingleByteEncoding>) {
+            if let Some(mapping) = mapping {
+                self.single_byte = true;
+                self.bom_column = mapping.bom_column;
+                self.prefix_remaining = mapping.raw_preamble_len;
+                self.prefix_positions.clone_from(&mapping.prefix_positions);
+                if let Some(last) = self.prefix_positions.last() {
+                    self.total_read = mapping.raw_preamble_len;
+                    self.line_starts = self.prefix_positions.iter().map(|row| row[0]).collect();
+                    // Beyond the header, every decoded character occupies one raw byte.
+                    *self.line_starts.last_mut().unwrap() =
+                        mapping.raw_preamble_len - (last.len() - 1);
+                    self.line_scanned_bytes = last.len() - 1;
+                    self.line_scanned_chars = last.len() - 1;
+                }
+            }
+        }
+
         fn record(&mut self, bytes: &[u8]) {
+            let skip = self.prefix_remaining.min(bytes.len());
+            self.prefix_remaining -= skip;
+            let bytes = &bytes[skip..];
+            if self.single_byte {
+                for &byte in bytes {
+                    self.total_read += 1;
+                    if byte == b'\r' || byte == b'\n' {
+                        if byte == b'\n' && self.previous_cr {
+                            *self.line_starts.last_mut().unwrap() = self.total_read;
+                        } else {
+                            self.line_starts.push(self.total_read);
+                        }
+                        self.current_line.clear();
+                        self.line_scanned_bytes = 0;
+                        self.line_scanned_chars = 0;
+                    } else {
+                        self.current_line.push_back(byte);
+                    }
+                    self.previous_cr = byte == b'\r';
+                }
+                return;
+            }
             // Everything before the last newline in this chunk belongs to
             // lines that are already finished, so only their start offsets
             // are worth keeping; the tail after it is what a later position
@@ -606,13 +656,33 @@ mod _pyexpat {
             (bytes, chars)
         }
 
+        fn column_for(&self, pos: xml::common::TextPosition) -> i64 {
+            pos.column() as i64 + i64::from(self.bom_column && pos.row() == 0)
+        }
+
         fn byte_index_for(&mut self, pos: xml::common::TextPosition) -> i64 {
             let row = pos.row() as usize;
+            if let Some(offset) = self
+                .prefix_positions
+                .get(row)
+                .and_then(|positions| positions.get(pos.column() as usize))
+            {
+                return *offset as i64;
+            }
             let line_start = self
                 .line_starts
                 .get(row)
                 .copied()
                 .unwrap_or(self.total_read);
+            if self.single_byte && row + 1 == self.line_starts.len() {
+                let column = pos.column() as usize;
+                let consumed = column
+                    .saturating_sub(self.line_scanned_bytes)
+                    .min(self.current_line.len());
+                self.current_line.drain(..consumed);
+                self.line_scanned_bytes += consumed;
+                return (line_start + column) as i64;
+            }
             if row + 1 != self.line_starts.len() {
                 // The line's bytes have already been discarded; approximate
                 // assuming one byte per character (see doc comment above).
@@ -847,7 +917,10 @@ mod _pyexpat {
         /// brand new parser thread there has been observed to reliably
         /// crash the process, so `Backend::new` falls back to `Backend::Sync`
         /// in that case too, exactly as if threads were unavailable.
-        fn try_spawn(config: xml::ParserConfig) -> Option<Self> {
+        fn try_spawn(
+            config: xml::ParserConfig,
+            mapping: Option<alloc::sync::Arc<SingleByteEncoding>>,
+        ) -> Option<Self> {
             ensure_atfork_hook_registered();
             if post_fork_child() {
                 return None;
@@ -857,7 +930,7 @@ mod _pyexpat {
             let thread_buf = alloc::sync::Arc::clone(&buf);
             let thread = std::thread::Builder::new()
                 .name("pyexpat-parser".into())
-                .spawn(move || run_parser_thread(config, thread_buf, tx))
+                .spawn(move || run_parser_thread(config, mapping, thread_buf, tx))
                 .ok()?;
             Some(Self {
                 buf: core::mem::ManuallyDrop::new(buf),
@@ -913,16 +986,20 @@ mod _pyexpat {
     #[cfg(not(target_arch = "wasm32"))]
     fn run_parser_thread(
         config: xml::ParserConfig,
+        mapping: Option<alloc::sync::Arc<SingleByteEncoding>>,
         buf: alloc::sync::Arc<FeedBuffer>,
         tx: std::sync::mpsc::Sender<ParserMsg>,
     ) {
-        let tracker = Rc::new(RefCell::new(LineTracker::new()));
+        let mut positions = LineTracker::new();
+        positions.set_encoding(mapping.as_deref());
+        let tracker = Rc::new(RefCell::new(positions));
         let reader = FeedReader {
             buf,
             tracker: Rc::clone(&tracker),
             events_tx: tx.clone(),
         };
-        let mut parser = config.create_reader(std::io::BufReader::new(reader));
+        let mut parser =
+            config.create_reader(MappedReader::new(std::io::BufReader::new(reader), mapping));
         loop {
             match parser.next() {
                 Ok(XmlEvent::EndDocument) => {
@@ -936,7 +1013,7 @@ mod _pyexpat {
                         doctype: Doctype::from_reader(&parser, &event),
                         event,
                         line: pos.row() as i64 + 1,
-                        column: pos.column() as i64,
+                        column: tracker.borrow().column_for(pos),
                         byte_index,
                     });
                     if tx.send(msg).is_err() {
@@ -972,6 +1049,167 @@ mod _pyexpat {
         }
     }
 
+    #[derive(Debug)]
+    struct SingleByteEncoding {
+        map: [u32; 256],
+        preamble: Vec<u8>,
+        raw_preamble_len: usize,
+        prefix_positions: Vec<Vec<usize>>,
+        bom_column: bool,
+    }
+
+    impl SingleByteEncoding {
+        fn set_preamble(&mut self, raw: &[u8], text: &str) {
+            self.raw_preamble_len = raw.len();
+            let utf16 = raw.starts_with(&[0xff, 0xfe])
+                || raw.starts_with(&[0xfe, 0xff])
+                || raw.starts_with(&[b'<', 0])
+                || raw.starts_with(&[0, b'<']);
+            let bom = raw.starts_with(&[0xef, 0xbb, 0xbf])
+                || raw.starts_with(&[0xff, 0xfe])
+                || raw.starts_with(&[0xfe, 0xff]);
+            self.bom_column = bom;
+            self.preamble = text.as_bytes().to_vec();
+            let mut offset = if bom { if utf16 { 2 } else { 3 } } else { 0 };
+            self.prefix_positions.push(vec![offset]);
+            let mut previous_cr = false;
+            for ch in text.chars() {
+                offset += if utf16 {
+                    ch.len_utf16() * 2
+                } else {
+                    ch.len_utf8()
+                };
+                if ch == '\n' && previous_cr {
+                    self.prefix_positions.last_mut().unwrap()[0] = offset;
+                } else if ch == '\n' || ch == '\r' {
+                    self.prefix_positions.push(vec![offset]);
+                } else {
+                    self.prefix_positions.last_mut().unwrap().push(offset);
+                }
+                previous_cr = ch == '\r';
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    struct InvalidEncodingByte {
+        byte: usize,
+        line: usize,
+        column: usize,
+    }
+
+    impl core::fmt::Display for InvalidEncodingByte {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.write_str("invalid single-byte XML character")
+        }
+    }
+
+    impl core::error::Error for InvalidEncodingByte {}
+
+    /// Decode only as the XML reader requests input. Invalid bytes raise an I/O
+    /// error immediately, including when a nonfinal input chunk ends at that byte.
+    /// The underlying reader tracks original bytes, not the expanded UTF-8 stream.
+    struct MappedReader<R> {
+        inner: R,
+        mapping: Option<alloc::sync::Arc<SingleByteEncoding>>,
+        prefix_remaining: usize,
+        prefix_output: usize,
+        byte_position: usize,
+        line: usize,
+        column: usize,
+        previous_cr: bool,
+        pending: [u8; 4],
+        offset: usize,
+        length: usize,
+    }
+
+    impl<R> MappedReader<R> {
+        fn new(inner: R, mapping: Option<alloc::sync::Arc<SingleByteEncoding>>) -> Self {
+            Self {
+                inner,
+                prefix_remaining: mapping.as_ref().map_or(0, |m| m.raw_preamble_len),
+                prefix_output: 0,
+                byte_position: mapping.as_ref().map_or(0, |m| m.raw_preamble_len),
+                line: mapping
+                    .as_ref()
+                    .map_or(0, |m| m.prefix_positions.len().saturating_sub(1)),
+                column: mapping.as_ref().map_or(0, |m| {
+                    m.prefix_positions.last().map_or(0, |row| row.len() - 1)
+                        + usize::from(m.bom_column && m.prefix_positions.len() == 1)
+                }),
+                previous_cr: false,
+                mapping,
+                pending: [0; 4],
+                offset: 0,
+                length: 0,
+            }
+        }
+    }
+
+    impl<R: Read> Read for MappedReader<R> {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            let Some(mapping) = &self.mapping else {
+                return self.inner.read(out);
+            };
+            if out.is_empty() {
+                return Ok(0);
+            }
+            if self.prefix_remaining > 0 {
+                let mut discard = [0; 256];
+                while self.prefix_remaining > 0 {
+                    let count = self.prefix_remaining.min(discard.len());
+                    let n = self.inner.read(&mut discard[..count])?;
+                    if n == 0 {
+                        return Ok(0);
+                    }
+                    self.prefix_remaining -= n;
+                }
+            }
+            if self.prefix_output < mapping.preamble.len() {
+                let n = out.len().min(mapping.preamble.len() - self.prefix_output);
+                out[..n]
+                    .copy_from_slice(&mapping.preamble[self.prefix_output..self.prefix_output + n]);
+                self.prefix_output += n;
+                return Ok(n);
+            }
+            if self.offset == self.length {
+                let mut byte = [0];
+                if self.inner.read(&mut byte)? == 0 {
+                    return Ok(0);
+                }
+                let point = mapping.map[byte[0] as usize];
+                self.length = match char::from_u32(point)
+                    .filter(|_| matches!(point, 9 | 10 | 13 | 0x20..=0xd7ff | 0xe000..=0xfffd))
+                {
+                    Some(c) => c.encode_utf8(&mut self.pending).len(),
+                    None => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            InvalidEncodingByte {
+                                byte: self.byte_position,
+                                line: self.line,
+                                column: self.column,
+                            },
+                        ));
+                    }
+                };
+                self.byte_position += 1;
+                if point == 13 || (point == 10 && !self.previous_cr) {
+                    self.line += 1;
+                    self.column = 0;
+                } else if point != 10 {
+                    self.column += 1;
+                }
+                self.previous_cr = point == 13;
+                self.offset = 0;
+            }
+            let n = out.len().min(self.length - self.offset);
+            out[..n].copy_from_slice(&self.pending[self.offset..self.offset + n]);
+            self.offset += n;
+            Ok(n)
+        }
+    }
+
     /// Single-threaded fallback backend, used on targets that cannot spawn
     /// an OS thread (e.g. `wasm32`) or if doing so failed at runtime. See
     /// the module doc comment for the accumulate-and-reparse strategy and
@@ -979,6 +1217,7 @@ mod _pyexpat {
     #[derive(Debug)]
     struct SyncParser {
         config: xml::ParserConfig,
+        mapping: Option<alloc::sync::Arc<SingleByteEncoding>>,
         buffer: Vec<u8>,
         /// Number of events (including the trailing `EndDocument`, once
         /// reached) already dispatched by a previous call, so a re-parse of
@@ -987,9 +1226,13 @@ mod _pyexpat {
     }
 
     impl SyncParser {
-        fn new(config: xml::ParserConfig) -> Self {
+        fn new(
+            config: xml::ParserConfig,
+            mapping: Option<alloc::sync::Arc<SingleByteEncoding>>,
+        ) -> Self {
             Self {
                 config,
+                mapping,
                 buffer: Vec::new(),
                 dispatched_events: 0,
             }
@@ -1011,14 +1254,17 @@ mod _pyexpat {
         /// fall back to the synchronous backend on targets that can't spawn
         /// threads (`wasm32`) or if spawning fails at runtime, so `Parse()`
         /// never panics for lack of threads.
-        fn new(config: xml::ParserConfig) -> Self {
+        fn new(
+            config: xml::ParserConfig,
+            mapping: Option<alloc::sync::Arc<SingleByteEncoding>>,
+        ) -> Self {
             #[cfg(not(target_arch = "wasm32"))]
             {
-                if let Some(stream) = ParserStream::try_spawn(config.clone()) {
+                if let Some(stream) = ParserStream::try_spawn(config.clone(), mapping.clone()) {
                     return Self::Threaded(stream);
                 }
             }
-            Self::Sync(SyncParser::new(config))
+            Self::Sync(SyncParser::new(config, mapping))
         }
     }
 
@@ -1239,6 +1485,51 @@ mod _pyexpat {
                 class,
                 skipped_entity
             );
+        }
+
+        fn encoding_map(
+            &self,
+            encoding: &str,
+            vm: &VirtualMachine,
+        ) -> PyResult<alloc::sync::Arc<SingleByteEncoding>> {
+            let template: Vec<u8> = (0..=u8::MAX).collect();
+            let decoded = vm.state.codec_registry.decode_text(
+                vm.ctx.new_bytes(template).into(),
+                encoding,
+                Some(vm.ctx.new_utf8_str("replace")),
+                vm,
+            )?;
+            let points: Vec<_> = decoded
+                .as_wtf8()
+                .code_points()
+                .map(|c| c.to_u32())
+                .collect();
+            let Ok(mut map) = <[u32; 256]>::try_from(points) else {
+                return Err(vm.new_value_error("multi-byte encodings are not supported"));
+            };
+            // Expat reserves XML syntax characters, but permits remapping other
+            // ASCII and invalid XML characters (the latter fail only when read).
+            let required = |c: u32| {
+                matches!(c, 9 | 10 | 13 | 0x20..=0x7e)
+                    && !matches!(c, 0x24 | 0x40 | 0x5c | 0x5e | 0x60 | 0x7b | 0x7d | 0x7e)
+            };
+            for (byte, point) in map.iter_mut().enumerate() {
+                if *point == 0xfffd {
+                    *point = u32::MAX;
+                }
+                if (*point != u32::MAX && *point > 0xffff)
+                    || ((required(byte as u32) || required(*point)) && *point != byte as u32)
+                {
+                    return Err(self.handler_error(vm, 18, "unknown encoding")?);
+                }
+            }
+            Ok(alloc::sync::Arc::new(SingleByteEncoding {
+                map,
+                preamble: Vec::new(),
+                raw_preamble_len: 0,
+                prefix_positions: Vec::new(),
+                bom_column: false,
+            }))
         }
 
         fn create_config(
@@ -1919,8 +2210,19 @@ mod _pyexpat {
             error: xml::reader::Error,
         ) -> PyResult<crate::vm::builtins::PyBaseExceptionRef> {
             let position = error.position();
-            let line = position.row() as i64 + 1;
-            let column = position.column() as i64;
+            let mapped_error = if let xml::reader::ErrorKind::Io(error) = error.kind() {
+                error
+                    .get_ref()
+                    .and_then(|error| error.downcast_ref::<InvalidEncodingByte>())
+            } else {
+                None
+            };
+            let (line, column) = if let Some(error) = mapped_error {
+                *self.current_byte_index.write() = error.byte as i64;
+                (error.line as i64 + 1, error.column as i64)
+            } else {
+                (position.row() as i64 + 1, position.column() as i64)
+            };
             *self.current_line.write() = line;
             *self.current_column.write() = column;
             let (code, description) = match error.kind() {
@@ -1971,6 +2273,11 @@ mod _pyexpat {
                     } else {
                         (2, "syntax error")
                     }
+                }
+                xml::reader::ErrorKind::Io(error)
+                    if error.kind() == std::io::ErrorKind::InvalidData =>
+                {
+                    (4, "not well-formed (invalid token)")
                 }
                 xml::reader::ErrorKind::Utf8(_) => (4, "not well-formed (invalid token)"),
                 _ => (2, "syntax error"),
@@ -2070,7 +2377,7 @@ mod _pyexpat {
         /// buffer via `isfinal`, so it never reaches `EndDocument`
         /// prematurely).
         fn feed_sync(&self, vm: &VirtualMachine, chunk: &[u8], isfinal: bool) -> PyResult<()> {
-            let (config, buffer, skip) = {
+            let (config, mapping, buffer, skip) = {
                 let mut guard = self.backend.write();
                 let Some(Backend::Sync(sync)) = guard.as_mut() else {
                     // feed_inner only calls feed_sync once the backend has
@@ -2080,17 +2387,20 @@ mod _pyexpat {
                 sync.buffer.extend_from_slice(chunk);
                 (
                     sync.config.clone(),
+                    sync.mapping.clone(),
                     sync.buffer.clone(),
                     sync.dispatched_events,
                 )
             };
 
-            let tracker = Rc::new(RefCell::new(LineTracker::new()));
+            let mut positions = LineTracker::new();
+            positions.set_encoding(mapping.as_deref());
+            let tracker = Rc::new(RefCell::new(positions));
             let reader = TrackingReader {
                 inner: buffer.as_slice(),
                 tracker: Rc::clone(&tracker),
             };
-            let mut parser = config.create_reader(reader);
+            let mut parser = config.create_reader(MappedReader::new(reader, mapping));
 
             let mut index = 0usize;
             let result = loop {
@@ -2117,7 +2427,7 @@ mod _pyexpat {
                         let pos = parser.position();
                         let byte_index = tracker.borrow_mut().byte_index_for(pos);
                         *self.current_line.write() = pos.row() as i64 + 1;
-                        *self.current_column.write() = pos.column() as i64;
+                        *self.current_column.write() = tracker.borrow().column_for(pos);
                         *self.current_byte_index.write() = byte_index;
                         if this_index < skip {
                             continue;
@@ -2234,25 +2544,149 @@ mod _pyexpat {
             let mut input = Cow::Borrowed(chunk);
             if self.backend.read().is_none() {
                 let unicode_input = *self.input_unicode.write().get_or_insert(unicode_input);
-                // xml-rs detects a UTF-16 BOM, but unlike Expat does not
-                // recognize UTF-16 XML without one. Two initial bytes suffice
-                // to distinguish the endian form; retain only a split prefix.
+                // Retain a split declaration until its encoding can be resolved.
+                // For documents without a declaration, the prefix detector stops
+                // after enough bytes to distinguish it (including UTF-16).
                 let mut initial = self.initial_bytes.write();
                 if !initial.is_empty() {
                     initial.extend_from_slice(chunk);
                     input = Cow::Owned(core::mem::take(&mut *initial));
                 }
-                if !unicode_input && self.encoding.is_none() && input.len() < 2 && !isfinal {
+                if !unicode_input
+                    && self.encoding.is_none()
+                    && !self.declaration.read().complete
+                    && !isfinal
+                {
                     initial.extend_from_slice(&input);
                     return Ok(());
                 }
+                // Drop every parser lock before invoking a user-registered codec.
+                drop(initial);
+                let header = self.declaration.read().text();
+                let declared = header
+                    .strip_prefix("<?xml")
+                    .and_then(|text| declaration_value(text, "encoding").map(str::to_owned));
+                let encoding = if unicode_input {
+                    None
+                } else {
+                    self.encoding.clone().or(declared)
+                };
+                let mapping = if let Some(encoding) =
+                    encoding.filter(|name| native_encoding(name).is_none())
+                {
+                    let preamble = if self.encoding.is_none() {
+                        let declaration = self.declaration.read();
+                        Some((declaration.bytes.clone(), declaration.text()))
+                    } else {
+                        None
+                    };
+                    if let Some((raw, header)) = &preamble {
+                        // A malformed declaration must fail before codec lookup.
+                        // This reader validates only the already complete header.
+                        if !encoding
+                            .as_bytes()
+                            .first()
+                            .is_some_and(u8::is_ascii_alphabetic)
+                            || !encoding.bytes().all(|c| {
+                                c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-')
+                            })
+                        {
+                            self.terminal_error_code.store(30, Ordering::SeqCst);
+                            return Err(self.handler_error(
+                                vm,
+                                30,
+                                "XML declaration not well-formed",
+                            )?);
+                        }
+                        let mut validation = xml::ParserConfig::new()
+                            .override_encoding(Some(xml::Encoding::Utf8))
+                            .ignore_invalid_encoding_declarations(true)
+                            .create_reader(header.as_bytes());
+                        let event = match validation.next() {
+                            Ok(event) => event,
+                            Err(error) => return Err(self.parse_error(vm, error)?),
+                        };
+                        let bom = if raw.starts_with(&[0xef, 0xbb, 0xbf]) {
+                            3
+                        } else if raw.starts_with(&[0xff, 0xfe]) || raw.starts_with(&[0xfe, 0xff]) {
+                            2
+                        } else {
+                            0
+                        };
+                        *self.current_byte_index.write() = bom;
+                        *self.current_line.write() = 1;
+                        *self.current_column.write() = i64::from(bom > 0);
+                        if let Err(error) = self.dispatch(vm, event, None) {
+                            self.terminal_error_code.store(18, Ordering::SeqCst);
+                            return Err(error);
+                        }
+                    }
+                    if let Some((raw, header)) = &preamble
+                        && let Some(name) = declaration_value(header, "encoding")
+                    {
+                        let prefix = &header[..name.as_ptr() as usize - header.as_ptr() as usize];
+                        let utf16 = raw.starts_with(&[0xff, 0xfe])
+                            || raw.starts_with(&[0xfe, 0xff])
+                            || raw.starts_with(&[b'<', 0])
+                            || raw.starts_with(&[0, b'<']);
+                        let bom = if raw.starts_with(&[0xef, 0xbb, 0xbf]) {
+                            3
+                        } else if raw.starts_with(&[0xff, 0xfe]) || raw.starts_with(&[0xfe, 0xff]) {
+                            2
+                        } else {
+                            0
+                        };
+                        *self.current_byte_index.write() = (bom
+                            + if utf16 {
+                                prefix.encode_utf16().count() * 2
+                            } else {
+                                prefix.len()
+                            }) as i64;
+                        let (mut line, mut column, mut previous_cr) =
+                            (1, i64::from(bom > 0), false);
+                        for character in prefix.chars() {
+                            if character == '\r' || (character == '\n' && !previous_cr) {
+                                line += 1;
+                                column = 0;
+                            } else if character != '\n' {
+                                column += 1;
+                            }
+                            previous_cr = character == '\r';
+                        }
+                        *self.current_line.write() = line;
+                        *self.current_column.write() = column;
+                    }
+                    match self.encoding_map(&encoding, vm) {
+                        Ok(mut map) => {
+                            if let Some((raw, header)) = &preamble {
+                                alloc::sync::Arc::get_mut(&mut map)
+                                    .unwrap()
+                                    .set_preamble(raw, header);
+                            }
+                            Some(map)
+                        }
+                        Err(error) => {
+                            self.terminal_error_code.store(18, Ordering::SeqCst);
+                            return Err(error);
+                        }
+                    }
+                } else {
+                    None
+                };
                 let sniffed = match input.as_ref() {
                     [0, _, ..] => Some(xml::Encoding::Utf16Be),
                     [_, 0, ..] => Some(xml::Encoding::Utf16Le),
                     _ => None,
                 };
-                *self.backend.write() =
-                    Some(Backend::new(self.create_config(unicode_input, sniffed)));
+                let config = self.create_config(unicode_input, sniffed);
+                let config = if mapping.is_some() {
+                    config
+                        .override_encoding(Some(xml::Encoding::Utf8))
+                        .ignore_invalid_encoding_declarations(true)
+                } else {
+                    config
+                };
+                *self.backend.write() = Some(Backend::new(config, mapping));
             }
             let chunk = input.as_ref();
             #[cfg(not(target_arch = "wasm32"))]
