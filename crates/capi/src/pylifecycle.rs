@@ -39,6 +39,7 @@ pub extern "C" fn Py_Initialize() {
 pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
     let mut interp = get_main_interpreter();
     if interp.is_none() {
+        crate::extension::register_extension_loader();
         // Safety: Interpreter was not initialized before, so we can safely assume the statics are not used
         unsafe { init_exception_statics(&Context::genesis().exceptions) };
         let builder = Interpreter::builder(Default::default());

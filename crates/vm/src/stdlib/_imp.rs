@@ -9,6 +9,21 @@ pub(super) use crate::vm::resolve_frozen_alias;
 
 mod resources;
 
+/// Builds a module from the `PyModExport_<name>` entry point of an extension module.
+///
+/// `export_fn` is the address of the entry point. The C API crate registers this hook,
+/// since only it knows how to interpret the slots the entry point returns.
+pub type ExtensionModuleLoader =
+    fn(vm: &VirtualMachine, name: &str, export_fn: usize) -> crate::PyResult;
+
+static EXTENSION_MODULE_LOADER: std::sync::OnceLock<ExtensionModuleLoader> =
+    std::sync::OnceLock::new();
+
+/// Register the loader used to import abi3t extension modules.
+pub fn set_extension_module_loader(loader: ExtensionModuleLoader) {
+    let _ = EXTENSION_MODULE_LOADER.set(loader);
+}
+
 #[cfg(feature = "threading")]
 #[pymodule(sub, name = "_imp")]
 mod lock {
@@ -229,8 +244,17 @@ mod _imp {
     use version::PYC_MAGIC_NUMBER_TOKEN;
 
     #[pyfunction]
-    const fn extension_suffixes() -> Vec<PyObjectRef> {
-        Vec::new()
+    fn extension_suffixes(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        // Only abi3t extensions can be loaded, and only once a C API loader is registered.
+        if super::EXTENSION_MODULE_LOADER.get().is_none() {
+            return Vec::new();
+        }
+        let suffixes: &[&str] = if cfg!(windows) {
+            &[".abi3t.pyd"]
+        } else {
+            &[".abi3t.so"]
+        };
+        suffixes.iter().map(|s| vm.ctx.new_str(*s).into()).collect()
     }
 
     // This hook is also used by eager imports that satisfy pending lazy targets.
@@ -395,7 +419,18 @@ mod _imp {
             #[cfg(windows)]
             let handle_res = rustpython_host_env::ctypes::open_library(origin_str);
 
-            if let Ok(handle) = handle_res
+            let handle = match handle_res {
+                Ok(handle) => Some(handle),
+                // Report why the library could not be opened, e.g. an undefined symbol.
+                Err(err) => {
+                    return Err(vm.new_import_error(
+                        format!("cannot load {origin_str}: {err}"),
+                        name.into_wtf8(),
+                    ));
+                }
+            };
+
+            if let Some(handle) = handle
                 && let Ok(export_fn_addr) = rustpython_host_env::ctypes::lookup_function_symbol_addr(
                     handle,
                     export_func_name.as_bytes(),
@@ -403,13 +438,8 @@ mod _imp {
                 && export_fn_addr != 0
             {
                 // abi3t PyModExport entry point
-                type ModExportFn = unsafe extern "C" fn() -> *mut crate::PyObject;
-                let export_fn: ModExportFn =
-                    unsafe { core::mem::transmute(export_fn_addr as *const ()) };
-                let mod_ptr = unsafe { export_fn() };
-                if let Some(mod_nonnull) = core::ptr::NonNull::new(mod_ptr) {
-                    let py_obj = unsafe { crate::PyObjectRef::from_raw(mod_nonnull) };
-                    return Ok(py_obj);
+                if let Some(loader) = super::EXTENSION_MODULE_LOADER.get() {
+                    return loader(vm, name.as_str(), export_fn_addr);
                 }
             }
         }
