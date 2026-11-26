@@ -51,7 +51,11 @@ jobs:
       - name: Run cargo-llvm-cov with Python test suite.
         id: python-suite
         # One worker at a time, with a fresh process for each test module.
-        run: cargo llvm-cov --no-report run -- -m test -j 1 -u all --slowest --fail-env-changed
+        # No --fail-env-changed: a child started with a cleared environment
+        # loses LLVM_PROFILE_FILE and writes default_*.profraw into the test's
+        # working directory, which regrtest reports as a changed environment.
+        # -w re-runs failing tests in verbose mode so the log says why.
+        run: cargo llvm-cov --no-report run -- -m test -j 1 -u all --slowest -w
         continue-on-error: true
 
       - name: Prepare code coverage data
