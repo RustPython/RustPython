@@ -17,6 +17,75 @@ pub use ruff_python_parser as parser;
 pub use rustpython_codegen as codegen;
 pub use rustpython_compiler_core as core;
 
+#[derive(Debug)]
+struct UnicodeNames;
+
+impl parser::UnicodeNameProvider for UnicodeNames {
+    fn prepare(&self) -> Result<(), parser::UnicodeNameProviderUnavailable> {
+        Ok(())
+    }
+
+    fn lookup(&self, name: &[u8]) -> Option<u32> {
+        rustpython_unicode::lookup_character(::core::str::from_utf8(name).ok()?).map(u32::from)
+    }
+}
+
+impl parser::ParseRuntime for UnicodeNames {}
+
+/// Parse with the same Unicode names as the Unicode escape codec, without
+/// importing modules or executing any other interpreter effects.
+#[doc(hidden)]
+#[must_use]
+pub fn parse_with_unicode_names(
+    source: &str,
+    options: parser::ParseOptions,
+) -> parser::Parsed<ast::Mod> {
+    parse_with_name_runtime(source, options, None, false)
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn parse_with_name_runtime(
+    source: &str,
+    options: parser::ParseOptions,
+    runtime: Option<&dyn parser::ParseRuntime>,
+    single: bool,
+) -> parser::Parsed<ast::Mod> {
+    if single
+        && let Some(runtime) = runtime
+        && source.trim_end_matches(['\r', '\n']).contains(['\r', '\n'])
+        && source.contains(r"\N")
+    {
+        let scanned = parse_with_unicode_names(source, options.clone());
+        if let Some(SingleModeStatementBoundary::Simple { end, .. }) =
+            single_mode_statement_boundary(&scanned)
+            && let Some(prefix) = source.get(..end.to_usize())
+            && scanned.tokens().iter().any(|token| {
+                token.start() >= end
+                    && !matches!(
+                        token.kind(),
+                        TokenKind::Newline
+                            | TokenKind::NonLogicalNewline
+                            | TokenKind::Comment
+                            | TokenKind::EndOfFile
+                    )
+            })
+        {
+            // CPython decodes only the first logical statement before
+            // diagnosing extra input. Run its effects against that prefix;
+            // keep the full pure tree for the multiple-statement diagnostic.
+            if prefix.contains(r"\N") {
+                let first = parser::parse_unchecked_with_runtime(prefix, options, runtime);
+                if !first.has_valid_syntax() {
+                    return first;
+                }
+            }
+            return scanned;
+        }
+    }
+    parser::parse_unchecked_with_runtime(source, options, runtime.unwrap_or(&UnicodeNames))
+}
+
 #[derive(Error, Debug)]
 pub enum CompileErrorType {
     #[error(transparent)]
@@ -336,7 +405,7 @@ fn cpython_parse_diagnostic_override(
         // EOF as `E_LINECONT` instead.
         if matches!(mode, Mode::Exec) && error.location.start().to_usize() == source_text.len() {
             let source_with_newline = format!("{source_text}\n");
-            let parsed = parser::parse_unchecked(
+            let parsed = parse_with_unicode_names(
                 &source_with_newline,
                 parser::ParseOptions::from(parser::Mode::Module),
             );
@@ -455,7 +524,7 @@ fn fails_at_eof_token(error: &parser::ParseError, source: &str, mode: Mode) -> b
         {
             let source = format!("{source}\n");
             let parsed =
-                parser::parse_unchecked(&source, parser::ParseOptions::from(parser::Mode::Module));
+                parse_with_unicode_names(&source, parser::ParseOptions::from(parser::Mode::Module));
             parsed
                 .errors()
                 .first()
@@ -1629,7 +1698,7 @@ fn call_argument_unpacking_diagnostic(
         return None;
     }
     let slice = prepared_source.get(usize::from(opening.start())..usize::from(closing.end()))?;
-    let reparsed = parser::parse_unchecked(
+    let reparsed = parse_with_unicode_names(
         slice,
         parser::ParseOptions::from(parser::Mode::Expression)
             .with_target_version(options.target_version()),
@@ -2359,7 +2428,7 @@ fn _compile(
     mode: Mode,
     opts: CompileOpts,
 ) -> Result<CodeObject, CompileError> {
-    _compile_with_syntax_warning_handler(source_file, mode, opts, None)
+    _compile_with_syntax_warning_handler(source_file, mode, opts, None, None)
 }
 
 fn _compile_with_syntax_warning_handler<'a>(
@@ -2367,6 +2436,7 @@ fn _compile_with_syntax_warning_handler<'a>(
     mode: Mode,
     opts: CompileOpts,
     syntax_warning_handler: Option<&'a mut compile::SyntaxWarningHandler<'a>>,
+    runtime: Option<&dyn parser::ParseRuntime>,
 ) -> Result<CodeObject, CompileError> {
     let parser_mode = match mode {
         Mode::Exec => parser::Mode::Module,
@@ -2383,7 +2453,12 @@ fn _compile_with_syntax_warning_handler<'a>(
             .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
     );
     pre_parse_source_error(&source_file)?;
-    let parsed = parser::parse_unchecked(barry_source.source(), parser_options.clone());
+    let parsed = parse_with_name_runtime(
+        barry_source.source(),
+        parser_options.clone(),
+        runtime,
+        matches!(mode, Mode::Single),
+    );
     if matches!(mode, Mode::Single)
         && let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed)
     {
@@ -2573,7 +2648,7 @@ pub fn prepare_barry_as_flufl_source(
     inherited: bool,
 ) -> BarrySource<'_> {
     let scanned = (inherited || source.contains("barry_as_FLUFL"))
-        .then(|| parser::parse_unchecked(source, parser_options));
+        .then(|| parse_with_unicode_names(source, parser_options));
     let enabled = scanned.as_ref().is_some_and(|scanned| {
         inherited
             || codegen::preprocess::future_features(scanned.syntax())
@@ -2646,7 +2721,7 @@ pub fn interactive_input(
         options.clone(),
         future_features.contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
     );
-    let parsed = parser::parse_unchecked(prepared.source(), options.clone());
+    let parsed = parse_with_unicode_names(prepared.source(), options.clone());
     if let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed) {
         return Err(error);
     }
@@ -2685,10 +2760,34 @@ pub fn compile_with_syntax_warning_handler<'a>(
     opts: CompileOpts,
     syntax_warning_handler: &'a mut compile::SyntaxWarningHandler<'a>,
 ) -> Result<CodeObject, CompileError> {
-    let source = core::normalize_newlines(source);
+    compile_with_name_provider(
+        source,
+        mode,
+        source_path,
+        opts,
+        syntax_warning_handler,
+        None,
+    )
+}
 
+#[doc(hidden)]
+pub fn compile_with_name_provider<'a>(
+    source: &str,
+    mode: Mode,
+    source_path: &str,
+    opts: CompileOpts,
+    syntax_warning_handler: &'a mut compile::SyntaxWarningHandler<'a>,
+    runtime: Option<&dyn parser::ParseRuntime>,
+) -> Result<CodeObject, CompileError> {
+    let source = core::normalize_newlines(source);
     let source_file = SourceFileBuilder::new(source_path, source).finish();
-    _compile_with_syntax_warning_handler(source_file, mode, opts, Some(syntax_warning_handler))
+    _compile_with_syntax_warning_handler(
+        source_file,
+        mode,
+        opts,
+        Some(syntax_warning_handler),
+        runtime,
+    )
 }
 
 pub fn compile_symtable(
@@ -2696,9 +2795,19 @@ pub fn compile_symtable(
     mode: Mode,
     source_path: &str,
 ) -> Result<symboltable::SymbolTable, CompileError> {
+    compile_symtable_with_name_provider(source, mode, source_path, None)
+}
+
+#[doc(hidden)]
+pub fn compile_symtable_with_name_provider(
+    source: &str,
+    mode: Mode,
+    source_path: &str,
+    runtime: Option<&dyn parser::ParseRuntime>,
+) -> Result<symboltable::SymbolTable, CompileError> {
     let source = core::normalize_newlines(source);
     let source_file = SourceFileBuilder::new(source_path, source).finish();
-    _compile_symtable(source_file, mode)
+    compile_symtable_source(source_file, mode, runtime)
 }
 
 /// Bring a module into the shape the symbol table is built from.
@@ -2744,6 +2853,14 @@ pub fn _compile_symtable(
     source_file: SourceFile,
     mode: Mode,
 ) -> Result<symboltable::SymbolTable, CompileError> {
+    compile_symtable_source(source_file, mode, None)
+}
+
+fn compile_symtable_source(
+    source_file: SourceFile,
+    mode: Mode,
+    runtime: Option<&dyn parser::ParseRuntime>,
+) -> Result<symboltable::SymbolTable, CompileError> {
     let parser_mode = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => parser::Mode::Module,
         Mode::Eval => parser::Mode::Expression,
@@ -2754,8 +2871,12 @@ pub fn _compile_symtable(
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
             pre_parse_source_error(&source_file)?;
-            let parsed =
-                ruff_python_parser::parse_unchecked(barry_source.source(), parser_options.clone());
+            let parsed = parse_with_name_runtime(
+                barry_source.source(),
+                parser_options.clone(),
+                runtime,
+                matches!(mode, Mode::Single),
+            );
             if matches!(mode, Mode::Single)
                 && let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed)
             {
@@ -2793,8 +2914,12 @@ pub fn _compile_symtable(
         }
         Mode::Eval => {
             pre_parse_source_error(&source_file)?;
-            let parsed =
-                ruff_python_parser::parse_unchecked(barry_source.source(), parser_options.clone());
+            let parsed = parse_with_name_runtime(
+                barry_source.source(),
+                parser_options.clone(),
+                runtime,
+                false,
+            );
             if let Some(error) = barry_source.diagnostic(parsed.errors().first(), &source_file) {
                 return Err(error);
             }
