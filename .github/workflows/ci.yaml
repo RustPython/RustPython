@@ -505,6 +505,11 @@ jobs:
         env:
           TARGETS: ${{ matrix.target }}
 
+      # `cargo check` does not link, so it cannot catch an undefined symbol.
+      - name: Link the wasm32-wasip2 build
+        if: ${{ matrix.target == 'wasm32-wasip2' }}
+        run: cargo build --locked --target wasm32-wasip2 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env,doc,ucd_3_2_0
+
       - name: Check compilation with ssl
         if: ${{ !matrix.skip_ssl }}
         run: |
