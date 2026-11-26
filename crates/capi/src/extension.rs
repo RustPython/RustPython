@@ -4,15 +4,14 @@ use crate::methodobject::PyMethodDef;
 use crate::slots::{PySlot, PySlotKind, PySlotModule};
 use crate::util::CStrExt;
 use core::ffi::c_int;
-use rustpython_vm::{AsObject, PyObject, PyResult, VirtualMachine};
-use std::sync::Mutex;
+use rustpython_vm::{AsObject, PyObject, PyResult, TryFromObject, VirtualMachine};
 
 type ExecSlot = unsafe extern "C" fn(*mut PyObject) -> c_int;
 
-/// Exec slots of modules that are created but not yet executed, keyed by module address.
-/// They run from `_imp.exec_dynamic`, once importlib has set the module attributes and added
-/// the module to `sys.modules` (PEP 489).
-static PENDING_EXEC: Mutex<Vec<(usize, Vec<ExecSlot>)>> = Mutex::new(Vec::new());
+/// Key under which the exec slots of a created module wait in its dict until
+/// `_imp.exec_dynamic` runs them, once importlib has set the module attributes and added the
+/// module to `sys.modules` (PEP 489). Living in the module dict, they go away with the module.
+const PENDING_EXEC_KEY: &str = "__rustpython_pending_exec__";
 
 /// Make `_imp.create_dynamic` able to load extension modules built for the stable ABI.
 ///
@@ -42,6 +41,7 @@ fn load_extension_module(vm: &VirtualMachine, name: &str, export_fn: usize) -> P
     let mut methods: Vec<*const PyMethodDef> = Vec::new();
     let mut execs: Vec<ExecSlot> = Vec::new();
     let mut has_abi = false;
+    let mut multiple_interpreters_supported = true;
 
     for slot in PySlot::iter(slots) {
         match slot.as_kind(vm)? {
@@ -57,6 +57,10 @@ fn load_extension_module(vm: &VirtualMachine, name: &str, export_fn: usize) -> P
                     vm.new_import_error("Py_mod_create is not supported yet", vm.ctx.new_str(name))
                 );
             }
+            PySlotKind::Module(PySlotModule::MultipleInterpreters(value)) => {
+                // Py_MOD_MULTIPLE_INTERPRETERS_NOT_SUPPORTED is NULL.
+                multiple_interpreters_supported = !value.is_null();
+            }
             // The name comes from the import spec. The remaining slots are ignored for now.
             _ => {}
         }
@@ -65,6 +69,16 @@ fn load_extension_module(vm: &VirtualMachine, name: &str, export_fn: usize) -> P
     if !has_abi {
         return Err(vm.new_import_error(
             "module does not define Py_mod_abi, which is mandatory for modules defined from slots",
+            vm.ctx.new_str(name),
+        ));
+    }
+
+    if !multiple_interpreters_supported
+        && !vm.state.is_main_interpreter()
+        && vm.state.feature_flags.check_multi_interp_extensions
+    {
+        return Err(vm.new_import_error(
+            format!("module {name} does not support loading in subinterpreters"),
             vm.ctx.new_str(name),
         ));
     }
@@ -89,29 +103,32 @@ fn load_extension_module(vm: &VirtualMachine, name: &str, export_fn: usize) -> P
     }
 
     if !execs.is_empty() {
-        let key = module.as_object().as_raw() as usize;
-        PENDING_EXEC
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push((key, execs));
+        let pending = execs
+            .into_iter()
+            .map(|exec| vm.ctx.new_int(exec as usize).into())
+            .collect();
+        module
+            .dict()
+            .set_item(PENDING_EXEC_KEY, vm.ctx.new_tuple(pending).into(), vm)?;
     }
     Ok(module.into())
 }
 
 /// Run the exec slots recorded by [`load_extension_module`], once.
 fn exec_extension_module(vm: &VirtualMachine, module: &PyObject) -> PyResult<()> {
-    let key = module.as_raw() as usize;
-    let execs = {
-        let mut pending = PENDING_EXEC
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match pending.iter().position(|(k, _)| *k == key) {
-            Some(index) => pending.swap_remove(index).1,
-            None => return Ok(()),
-        }
+    let Some(module) = module.downcast_ref::<rustpython_vm::builtins::PyModule>() else {
+        return Ok(());
     };
-    let module_ptr = module.as_raw().cast_mut();
-    for exec in execs {
+    let dict = module.dict();
+    let Ok(pending) = dict.get_item(PENDING_EXEC_KEY, vm) else {
+        return Ok(());
+    };
+    dict.del_item(PENDING_EXEC_KEY, vm)?;
+    let module_ptr = module.as_object().as_raw().cast_mut();
+    for address in pending.try_to_value::<Vec<rustpython_vm::PyObjectRef>>(vm)? {
+        let address = usize::try_from_object(vm, address)?;
+        // Safety: the address was stored by `load_extension_module` from an exec slot.
+        let exec: ExecSlot = unsafe { core::mem::transmute(address as *const ()) };
         if unsafe { exec(module_ptr) } != 0 {
             return Err(vm.take_raised_exception().unwrap_or_else(|| {
                 vm.new_system_error("exec slot of an extension module failed without an exception")

@@ -66,52 +66,15 @@ impl PySlot {
                     stack.len() <= 10,
                     "Too many nested slots, possible infinite loop in slot iteration"
                 );
-                return match stack.last_mut()? {
+                let slot: Cow<'a, Self> = match stack.last_mut()? {
                     SlotFrame::Slots(slot_ptr) => {
                         let slot = unsafe { &**slot_ptr };
                         if slot.sl_id == 0 {
                             stack.pop();
                             continue;
                         }
-
                         *slot_ptr = unsafe { slot_ptr.add(1) };
-
-                        if slot.sl_id == 92 {
-                            let subslots = unsafe { slot.value.sl_ptr }.cast_const().cast::<Self>();
-                            if !subslots.is_null() {
-                                stack.push(SlotFrame::Slots(subslots));
-                            }
-                            continue;
-                        }
-
-                        if slot.sl_id == 93 {
-                            let type_slots = unsafe { slot.value.sl_ptr }
-                                .cast_const()
-                                .cast::<PyType_Slot>();
-                            if !type_slots.is_null() {
-                                stack.push(SlotFrame::TypeSlots {
-                                    ptr: type_slots,
-                                    legacy_module: false,
-                                });
-                            }
-                            continue;
-                        }
-
-                        // Py_mod_slots: a legacy PyModuleDef_Slot array
-                        if slot.sl_id == 94 {
-                            let module_slots = unsafe { slot.value.sl_ptr }
-                                .cast_const()
-                                .cast::<PyType_Slot>();
-                            if !module_slots.is_null() {
-                                stack.push(SlotFrame::TypeSlots {
-                                    ptr: module_slots,
-                                    legacy_module: true,
-                                });
-                            }
-                            continue;
-                        }
-
-                        Some(Cow::Borrowed(slot))
+                        Cow::Borrowed(slot)
                     }
                     SlotFrame::TypeSlots {
                         ptr: slot_ptr,
@@ -123,19 +86,37 @@ impl PySlot {
                             stack.pop();
                             continue;
                         }
-
                         *slot_ptr = unsafe { slot_ptr.add(1) };
                         let mut slot: Self = type_slot.try_into().expect("invalid slot");
-                        if legacy_module {
-                            // Legacy PyModuleDef_Slot ids: 1 create, 2 exec, 3 multiple
-                            // interpreters, 4 gil. They map to 84..=87 in the unified numbering.
-                            if (1..=4).contains(&slot.sl_id) {
-                                slot.sl_id += 83;
-                            }
+                        // Legacy PyModuleDef_Slot ids: 1 create, 2 exec, 3 multiple
+                        // interpreters, 4 gil. They map to 84..=87 in the unified numbering.
+                        if legacy_module && (1..=4).contains(&slot.sl_id) {
+                            slot.sl_id += 83;
                         }
-                        Some(Cow::Owned(slot))
+                        Cow::Owned(slot)
                     }
                 };
+
+                // Container slots are expanded wherever they appear, including in legacy arrays.
+                let ptr = unsafe { slot.value.sl_ptr };
+                match slot.sl_id {
+                    92 => {
+                        if !ptr.is_null() {
+                            stack.push(SlotFrame::Slots(ptr.cast_const().cast()));
+                        }
+                    }
+                    // Py_tp_slots: a PyType_Slot array
+                    93 | 94 => {
+                        if !ptr.is_null() {
+                            stack.push(SlotFrame::TypeSlots {
+                                ptr: ptr.cast_const().cast(),
+                                // Py_mod_slots: a legacy PyModuleDef_Slot array
+                                legacy_module: slot.sl_id == 94,
+                            });
+                        }
+                    }
+                    _ => return Some(slot),
+                }
             }
         })
     }
