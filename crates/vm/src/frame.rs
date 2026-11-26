@@ -674,18 +674,30 @@ impl LocalsPlus {
     }
 
     /// Get a reference to a stack slot by index from the bottom.
+    ///
+    /// The index must address a live slot. The compiler only emits code that
+    /// satisfies this, but a code object built with `CodeType.replace(co_code=...)`
+    /// can hold any byte sequence that decodes to known opcodes, so this is
+    /// checked here rather than with `debug_assert!`: an out-of-range index
+    /// would otherwise read outside the stack in release builds.
     #[inline(always)]
     fn stack_index(&self, idx: usize) -> Option<&PyStackRef> {
-        debug_assert!(idx < self.stack_top as usize);
+        if idx >= self.stack_top as usize {
+            stack_index_out_of_bounds(idx, self.stack_top);
+        }
         let data = self.data_as_slice();
         let raw_idx = self.nlocalsplus as usize + idx;
         unsafe { (*(data.as_ptr().add(raw_idx) as *const Option<PyStackRef>)).as_ref() }
     }
 
     /// Get a mutable reference to a stack slot by index from the bottom.
+    ///
+    /// Bounds are checked for the same reason as [`Self::stack_index`].
     #[inline(always)]
     fn stack_index_mut(&mut self, idx: usize) -> &mut Option<PyStackRef> {
-        debug_assert!(idx < self.stack_top as usize);
+        if idx >= self.stack_top as usize {
+            stack_index_out_of_bounds(idx, self.stack_top);
+        }
         let raw_idx = self.nlocalsplus as usize + idx;
         let data = self.data_as_mut_slice();
         unsafe { &mut *(data.as_mut_ptr().add(raw_idx) as *mut Option<PyStackRef>) }
@@ -713,16 +725,27 @@ impl LocalsPlus {
     }
 
     /// Swap two stack elements.
+    ///
+    /// Both indices must be live slots, checked for the same reason as
+    /// [`Self::stack_index`] instead of with `debug_assert!`.
     #[inline(always)]
     fn stack_swap(&mut self, a: usize, b: usize) {
+        if a >= self.stack_top as usize || b >= self.stack_top as usize {
+            stack_index_out_of_bounds(a.max(b), self.stack_top);
+        }
         let base = self.nlocalsplus as usize;
         let data = self.data_as_mut_slice();
         data.swap(base + a, base + b);
     }
 
     /// Truncate the stack to `new_len` elements, dropping excess values.
+    ///
+    /// `new_len` may not exceed the live stack. It is derived from instruction
+    /// operands, so it is checked rather than `debug_assert!`ed.
     fn stack_truncate(&mut self, new_len: usize) {
-        debug_assert!(new_len <= self.stack_top as usize);
+        if new_len > self.stack_top as usize {
+            stack_index_out_of_bounds(new_len, self.stack_top);
+        }
         while self.stack_top as usize > new_len {
             let _ = self.stack_pop();
         }
@@ -4768,7 +4791,12 @@ impl ExecutingFrame<'_> {
                 // This is 1-indexed to match CPython
                 let idx = index.get(arg) as usize;
                 let stack_len = self.localsplus.stack_len();
-                debug_assert!(stack_len >= idx, "CopyItem: stack underflow");
+                // The index is an operand, so `code.replace(co_code=...)` can
+                // point it past the stack. Check before subtracting so the
+                // index cannot wrap around.
+                if idx > stack_len {
+                    copy_index_out_of_bounds(idx, stack_len);
+                }
                 let value = self.localsplus.stack_index(stack_len - idx);
                 self.push_stackref_opt(value.cloned());
                 Ok(None)
@@ -6014,15 +6042,16 @@ impl ExecutingFrame<'_> {
             }
             Instruction::Swap { i: index } => {
                 let len = self.localsplus.stack_len();
-                debug_assert!(len > 0, "stack underflow in SWAP");
-                let i = len - 1; // TOS index
                 let index_val = index.get(arg) as usize;
                 // CPython: SWAP(n) swaps TOS with PEEK(n) where PEEK(n) = stack_pointer[-n]
-                // This means swap TOS with the element at index (len - n)
-                debug_assert!(
-                    index_val <= len,
-                    "SWAP index {index_val} exceeds stack size {len}"
-                );
+                // n is at least 1, so the deepest slot it may address is `len - 1`.
+                // Both values come from the instruction stream, which
+                // `CodeType.replace(co_code=...)` can supply without going
+                // through the compiler, so they are checked at run time.
+                if index_val == 0 || index_val > len {
+                    swap_index_out_of_bounds(index_val, len);
+                }
+                let i = len - 1; // TOS index
                 let j = len - index_val;
                 self.localsplus.stack_swap(i, j);
                 Ok(None)
@@ -9112,10 +9141,11 @@ impl ExecutingFrame<'_> {
     fn execute_call_vectorcall(&mut self, nargs: u32, vm: &VirtualMachine) -> FrameResult {
         let nargs_usize = nargs as usize;
         let stack_len = self.localsplus.stack_len();
-        debug_assert!(
-            stack_len >= nargs_usize + 2,
-            "CALL stack underflow: need callable + self_or_null + {nargs_usize} args, have {stack_len}"
-        );
+        // The operand can come from a hand-built code object, so the arity is
+        // checked before it seeds stack indices.
+        if stack_len < nargs_usize + 2 {
+            call_stack_underflow(nargs_usize, stack_len);
+        }
         let callable_idx = stack_len - nargs_usize - 2;
         let self_or_null_idx = stack_len - nargs_usize - 1;
         let args_start = stack_len - nargs_usize;
@@ -12664,10 +12694,9 @@ impl ExecutingFrame<'_> {
     /// a copy.
     fn take_call_args(&mut self, nargs: usize) -> (PyObjectRef, Vec<PyObjectRef>) {
         let stack_len = self.localsplus.stack_len();
-        debug_assert!(
-            stack_len >= nargs + 2,
-            "CALL stack underflow: need callable + self_or_null + {nargs} args, have {stack_len}"
-        );
+        if stack_len < nargs + 2 {
+            call_stack_underflow(nargs, stack_len);
+        }
         let callable_idx = stack_len - nargs - 2;
         let self_or_null_idx = callable_idx + 1;
 
@@ -12706,7 +12735,9 @@ impl ExecutingFrame<'_> {
         has_bound_receiver: bool,
     ) -> (PyObjectRef, PyObjectRef, Vec<PyObjectRef>) {
         let stack_len = self.localsplus.stack_len();
-        debug_assert!(stack_len >= nargs + 2);
+        if stack_len < nargs + 2 {
+            call_stack_underflow(nargs, stack_len);
+        }
         debug_assert!(has_bound_receiver || nargs > 0);
         let callable_idx = stack_len - nargs - 2;
         let receiver_idx = callable_idx + 1 + usize::from(!has_bound_receiver);
@@ -12778,10 +12809,13 @@ impl ExecutingFrame<'_> {
     #[inline(always)]
     #[track_caller]
     fn nth_value(&self, depth: u32) -> &PyObject {
-        let idx = self.localsplus.stack_len() - depth as usize - 1;
+        let stack_len = self.localsplus.stack_len();
+        let Some(idx) = stack_len.checked_sub(depth as usize + 1) else {
+            nth_value_out_of_bounds(depth, stack_len);
+        };
         match self.localsplus.stack_index(idx) {
             Some(obj) => obj.as_object(),
-            None => unsafe { core::hint::unreachable_unchecked() },
+            None => null_stack_slot(),
         }
     }
 
@@ -12900,6 +12934,54 @@ fn get_special_method_error_msg(
             ),
         }
     }
+}
+
+/// Report a stack slot index that is outside the live stack and stop.
+///
+/// Kept out of line so the checked accessors stay as cheap as the unchecked
+/// ones they replace on the hot path.
+#[cold]
+#[inline(never)]
+fn stack_index_out_of_bounds(idx: usize, stack_len: u32) -> ! {
+    panic!("stack index {idx} is out of bounds for a stack of {stack_len} values");
+}
+
+#[cold]
+#[inline(never)]
+fn copy_index_out_of_bounds(idx: usize, stack_len: usize) -> ! {
+    panic!("COPY index {idx} exceeds the {stack_len} values on the stack");
+}
+
+#[cold]
+#[inline(never)]
+fn swap_index_out_of_bounds(idx: usize, stack_len: usize) -> ! {
+    panic!("SWAP index {idx} is out of range for a stack of {stack_len} values");
+}
+
+#[cold]
+#[inline(never)]
+fn call_stack_underflow(nargs: usize, stack_len: usize) -> ! {
+    panic!(
+        "CALL with {nargs} arguments needs {} stack values but has {stack_len}",
+        nargs + 2
+    );
+}
+
+#[cold]
+#[inline(never)]
+fn nth_value_out_of_bounds(depth: u32, stack_len: usize) -> ! {
+    panic!("stack value {depth} levels down does not exist in a stack of {stack_len} values");
+}
+
+/// A stack slot that reads as NULL where an object is required.
+///
+/// Reaching this means the running instruction disagrees with the stack the
+/// compiler generated. `CodeType.replace(co_code=...)` accepts byte sequences
+/// the compiler never emits, so this must not be `unreachable_unchecked`.
+#[cold]
+#[inline(never)]
+fn null_stack_slot() -> ! {
+    panic!("stack slot is NULL where a value is required");
 }
 
 fn expect_unchecked<T: fmt::Debug>(optional: Option<T>, err_msg: &'static str) -> T {
