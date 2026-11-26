@@ -106,6 +106,12 @@ opt-level = 3
 [profile.dev.package.rustpython-vm]
 opt-level = 3
 
+# xz-core is liblzma transpiled from C, where unsigned arithmetic wraps. Its
+# match finder and .lzma header check rely on that, so overflow checks turn
+# ordinary compression and decompression into panics in dev builds.
+[profile.dev.package.xz-core]
+overflow-checks = false
+
 [profile.test]
 opt-level = 3
 # https://github.com/rust-lang/rust/issues/92869

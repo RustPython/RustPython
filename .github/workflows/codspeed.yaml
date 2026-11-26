@@ -89,7 +89,13 @@ jobs:
 
       - name: Build the benchmark targets
         if: ${{ steps.environment.outputs.match != 'false' }}
-        run: cargo codspeed build --locked --measurement-mode simulation -p rustpython -p rustpython-sre_engine
+        # cargo-codspeed adds -Cdebuginfo=2 to the bench profile's thin LTO, and
+        # the `rustpython` binary and both of its benches are linked last, all
+        # at once. With the default job count that final stage regularly takes
+        # the hosted runner down ("lost communication" / "received a shutdown
+        # signal"). Two jobs keep it to two such links; the dependencies come
+        # from the cache, so the build is barely slower.
+        run: cargo codspeed build --locked --jobs 2 --measurement-mode simulation -p rustpython -p rustpython-sre_engine
 
       - name: Save cache
         if: ${{ github.ref == 'refs/heads/main' }} # only save on main
