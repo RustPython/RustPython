@@ -762,29 +762,30 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn posix_install_uses_one_abi_tagged_layout() -> io::Result<()> {
+        use crate::host_env::{fs, os};
         use crate::stdlib::sys::sys::{ABIFLAGS, PLATLIBDIR};
         use crate::version;
 
         struct Fixture(PathBuf);
         impl Drop for Fixture {
             fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
+                let _ = fs::remove_dir_all(&self.0);
             }
         }
 
-        let root = std::env::temp_dir().join(format!("rustpython-getpath-{}", std::process::id()));
-        std::fs::create_dir(&root)?;
+        let root = os::temp_dir().join(format!("rustpython-getpath-{}", os::process_id()));
+        fs::create_dir(&root)?;
         let root = Fixture(root);
         let prefix = root.0.join("install");
         let bin = prefix.join("bin");
-        std::fs::create_dir_all(&bin)?;
+        fs::create_dir_all(&bin)?;
 
         let lib = prefix.join(PLATLIBDIR);
         let untagged = lib.join(format!("python{}.{}", version::MAJOR, version::MINOR));
         let untagged_zip = lib.join(format!("python{}{}.zip", version::MAJOR, version::MINOR));
-        std::fs::create_dir_all(&untagged)?;
-        std::fs::write(untagged.join("os.py"), "")?;
-        std::fs::write(&untagged_zip, "")?;
+        fs::create_dir_all(&untagged)?;
+        fs::create(untagged.join("os.py"))?;
+        fs::create(&untagged_zip)?;
 
         let explicit_home = Settings {
             home: Some(prefix.to_string_lossy().into_owned()),
@@ -811,13 +812,13 @@ mod tests {
         // A closer untagged install cannot override the tagged landmark above it.
         let nested = bin.join("nested");
         let source_lib = root.0.join("Lib");
-        std::fs::create_dir(&source_lib)?;
-        std::fs::write(source_lib.join("os.py"), "")?;
+        fs::create_dir(&source_lib)?;
+        fs::create(source_lib.join("os.py"))?;
         let nested_legacy = nested.join(PLATLIBDIR).join(untagged.file_name().unwrap());
-        std::fs::create_dir_all(&nested_legacy)?;
-        std::fs::write(nested_legacy.join("os.py"), "")?;
-        std::fs::create_dir_all(&dynload)?;
-        std::fs::write(tagged.join("os.py"), "")?;
+        fs::create_dir_all(&nested_legacy)?;
+        fs::create(nested_legacy.join("os.py"))?;
+        fs::create_dir_all(&dynload)?;
+        fs::create(tagged.join("os.py"))?;
         let build_prefix = detect_build_directory(Some(&nested));
         assert!(build_prefix.is_none());
         assert_eq!(
@@ -834,12 +835,12 @@ mod tests {
         );
 
         // The tagged ZIP also works on its own as the prefix landmark.
-        std::fs::remove_file(tagged.join("os.py"))?;
-        std::fs::write(zip, "")?;
+        fs::remove_file(tagged.join("os.py"))?;
+        fs::create(zip)?;
         assert_eq!(calculate_prefix(Some(&nested), None), paths.base_prefix);
 
         // After finding an executable-adjacent build marker, use the build Lib.
-        std::fs::write(nested.join(platform::BUILDDIR_TXT), "")?;
+        fs::create(nested.join(platform::BUILDDIR_TXT))?;
         assert_eq!(detect_build_directory(Some(&nested)), Some(root.0.clone()));
         Ok(())
     }
