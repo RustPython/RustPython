@@ -738,10 +738,12 @@ jobs:
         continue-on-error: true
 
       - name: Clippy
+        id: workspace-clippy
         run: cargo clippy --locked --keep-going ${{ env.CARGO_ARGS_MOST_FEATS }} --workspace --exclude rustpython-capi --all-targets --bins --examples --tests ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
 
       # Load the C-API crate's RustPython-specific PyO3 configuration.
       - name: Clippy C API
+        if: ${{ !cancelled() && (steps.workspace-clippy.outcome == 'success' || steps.workspace-clippy.outcome == 'failure') }}
         working-directory: crates/capi
         run: cargo clippy --locked --all-targets -- -Dwarnings
 
