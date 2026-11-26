@@ -6651,9 +6651,8 @@ mod fileio {
                 Ok(info) => {
                     zelf.known_non_character_device_at_open
                         .store(info.known_non_character_device, Ordering::Relaxed);
-                    if let Some(blksize) = info.blksize {
-                        zelf.blksize.store(blksize);
-                    }
+                    zelf.blksize
+                        .store(info.blksize.unwrap_or(super::DEFAULT_BUFFER_SIZE as _));
                 }
                 Err(err) => {
                     if host_io::should_forget_fd_after_inspect_error(&err, fd_is_own) {

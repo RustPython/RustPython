@@ -22,7 +22,19 @@ pub struct FileTargetInfo {
 
 #[cfg(any(unix, target_os = "wasi"))]
 pub fn inspect_file_target(fd: crt_fd::Borrowed<'_>) -> io::Result<FileTargetInfo> {
-    let status = fileutils::fstat(fd)?;
+    let status = match fileutils::fstat(fd) {
+        Ok(status) => status,
+        // CPython continues without cached metadata if fstat fails
+        // for a reason other than an invalid descriptor.
+        #[cfg(unix)]
+        Err(err) if err.raw_os_error() != Some(libc::EBADF) => {
+            return Ok(FileTargetInfo {
+                blksize: None,
+                known_non_character_device: false,
+            });
+        }
+        Err(err) => return Err(err),
+    };
     let file_type = FileType::from_raw_mode(status.st_mode);
     if file_type.is_dir() {
         return Err(io::Error::from(Errno::ISDIR));
