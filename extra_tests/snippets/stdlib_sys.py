@@ -688,6 +688,93 @@ for set_hook, get_hook in [
         assert not any(name == "suppressed_after_change" for name, _ in changed_events)
         assert (("later", "call") in changed_events) == replace_hook
 
+# Shutdown must not import threading for a program that never did.
+proc = subprocess.run(
+    [
+        sys.executable,
+        "-S",
+        "-c",
+        "import atexit, sys; atexit.register(lambda: print('threading' in sys.modules))",
+    ],
+    stdout=subprocess.PIPE,
+    universal_newlines=True,
+)
+assert proc.stdout == "False\n", proc.stdout
+
+# Shutdown waits for a threading import still running in another thread: the
+# finder holds that import open until the main thread is on its way out.
+proc = subprocess.run(
+    [
+        sys.executable,
+        "-S",
+        "-c",
+        """
+import _thread, sys, time
+
+importing = _thread.allocate_lock()
+importing.acquire()
+
+
+class SlowFinder:
+    def find_spec(self, name, path=None, target=None):
+        if name == "_weakrefset":
+            importing.release()
+            time.sleep(0.5)
+        return None
+
+
+def worker():
+    import threading
+
+    threading.main_thread().join()
+    print("joined")
+
+
+sys.modules.pop("_weakrefset", None)
+sys.meta_path.insert(0, SlowFinder())
+_thread.start_joinable_thread(worker, daemon=False)
+importing.acquire()
+""",
+    ],
+    stdout=subprocess.PIPE,
+    universal_newlines=True,
+    timeout=60,
+)
+assert proc.stdout == "joined\n", proc.stdout
+
+# An exit callback that is the first to import threading can start a thread
+# that joins the main thread.
+proc = subprocess.run(
+    [
+        sys.executable,
+        "-S",
+        "-c",
+        """
+import atexit
+
+
+def worker():
+    import threading
+
+    threading.main_thread().join()
+    print("joined")
+
+
+def callback():
+    import threading
+
+    threading.Thread(target=worker).start()
+
+
+atexit.register(callback)
+""",
+    ],
+    stdout=subprocess.PIPE,
+    universal_newlines=True,
+    timeout=60,
+)
+assert proc.stdout == "joined\n", proc.stdout
+
 
 # Legacy profiling excludes constructors and callable instances, and binds a
 # method descriptor independently for each event (legacy_tracing.c).

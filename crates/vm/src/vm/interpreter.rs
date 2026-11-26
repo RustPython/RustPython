@@ -824,18 +824,32 @@ impl VirtualMachine {
         let vm = self;
         // Wait for thread shutdown - call threading._shutdown() if available.
         // This waits for all non-daemon threads to complete.
-        // threading module may not be imported, so ignore import errors.
+        // A program that never imported threading has no such threads, and
+        // importing it here would run Python code the program did not ask for.
         #[cfg(feature = "threading")]
-        if let Ok(threading) = vm.import("threading", 0)
-            && let Ok(shutdown) = threading.get_attr("_shutdown", vm)
-            && let Err(e) = shutdown.call((), vm)
-        {
-            vm.run_unraisable(
-                e,
-                Some("Exception ignored in threading shutdown".to_owned()),
-                threading,
-            );
-        }
+        let threading_shutdown = || {
+            if let Ok(modules) = vm.sys_module.get_attr("modules", vm)
+                && let Ok(threading) = modules.get_item("threading", vm)
+                // Another thread may still be running the module's first import,
+                // and `_shutdown` is defined only once that finishes.
+                && crate::import::import_ensure_initialized(
+                    &threading,
+                    vm.ctx.intern_str("threading"),
+                    vm,
+                )
+                .is_ok()
+                && let Ok(shutdown) = threading.get_attr("_shutdown", vm)
+                && let Err(e) = shutdown.call((), vm)
+            {
+                vm.run_unraisable(
+                    e,
+                    Some("Exception ignored in threading shutdown".to_owned()),
+                    threading,
+                );
+            }
+        };
+        #[cfg(feature = "threading")]
+        threading_shutdown();
 
         // Exit callbacks and subinterpreter cleanup can start non-daemon
         // threads. Recheck after stopping all interpreters so new work cannot
@@ -844,6 +858,10 @@ impl VirtualMachine {
         loop {
             atexit::_run_exitfuncs(vm);
             finalize_subinterpreters(vm);
+            // An exit callback may have imported threading for the first time.
+            // Its main thread handle has to be marked done before the threads
+            // that join it are waited for.
+            threading_shutdown();
             crate::stdlib::_thread::_thread::_shutdown(vm);
 
             let mut stopped = super::stop_the_world::StopTheWorldGroup::new();
