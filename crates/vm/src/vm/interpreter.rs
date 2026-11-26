@@ -906,6 +906,10 @@ impl VirtualMachine {
         crate::object::qsbr::QSBR.process();
 
         vm.clear_async_exception();
+        // Release this thread's ContextVar values before detaching its VM.
+        // A finalizer may use contextvars again, so drop outside the borrow.
+        let contexts = vm.context_stack.take();
+        drop(contexts);
         flush_status
     }
 }

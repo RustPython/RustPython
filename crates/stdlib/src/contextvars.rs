@@ -21,7 +21,7 @@ mod _contextvars {
             Representable,
         },
     };
-    use core::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
+    use core::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
     use indexmap::IndexMap;
 
     // TODO: Real hamt implementation
@@ -44,20 +44,8 @@ mod _contextvars {
         }
     }
 
-    // Unlike an object address, a cache identity must not be reused after a
-    // context is destroyed. Zero disables cache hits if the counter is exhausted.
-    static CONTEXT_CACHE_ID: AtomicUsize = AtomicUsize::new(0);
-
-    fn next_context_cache_id() -> usize {
-        CONTEXT_CACHE_ID
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
-            .map_or(0, |id| id + 1)
-    }
-
     #[derive(Debug)]
     struct ContextInner {
-        cache_id: usize,
-        idx: AtomicUsize,
         vars: PyRef<HamtObject>,
         // PyObject *ctx_weakreflist;
         entered: AtomicBool,
@@ -83,8 +71,6 @@ mod _contextvars {
         fn empty(vm: &VirtualMachine) -> Self {
             Self {
                 inner: ContextInner {
-                    cache_id: next_context_cache_id(),
-                    idx: AtomicUsize::new(usize::MAX),
                     vars: HamtObject::default().into_ref(&vm.ctx),
                     entered: AtomicBool::new(false),
                 },
@@ -115,7 +101,6 @@ mod _contextvars {
             }
 
             let mut ctxs = vm.context_stack.borrow_mut();
-            zelf.inner.idx.store(ctxs.len(), Ordering::Relaxed);
             ctxs.push(zelf.to_owned().into());
 
             Ok(())
@@ -146,7 +131,6 @@ mod _contextvars {
                 ctx.clone().downcast::<Self>().unwrap()
             } else {
                 let ctx = Self::empty(vm);
-                ctx.inner.idx.store(0, Ordering::Relaxed);
                 ctx.inner.entered.store(true, Ordering::Release);
                 let ctx = ctx.into_ref(&vm.ctx);
                 ctxs.push(ctx.clone().into());
@@ -207,8 +191,6 @@ mod _contextvars {
             };
             Self {
                 inner: ContextInner {
-                    cache_id: next_context_cache_id(),
-                    idx: AtomicUsize::new(usize::MAX),
                     vars: vars_copy.into_ref(&vm.ctx),
                     entered: AtomicBool::new(false),
                 },
@@ -370,10 +352,6 @@ mod _contextvars {
         name: PyStrRef,
         default: Option<PyObjectRef>,
         #[pytraverse(skip)]
-        cached: PyMutex<Option<ContextVarCache>>,
-        #[pytraverse(skip)]
-        cached_id: AtomicUsize, // non-reused Context cache identity
-        #[pytraverse(skip)]
         hash: AtomicIsize,
     }
 
@@ -390,17 +368,8 @@ mod _contextvars {
     }
     impl Eq for ContextVar {}
 
-    #[derive(Debug)]
-    struct ContextVarCache {
-        object: PyObjectRef, // value; cached in CPython
-        idx: usize,          // Context index; cached_tsver in CPython
-    }
-
     impl ContextVar {
         fn delete(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
-            let cached = zelf.cached.lock().take();
-            drop(cached);
-
             let ctx = PyContext::current(vm);
 
             let removed = ctx.borrow_vars_mut().swap_remove(zelf);
@@ -419,19 +388,8 @@ mod _contextvars {
         fn set_inner(zelf: &Py<Self>, value: PyObjectRef, vm: &VirtualMachine) {
             let ctx = PyContext::current(vm);
 
-            let replaced = ctx.borrow_vars_mut().insert(zelf.to_owned(), value.clone());
+            let replaced = ctx.borrow_vars_mut().insert(zelf.to_owned(), value);
             drop(replaced);
-
-            // cached and cached_id are one snapshot: another thread's get()
-            // must not observe a new id with an old value, or the reverse.
-            let cache = ContextVarCache {
-                object: value,
-                idx: ctx.inner.idx.load(Ordering::Relaxed),
-            };
-            let mut cached = zelf.cached.lock();
-            zelf.cached_id.store(ctx.inner.cache_id, Ordering::SeqCst);
-            let _replaced = cached.replace(cache);
-            drop(cached);
         }
 
         fn generate_hash(zelf: &Py<Self>, name_hash: PyHash) -> PyHash {
@@ -449,35 +407,12 @@ mod _contextvars {
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            // The replaced cache entry comes back out so that dropping it, which
-            // can run a __del__ that calls back in, happens with no lock held.
-            let (found, replaced) = (|| {
-                let ctxs = vm.context_stack.borrow();
-                let Some(ctx_obj) = ctxs.last() else {
-                    return (None, None);
-                };
+            // Free-threaded CPython reads the context directly. A cache with
+            // its own strong reference would outlive the context binding.
+            let found = vm.context_stack.borrow().last().and_then(|ctx_obj| {
                 let ctx = ctx_obj.downcast_ref::<PyContext>().unwrap();
-                let mut cached = zelf.cached.lock();
-                if let Some(cached) = &*cached
-                    && ctx.inner.cache_id != 0
-                    && zelf.cached_id.load(Ordering::SeqCst) == ctx.inner.cache_id
-                    && cached.idx + 1 == ctxs.len()
-                {
-                    return (Some(cached.object.clone()), None);
-                }
-                let Some(obj) = ctx.borrow_vars().get(zelf).map(|obj| obj.to_owned()) else {
-                    return (None, None);
-                };
-                zelf.cached_id.store(ctx.inner.cache_id, Ordering::SeqCst);
-
-                let replaced = cached.replace(ContextVarCache {
-                    object: obj.clone(),
-                    idx: ctxs.len() - 1,
-                });
-
-                (Some(obj), replaced)
-            })();
-            drop(replaced);
+                ctx.borrow_vars().get(zelf).cloned()
+            });
 
             let value = if let Some(value) = found {
                 value
@@ -580,8 +515,6 @@ mod _contextvars {
             let var = Self {
                 name,
                 default,
-                cached_id: 0.into(),
-                cached: PyMutex::new(None),
                 hash: AtomicIsize::new(0),
             };
             let py_var = var.into_ref_with_type(vm, cls)?;

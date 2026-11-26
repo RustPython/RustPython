@@ -1107,7 +1107,10 @@ pub mod sys {
 
     #[pyattr]
     fn lazy_modules(vm: &VirtualMachine) -> PyObjectRef {
-        vm.state.lazy_imports.modules.clone().into()
+        vm.state
+            .lazy_imports
+            .modules()
+            .map_or_else(|| vm.ctx.none(), Into::into)
     }
 
     #[pyfunction]

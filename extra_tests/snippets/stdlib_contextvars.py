@@ -116,3 +116,24 @@ def context_cache_does_not_outlive_its_context():
 
 
 context_cache_does_not_outlive_its_context()
+
+
+def test_context_value_released_with_its_context():
+    from weakref import ref
+
+    class Value:
+        pass
+
+    var = ContextVar("value lifetime")
+    ctx = Context()
+    value = Value()
+    handle = ref(value)
+    ctx.run(var.set, value)
+    assert ctx.run(var.get) is value
+    del value
+    assert handle() is not None
+    del ctx
+    assert handle() is None
+
+
+test_context_value_released_with_its_context()
