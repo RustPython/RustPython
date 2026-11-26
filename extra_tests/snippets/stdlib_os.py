@@ -631,6 +631,38 @@ if not sys.platform.startswith("win"):
                 continue
         assert os.pathconf("/", index) == os.pathconf("/", option)
 
+# Configuration names may be any object with __index__ (CPython 3.14+).
+if not sys.platform.startswith("win"):
+
+    class ConfName:
+        def __init__(self, value):
+            self.value = value
+
+        def __index__(self):
+            return self.value
+
+    sc_open_max = os.sysconf_names["SC_OPEN_MAX"]
+    assert os.sysconf(ConfName(sc_open_max)) == os.sysconf("SC_OPEN_MAX")
+    pc_name_max = os.pathconf_names["PC_NAME_MAX"]
+    assert os.pathconf("/", ConfName(pc_name_max)) == os.pathconf("/", "PC_NAME_MAX")
+    fd = os.open("/", os.O_RDONLY)
+    try:
+        assert os.fpathconf(fd, ConfName(pc_name_max)) == os.pathconf(
+            "/", "PC_NAME_MAX"
+        )
+    finally:
+        os.close(fd)
+    for func, args in [(os.sysconf, ()), (os.pathconf, ("/",))]:
+        assert_raises(OverflowError, func, *args, ConfName(2**40))
+    assert_raises(TypeError, os.pathconf, "/", 1.23)
+
+    # A str is looked up by name even when it also defines __index__.
+    class StrConfName(str):
+        def __index__(self):
+            return sc_open_max
+
+    assert os.sysconf(StrConfName("SC_ARG_MAX")) == os.sysconf("SC_ARG_MAX")
+
 # os.access - test with empty path and nonexistent files
 assert os.access("", os.F_OK) is False
 assert os.access("", os.R_OK) is False
