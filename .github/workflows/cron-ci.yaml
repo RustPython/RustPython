@@ -54,8 +54,9 @@ jobs:
         # No --fail-env-changed: a child started with a cleared environment
         # loses LLVM_PROFILE_FILE and writes default_*.profraw into the test's
         # working directory, which regrtest reports as a changed environment.
-        # -w re-runs failing tests in verbose mode so the log says why.
-        run: cargo llvm-cov --no-report run -- -m test -j 1 -u all --slowest -w
+        # -w re-runs failing tests in verbose mode so the log says why;
+        # --fail-rerun keeps a test that only passes on the re-run a failure.
+        run: cargo llvm-cov --no-report run -- -m test -j 1 -u all --slowest -w --fail-rerun
         continue-on-error: true
 
       - name: Prepare code coverage data
