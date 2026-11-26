@@ -106,7 +106,7 @@ mod _winapi {
 
     #[derive(FromArgs)]
     struct WaitTimeout {
-        #[pyarg(positional, default = host_winapi::INFINITE_TIMEOUT)]
+        #[pyarg(positional, default = host_winapi::INFINITE_TIMEOUT, py_default = "_winapi.INFINITE")]
         milliseconds: u32,
     }
 
@@ -264,9 +264,17 @@ mod _winapi {
         WinHandle(host_winapi::get_current_process())
     }
 
+    #[derive(FromArgs)]
+    #[from_args(legacy, fname = "GetFileType")]
+    struct GetFileTypeArgs {
+        #[pyarg(any)]
+        handle: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn GetFileType(h: WinHandle, vm: &VirtualMachine) -> PyResult<host_winapi::FileType> {
-        host_winapi::get_file_type(h.0).map_err(|e| e.to_pyexception(vm))
+    fn GetFileType(args: GetFileTypeArgs, vm: &VirtualMachine) -> PyResult<host_winapi::FileType> {
+        let value = WinHandle::from_bitfield(&args.handle, vm, "GetFileType", "argument 1")?;
+        host_winapi::get_file_type(value.0).map_err(|e| e.to_pyexception(vm))
     }
 
     #[pyfunction]
@@ -659,9 +667,17 @@ mod _winapi {
             .map_err(|e| e.to_pyexception(vm))
     }
 
+    #[derive(FromArgs)]
+    #[from_args(legacy, fname = "ReleaseMutex")]
+    struct ReleaseMutexArgs {
+        #[pyarg(any)]
+        mutex: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn ReleaseMutex(handle: WinHandle) -> WindowsSysResult<i32> {
-        WindowsSysResult(host_winapi::release_mutex(handle.0))
+    fn ReleaseMutex(args: ReleaseMutexArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let value = WinHandle::from_bitfield(&args.mutex, vm, "ReleaseMutex", "argument 1")?;
+        WindowsSysResult(host_winapi::release_mutex(value.0)).into_pyresult(vm)
     }
 
     #[pyattr]
@@ -980,9 +996,17 @@ mod _winapi {
     }
 
     // SetEvent - Set the specified event object to the signaled state.
+    #[derive(FromArgs)]
+    #[from_args(legacy, fname = "SetEvent")]
+    struct SetEventArgs {
+        #[pyarg(any)]
+        event: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn SetEvent(event: WinHandle, vm: &VirtualMachine) -> PyResult<()> {
-        host_winapi::set_event(event.0).map_err(|e| e.to_pyexception(vm))
+    fn SetEvent(args: SetEventArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let value = WinHandle::from_bitfield(&args.event, vm, "SetEvent", "argument 1")?;
+        host_winapi::set_event(value.0).map_err(|e| e.to_pyexception(vm))
     }
 
     #[derive(FromArgs)]
@@ -1090,9 +1114,17 @@ mod _winapi {
     }
 
     // ResetEvent - Reset the specified event object to the nonsignaled state.
+    #[derive(FromArgs)]
+    #[from_args(legacy, fname = "ResetEvent")]
+    struct ResetEventArgs {
+        #[pyarg(any)]
+        event: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn ResetEvent(event: WinHandle, vm: &VirtualMachine) -> PyResult<()> {
-        host_winapi::reset_event(event.0).map_err(|e| e.to_pyexception(vm))
+    fn ResetEvent(args: ResetEventArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let value = WinHandle::from_bitfield(&args.event, vm, "ResetEvent", "argument 1")?;
+        host_winapi::reset_event(value.0).map_err(|e| e.to_pyexception(vm))
     }
 
     // CreateMutexW - Create or open a named or unnamed mutex object.
@@ -1144,17 +1176,36 @@ mod _winapi {
 
     const MAXIMUM_WAIT_OBJECTS: usize = host_winapi::MAXIMUM_WAIT_OBJECTS as usize;
 
+    #[derive(FromArgs)]
+    #[from_args(legacy, fname = "BatchedWaitForMultipleObjects")]
+    struct BatchedWaitArgs {
+        #[pyarg(any)]
+        handle_seq: PyObjectRef,
+        #[pyarg(any)]
+        wait_all: i32,
+        #[pyarg(any, optional, py_default = "_winapi.INFINITE")]
+        milliseconds: OptionalArg<PyObjectRef>,
+    }
+
     #[pyfunction]
     fn BatchedWaitForMultipleObjects(
-        handle_seq: PyObjectRef,
-        wait_all: bool,
-        milliseconds: OptionalArg<u32>,
+        args: BatchedWaitArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let milliseconds = milliseconds.unwrap_or(host_winapi::INFINITE_TIMEOUT);
+        let wait_all = args.wait_all != 0;
+        let milliseconds = if let Some(milliseconds) = args.milliseconds.into_option() {
+            WinHandle::unsigned_long_bitfield(
+                &milliseconds,
+                vm,
+                "BatchedWaitForMultipleObjects",
+                "argument 3",
+            )?
+        } else {
+            host_winapi::INFINITE_TIMEOUT
+        };
 
         // Get handles from sequence
-        let seq = ArgSequence::<isize>::try_from_object(vm, handle_seq)?;
+        let seq = ArgSequence::<isize>::try_from_object(vm, args.handle_seq)?;
         let handles: Vec<host_winapi::Handle> = seq
             .into_vec()
             .into_iter()
@@ -1311,24 +1362,27 @@ mod _winapi {
         #[pyarg(any)]
         new_file_name: ArgWideString,
         #[pyarg(any)]
-        flags: u32,
-        #[pyarg(any, default)]
+        flags: PyObjectRef,
+        #[pyarg(any, default = None)]
         progress_routine: Option<PyObjectRef>,
     }
 
     #[pyfunction]
     fn CopyFile2(args: CopyFile2Args, vm: &VirtualMachine) -> PyResult<()> {
-        let _ = args.progress_routine;
+        // As in CPython, progress_routine is reserved and not invoked.
+        let _progress_routine = args.progress_routine;
+        let flags = WinHandle::unsigned_long_bitfield(&args.flags, vm, "CopyFile2", "argument 3")?;
         let src_wide = &args.existing_file_name.wide;
         let dst_wide = &args.new_file_name.wide;
         vm.audit("_winapi.CopyFile2", || {
             (
                 audit_wide(Some(src_wide), vm),
                 audit_wide(Some(dst_wide), vm),
-                args.flags,
+                flags,
             )
         })?;
-        host_winapi::copy_file2(src_wide, dst_wide, args.flags).map_err(|e| e.to_pyexception(vm))
+        vm.allow_threads(|| host_winapi::copy_file2(src_wide, dst_wide, flags))
+            .map_err(|e| e.to_pyexception(vm))
     }
 
     #[derive(FromArgs)]
