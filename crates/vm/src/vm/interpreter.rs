@@ -46,6 +46,8 @@ pub struct InterpreterBuilder {
     module_defs: Vec<&'static builtins::PyModuleDef>,
     frozen_modules: Vec<FrozenRegistration>,
     init_hooks: Vec<InitFunc>,
+    #[cfg(native_host_io)]
+    host_io: crate::native_host_io::HostIo,
 }
 
 /// Options for constructing a main or sub-interpreter VM.
@@ -55,6 +57,8 @@ struct InitializeVmOpts<'a> {
     module_defs: Vec<&'static builtins::PyModuleDef>,
     frozen_modules: Vec<FrozenRegistration>,
     init_hooks: Vec<InitFunc>,
+    #[cfg(native_host_io)]
+    host_io: crate::native_host_io::HostIo,
     is_main: bool,
     whence: InterpreterWhence,
     /// When `Some`, reuse parent module_defs/frozen/config seeds for a subinterpreter.
@@ -73,6 +77,8 @@ where
         module_defs,
         frozen_modules,
         init_hooks,
+        #[cfg(native_host_io)]
+        host_io,
         is_main,
         whence,
         parent_state,
@@ -158,6 +164,8 @@ where
 
     // Create PyGlobalState (≈ PyInterpreterState)
     let global_state = PyRc::new(PyGlobalState {
+        #[cfg(native_host_io)]
+        host_io,
         gc: crate::gc_state::GcInterpreterState::new(&ctx),
         interpreter_id,
         runtime_root_id,
@@ -302,6 +310,8 @@ fn create_subinterpreter_from_parent(
             module_defs: Vec::new(),
             frozen_modules: Vec::new(),
             init_hooks: Vec::new(),
+            #[cfg(native_host_io)]
+            host_io: Default::default(),
             is_main: false,
             whence,
             parent_state: Some(&parent.state),
@@ -333,7 +343,17 @@ impl InterpreterBuilder {
             module_defs: Vec::new(),
             frozen_modules: Vec::new(),
             init_hooks: Vec::new(),
+            #[cfg(native_host_io)]
+            host_io: Default::default(),
         }
+    }
+
+    /// Supply explicitly granted I/O capabilities for this interpreter.
+    #[must_use]
+    #[cfg(native_host_io)]
+    pub fn host_io(mut self, table: rustpython_wasi_host::Table) -> Self {
+        self.host_io = table.into();
+        self
     }
 
     /// Set custom settings for the interpreter.
@@ -462,6 +482,8 @@ impl InterpreterBuilder {
                 module_defs: self.module_defs,
                 frozen_modules: self.frozen_modules,
                 init_hooks: self.init_hooks,
+                #[cfg(native_host_io)]
+                host_io: self.host_io,
                 is_main: true,
                 whence: InterpreterWhence::Runtime,
                 parent_state: None,
@@ -559,6 +581,8 @@ impl Interpreter {
                 module_defs: Vec::new(),
                 frozen_modules: Vec::new(),
                 init_hooks: Vec::new(),
+                #[cfg(native_host_io)]
+                host_io: Default::default(),
                 is_main: true,
                 whence: InterpreterWhence::Runtime,
                 parent_state: None,

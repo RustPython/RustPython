@@ -863,6 +863,7 @@ mod builtins {
     #[pyfunction]
     fn input(args: InputArgs, vm: &VirtualMachine) -> PyResult {
         let prompt = args.prompt;
+        #[cfg(not(native_host_io))]
         use std::io::IsTerminal;
 
         // PySys_GetAttr bypasses a sys module subclass's attribute hooks.
@@ -887,6 +888,7 @@ mod builtins {
 
         let _ = vm.call_method(&stderr, "flush", ());
 
+        #[cfg(not(native_host_io))]
         let fd_matches = |obj, expected| -> PyResult<bool> {
             // A failed fileno call selects the fallback, but conversion errors
             // from a successfully returned descriptor must propagate.
@@ -899,6 +901,9 @@ mod builtins {
             Ok(fd == expected)
         };
 
+        #[cfg(native_host_io)]
+        let tty = false;
+        #[cfg(not(native_host_io))]
         let tty = fd_matches(&stdin, 0)?
             && std::io::stdin().is_terminal()
             && fd_matches(&stdout, 1)?

@@ -71,27 +71,27 @@ pub const TXTBSY: u16 = 74;
 pub const XDEV: u16 = 75;
 pub const NOTCAPABLE: u16 = 76;
 
-const FILETYPE_UNKNOWN: u8 = 0;
-const FILETYPE_DIRECTORY: u8 = 3;
-const FILETYPE_REGULAR_FILE: u8 = 4;
+pub const FILETYPE_UNKNOWN: u8 = 0;
+pub const FILETYPE_DIRECTORY: u8 = 3;
+pub const FILETYPE_REGULAR_FILE: u8 = 4;
 
 #[cfg(test)]
 const LOOKUP_SYMLINK_FOLLOW: i32 = 1;
 
-const OFLAGS_CREAT: u16 = 1;
-const OFLAGS_DIRECTORY: u16 = 2;
-const OFLAGS_EXCL: u16 = 4;
-const OFLAGS_TRUNC: u16 = 8;
+pub const OFLAGS_CREAT: u16 = 1;
+pub const OFLAGS_DIRECTORY: u16 = 2;
+pub const OFLAGS_EXCL: u16 = 4;
+pub const OFLAGS_TRUNC: u16 = 8;
 
-const FDFLAGS_APPEND: u16 = 1;
+pub const FDFLAGS_APPEND: u16 = 1;
 
-const RIGHTS_FD_DATASYNC: u64 = 1 << 0;
-const RIGHTS_FD_READ: u64 = 1 << 1;
-const RIGHTS_FD_SEEK: u64 = 1 << 2;
-const RIGHTS_FD_SYNC: u64 = 1 << 4;
-const RIGHTS_FD_TELL: u64 = 1 << 5;
-const RIGHTS_FD_WRITE: u64 = 1 << 6;
-const RIGHTS_FD_ALLOCATE: u64 = 1 << 8;
+pub const RIGHTS_FD_DATASYNC: u64 = 1 << 0;
+pub const RIGHTS_FD_READ: u64 = 1 << 1;
+pub const RIGHTS_FD_SEEK: u64 = 1 << 2;
+pub const RIGHTS_FD_SYNC: u64 = 1 << 4;
+pub const RIGHTS_FD_TELL: u64 = 1 << 5;
+pub const RIGHTS_FD_WRITE: u64 = 1 << 6;
+pub const RIGHTS_FD_ALLOCATE: u64 = 1 << 8;
 const RIGHTS_PATH_CREATE_DIRECTORY: u64 = 1 << 9;
 const RIGHTS_PATH_CREATE_FILE: u64 = 1 << 10;
 const RIGHTS_PATH_LINK_SOURCE: u64 = 1 << 11;
@@ -102,14 +102,14 @@ const RIGHTS_PATH_RENAME_TARGET: u64 = 1 << 17;
 const RIGHTS_PATH_FILESTAT_SET_SIZE: u64 = 1 << 19;
 const RIGHTS_PATH_FILESTAT_SET_TIMES: u64 = 1 << 20;
 #[cfg(test)]
-const RIGHTS_FD_FILESTAT_GET: u64 = 1 << 21;
-const RIGHTS_FD_FILESTAT_SET_SIZE: u64 = 1 << 22;
-const RIGHTS_FD_FILESTAT_SET_TIMES: u64 = 1 << 23;
+pub const RIGHTS_FD_FILESTAT_GET: u64 = 1 << 21;
+pub const RIGHTS_FD_FILESTAT_SET_SIZE: u64 = 1 << 22;
+pub const RIGHTS_FD_FILESTAT_SET_TIMES: u64 = 1 << 23;
 const RIGHTS_PATH_SYMLINK: u64 = 1 << 24;
 const RIGHTS_PATH_REMOVE_DIRECTORY: u64 = 1 << 25;
 const RIGHTS_PATH_UNLINK_FILE: u64 = 1 << 26;
 
-const RIGHTS_ALL: u64 = (1 << 30) - 1;
+pub const RIGHTS_ALL: u64 = (1 << 30) - 1;
 
 const RIGHTS_WRITE_RELATED: u64 = RIGHTS_FD_WRITE
     | RIGHTS_FD_ALLOCATE
@@ -162,8 +162,9 @@ enum Resource {
     },
 }
 
+#[derive(Clone)]
 struct Entry {
-    resource: Resource,
+    resource: std::sync::Arc<Resource>,
     rights_base: u64,
     rights_inheriting: u64,
     fdflags: u16,
@@ -192,106 +193,22 @@ impl Entry {
     }
 }
 
-pub struct Table {
-    entries: Vec<Option<Entry>>,
-}
-
-impl Default for Table {
-    fn default() -> Self {
-        Self {
-            entries: vec![None, None, None],
-        }
-    }
-}
-
-impl Table {
-    pub fn with_preopens(preopens: impl IntoIterator<Item = Preopen>) -> io::Result<Self> {
-        let mut table = Self::default();
-        for preopen in preopens {
-            let dir = Dir::open_ambient_dir(&preopen.host, ambient_authority())?;
-            let rights = if preopen.write {
-                RIGHTS_ALL
-            } else {
-                RIGHTS_ALL & !RIGHTS_WRITE_RELATED
-            };
-            table
-                .push(Entry {
-                    resource: Resource::Dir {
-                        dir,
-                        preopen_name: Some(preopen.guest),
-                    },
-                    rights_base: rights,
-                    rights_inheriting: rights,
-                    fdflags: 0,
-                    filetype: FILETYPE_DIRECTORY,
-                })
-                .map_err(|_| io::Error::other("descriptor table full"))?;
-        }
-        Ok(table)
-    }
-
-    fn push(&mut self, entry: Entry) -> Result<i32, u16> {
-        let index = self
-            .entries
-            .iter()
-            .enumerate()
-            .skip(3)
-            .find_map(|(index, slot)| slot.is_none().then_some(index))
-            .unwrap_or(self.entries.len().max(3));
-        let fd = i32::try_from(index).map_err(|_| MFILE)?;
-        if index >= self.entries.len() {
-            self.entries.resize_with(index + 1, || None);
-        }
-        self.entries[index] = Some(entry);
-        Ok(fd)
-    }
-
-    fn get(&self, fd: i32) -> Result<&Entry, u16> {
-        usize::try_from(fd)
-            .ok()
-            .and_then(|fd| self.entries.get(fd))
-            .and_then(Option::as_ref)
-            .ok_or(BADF)
-    }
-
-    fn get_mut(&mut self, fd: i32) -> Result<&mut Entry, u16> {
-        usize::try_from(fd)
-            .ok()
-            .and_then(|fd| self.entries.get_mut(fd))
-            .and_then(Option::as_mut)
-            .ok_or(BADF)
-    }
-
-    pub fn close(&mut self, fd: i32) -> Result<(), u16> {
-        let Some(entry) = usize::try_from(fd)
-            .ok()
-            .and_then(|fd| self.entries.get_mut(fd))
-            .and_then(Option::take)
-        else {
-            return Err(BADF);
-        };
-        drop(entry);
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn path_open(
-        &mut self,
-        dirfd: i32,
-        _dirflags: i32,
+impl Entry {
+    fn open_child(
+        &self,
         path: &[u8],
         oflags: u16,
         fs_rights_base: u64,
         fs_rights_inheriting: u64,
         fdflags: u16,
-    ) -> Result<i32, u16> {
+    ) -> Result<Entry, u16> {
         if path.len() > MAX_PATH as usize {
             return Err(NAMETOOLONG);
         }
         let path = guest_path(path)?;
         let (dir, dir_rights_base, dir_rights_inheriting, readonly) = {
-            let dir_entry = self.get(dirfd)?;
-            match &dir_entry.resource {
+            let dir_entry = self;
+            match dir_entry.resource.as_ref() {
                 Resource::Dir { dir, .. } => {
                     dir_entry.require(RIGHTS_PATH_OPEN)?;
                     (
@@ -331,11 +248,11 @@ impl Table {
 
         if oflags & OFLAGS_DIRECTORY != 0 {
             let opened = dir.open_dir(path).map_err(wasi_from_io)?;
-            return self.push(Entry {
-                resource: Resource::Dir {
+            return Ok(Entry {
+                resource: std::sync::Arc::new(Resource::Dir {
                     dir: opened,
                     preopen_name: None,
-                },
+                }),
                 rights_base: granted_base,
                 rights_inheriting: granted_inheriting,
                 fdflags: fdflags & FDFLAGS_APPEND,
@@ -373,11 +290,11 @@ impl Table {
         let metadata = file.metadata().map_err(wasi_from_io)?;
         if metadata.is_dir() {
             let dir = Dir::from_std_file(file.into_std());
-            return self.push(Entry {
-                resource: Resource::Dir {
+            return Ok(Entry {
+                resource: std::sync::Arc::new(Resource::Dir {
                     dir,
                     preopen_name: None,
-                },
+                }),
                 rights_base: granted_base,
                 rights_inheriting: granted_inheriting,
                 fdflags: fdflags & FDFLAGS_APPEND,
@@ -389,8 +306,8 @@ impl Table {
         } else {
             FILETYPE_UNKNOWN
         };
-        self.push(Entry {
-            resource: Resource::File(file),
+        Ok(Entry {
+            resource: std::sync::Arc::new(Resource::File(file)),
             rights_base: granted_base,
             rights_inheriting: granted_inheriting,
             fdflags: fdflags & FDFLAGS_APPEND,
@@ -398,35 +315,35 @@ impl Table {
         })
     }
 
-    pub fn fd_read(&mut self, fd: i32, bufs: &mut [&mut [u8]]) -> Result<usize, u16> {
-        let entry = self.get_mut(fd)?;
+    pub fn fd_read(&self, bufs: &mut [&mut [u8]]) -> Result<usize, u16> {
+        let entry = self;
         entry.require(RIGHTS_FD_READ)?;
         if entry.is_dir() {
             return Err(ISDIR);
         }
-        let Resource::File(file) = &mut entry.resource else {
+        let Resource::File(file) = entry.resource.as_ref() else {
             return Err(ISDIR);
         };
         transfer_read(file, bufs)
     }
 
-    pub fn fd_write(&mut self, fd: i32, bufs: &[&[u8]]) -> Result<usize, u16> {
-        let entry = self.get_mut(fd)?;
+    pub fn fd_write(&self, bufs: &[&[u8]]) -> Result<usize, u16> {
+        let entry = self;
         entry.require(RIGHTS_FD_WRITE)?;
         if entry.is_dir() {
             return Err(ISDIR);
         }
-        let Resource::File(file) = &mut entry.resource else {
+        let Resource::File(file) = entry.resource.as_ref() else {
             return Err(ISDIR);
         };
         transfer_write(file, bufs)
     }
 
-    pub fn fd_seek(&mut self, fd: i32, offset: i64, whence: i32) -> Result<u64, u16> {
+    pub fn fd_seek(&self, offset: i64, whence: i32) -> Result<u64, u16> {
         if !matches!(whence, WHENCE_SET | WHENCE_CUR | WHENCE_END) {
             return Err(INVAL);
         }
-        let entry = self.get_mut(fd)?;
+        let entry = self;
         if whence == WHENCE_CUR && offset == 0 {
             if !entry.has(RIGHTS_FD_TELL) && !entry.has(RIGHTS_FD_SEEK) {
                 return Err(NOTCAPABLE);
@@ -437,7 +354,7 @@ impl Table {
         if entry.is_dir() {
             return Err(ISDIR);
         }
-        let Resource::File(file) = &mut entry.resource else {
+        let Resource::File(file) = entry.resource.as_ref() else {
             return Err(ISDIR);
         };
         let pos = match whence {
@@ -449,13 +366,13 @@ impl Table {
             WHENCE_END => SeekFrom::End(offset),
             _ => return Err(INVAL),
         };
-        file.seek(pos).map_err(wasi_from_io)
+        (&*file).seek(pos).map_err(wasi_from_io)
     }
 
-    pub fn fd_sync(&mut self, fd: i32) -> Result<(), u16> {
-        let entry = self.get_mut(fd)?;
+    pub fn fd_sync(&self) -> Result<(), u16> {
+        let entry = self;
         entry.require(RIGHTS_FD_SYNC)?;
-        match &mut entry.resource {
+        match entry.resource.as_ref() {
             Resource::File(file) => file.sync_all().map_err(wasi_from_io),
             Resource::Dir { dir, .. } => dir
                 .try_clone()
@@ -464,21 +381,21 @@ impl Table {
         }
     }
 
-    pub fn fd_filestat_set_size(&mut self, fd: i32, size: i64) -> Result<(), u16> {
+    pub fn fd_filestat_set_size(&self, size: i64) -> Result<(), u16> {
         let size = u64::try_from(size).map_err(|_| INVAL)?;
-        let entry = self.get_mut(fd)?;
+        let entry = self;
         entry.require(RIGHTS_FD_FILESTAT_SET_SIZE)?;
         if entry.is_dir() {
             return Err(ISDIR);
         }
-        let Resource::File(file) = &mut entry.resource else {
+        let Resource::File(file) = entry.resource.as_ref() else {
             return Err(ISDIR);
         };
         file.set_len(size).map_err(wasi_from_io)
     }
 
-    pub fn fdstat(&self, fd: i32) -> Result<(u8, u16, u64, u64), u16> {
-        let entry = self.get(fd)?;
+    pub fn fdstat(&self) -> Result<(u8, u16, u64, u64), u16> {
+        let entry = self;
         Ok((
             entry.filetype,
             entry.fdflags,
@@ -487,9 +404,9 @@ impl Table {
         ))
     }
 
-    pub fn prestat(&self, fd: i32) -> Result<&[u8], u16> {
-        let entry = self.get(fd)?;
-        match &entry.resource {
+    pub fn prestat(&self) -> Result<&[u8], u16> {
+        let entry = self;
+        match entry.resource.as_ref() {
             Resource::Dir {
                 preopen_name: Some(name),
                 ..
@@ -499,7 +416,279 @@ impl Table {
     }
 }
 
-fn transfer_read(file: &mut File, bufs: &mut [&mut [u8]]) -> Result<usize, u16> {
+/// A temporary resource pin. It survives table close but does not restore the table entry.
+#[derive(Clone)]
+pub struct Handle(Entry);
+impl Handle {
+    pub fn open_child(
+        &self,
+        path: &[u8],
+        oflags: u16,
+        rights: u64,
+        inheriting: u64,
+        flags: u16,
+    ) -> Result<Self, u16> {
+        self.0
+            .open_child(path, oflags, rights, inheriting, flags)
+            .map(Self)
+    }
+    pub fn fd_read(&self, bufs: &mut [&mut [u8]]) -> Result<usize, u16> {
+        self.0.fd_read(bufs)
+    }
+    pub fn fd_write(&self, bufs: &[&[u8]]) -> Result<usize, u16> {
+        self.0.fd_write(bufs)
+    }
+    pub fn fd_seek(&self, offset: i64, whence: i32) -> Result<u64, u16> {
+        self.0.fd_seek(offset, whence)
+    }
+    pub fn fd_sync(&self) -> Result<(), u16> {
+        self.0.fd_sync()
+    }
+    pub fn fd_filestat_set_size(&self, size: i64) -> Result<(), u16> {
+        self.0.fd_filestat_set_size(size)
+    }
+    pub fn fdstat(&self) -> Result<(u8, u16, u64, u64), u16> {
+        self.0.fdstat()
+    }
+    pub fn prestat(&self) -> Result<&[u8], u16> {
+        self.0.prestat()
+    }
+}
+fn checked_path(path: &[u8]) -> Result<&Path, u16> {
+    if path.len() > MAX_PATH as usize {
+        return Err(NAMETOOLONG);
+    }
+    guest_path(path)
+}
+
+/// Explicitly lent standard stream; never inferred from a process descriptor.
+#[derive(Clone, Copy, Debug)]
+pub enum Stdio {
+    In,
+    Out,
+    Err,
+}
+
+pub struct Table {
+    entries: Vec<Option<Entry>>,
+}
+
+impl Default for Table {
+    fn default() -> Self {
+        Self {
+            entries: vec![None, None, None],
+        }
+    }
+}
+
+impl Table {
+    /// Configure owned/duplicated files before sharing the table with an interpreter.
+    pub fn lend_stdio(&mut self, stream: Stdio, file: std::fs::File) -> io::Result<()> {
+        let metadata = file.metadata()?;
+        if metadata.is_dir() {
+            return Err(io::ErrorKind::IsADirectory.into());
+        }
+        let (index, rights) = match stream {
+            Stdio::In => (0, RIGHTS_FD_READ),
+            Stdio::Out => (1, RIGHTS_FD_WRITE),
+            Stdio::Err => (2, RIGHTS_FD_WRITE),
+        };
+        self.entries[index] = Some(Entry {
+            resource: std::sync::Arc::new(Resource::File(File::from_std(file))),
+            rights_base: rights,
+            rights_inheriting: 0,
+            fdflags: 0,
+            filetype: if metadata.is_file() {
+                FILETYPE_REGULAR_FILE
+            } else {
+                FILETYPE_UNKNOWN
+            },
+        });
+        Ok(())
+    }
+    /// Resolve live preopens without filesystem I/O; caller can unlock before opening.
+    pub fn resolve_preopen(&self, path: &[u8]) -> Result<(Handle, Vec<u8>), u16> {
+        let absolute = if path.starts_with(b"/") {
+            path.to_vec()
+        } else {
+            let mut path = path.to_vec();
+            path.insert(0, b'/');
+            path
+        };
+        let mut best = None;
+        for entry in self.entries.iter().skip(3).flatten() {
+            let Resource::Dir {
+                preopen_name: Some(name),
+                ..
+            } = entry.resource.as_ref()
+            else {
+                continue;
+            };
+            let mut end = name.len();
+            while end > 0 && name[end - 1] == b'/' {
+                end -= 1;
+            }
+            let name = &name[..end];
+            let name = if name.is_empty() || name == b"." {
+                b"/".as_slice()
+            } else {
+                name
+            };
+            let matches = if name == b"/" {
+                true
+            } else {
+                absolute.starts_with(name)
+                    && (absolute.len() == name.len() || absolute.get(name.len()) == Some(&b'/'))
+            };
+            if matches && best.is_none_or(|(len, _): (usize, &Entry)| name.len() > len) {
+                best = Some((name.len(), entry));
+            }
+        }
+        let (len, entry) = best.ok_or(NOENT)?;
+        let start = if len == 1 {
+            1
+        } else if len == absolute.len() {
+            len
+        } else {
+            len + 1
+        };
+        let relative = if start == absolute.len() {
+            b".".to_vec()
+        } else {
+            absolute[start..].to_vec()
+        };
+        checked_path(&relative)?;
+        Ok((Handle(entry.clone()), relative))
+    }
+
+    pub fn with_preopens(preopens: impl IntoIterator<Item = Preopen>) -> io::Result<Self> {
+        let mut table = Self::default();
+        for preopen in preopens {
+            let dir = Dir::open_ambient_dir(&preopen.host, ambient_authority())?;
+            let rights = if preopen.write {
+                RIGHTS_ALL
+            } else {
+                RIGHTS_ALL & !RIGHTS_WRITE_RELATED
+            };
+            table
+                .push(Entry {
+                    resource: std::sync::Arc::new(Resource::Dir {
+                        dir,
+                        preopen_name: Some(preopen.guest),
+                    }),
+                    rights_base: rights,
+                    rights_inheriting: rights,
+                    fdflags: 0,
+                    filetype: FILETYPE_DIRECTORY,
+                })
+                .map_err(|_| io::Error::other("descriptor table full"))?;
+        }
+        Ok(table)
+    }
+
+    fn push(&mut self, entry: Entry) -> Result<i32, u16> {
+        let index = self
+            .entries
+            .iter()
+            .enumerate()
+            .skip(3)
+            .find_map(|(index, slot)| slot.is_none().then_some(index))
+            .unwrap_or(self.entries.len().max(3));
+        let fd = i32::try_from(index).map_err(|_| MFILE)?;
+        if index >= self.entries.len() {
+            self.entries.resize_with(index + 1, || None);
+        }
+        self.entries[index] = Some(entry);
+        Ok(fd)
+    }
+
+    fn get(&self, fd: i32) -> Result<&Entry, u16> {
+        usize::try_from(fd)
+            .ok()
+            .and_then(|fd| self.entries.get(fd))
+            .and_then(Option::as_ref)
+            .ok_or(BADF)
+    }
+
+    pub fn pin(&self, fd: i32) -> Result<Handle, u16> {
+        Ok(Handle(self.get(fd)?.clone()))
+    }
+    pub fn take(&mut self, fd: i32) -> Result<Handle, u16> {
+        self.entries
+            .get_mut(usize::try_from(fd).map_err(|_| BADF)?)
+            .and_then(Option::take)
+            .map(Handle)
+            .ok_or(BADF)
+    }
+    pub fn close(&mut self, fd: i32) -> Result<(), u16> {
+        drop(self.take(fd)?);
+        Ok(())
+    }
+    pub fn try_insert(&mut self, handle: Handle) -> Result<i32, (u16, Handle)> {
+        let index = self
+            .entries
+            .iter()
+            .enumerate()
+            .skip(3)
+            .find_map(|(i, slot)| slot.is_none().then_some(i))
+            .unwrap_or(self.entries.len().max(3));
+        let Ok(fd) = i32::try_from(index) else {
+            return Err((MFILE, handle));
+        };
+        if index >= self.entries.len() {
+            self.entries.resize_with(index + 1, || None);
+        }
+        self.entries[index] = Some(handle.0);
+        Ok(fd)
+    }
+    pub fn insert(&mut self, handle: Handle) -> Result<i32, u16> {
+        self.try_insert(handle).map_err(|(error, _)| error)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn path_open(
+        &mut self,
+        fd: i32,
+        _dirflags: i32,
+        path: &[u8],
+        oflags: u16,
+        rights: u64,
+        inheriting: u64,
+        flags: u16,
+    ) -> Result<i32, u16> {
+        checked_path(path)?;
+        let entry = self
+            .get(fd)?
+            .open_child(path, oflags, rights, inheriting, flags)?;
+        self.push(entry)
+    }
+    pub fn fd_read(&self, fd: i32, bufs: &mut [&mut [u8]]) -> Result<usize, u16> {
+        self.get(fd)?.fd_read(bufs)
+    }
+    pub fn fd_write(&self, fd: i32, bufs: &[&[u8]]) -> Result<usize, u16> {
+        self.get(fd)?.fd_write(bufs)
+    }
+    pub fn fd_seek(&self, fd: i32, offset: i64, whence: i32) -> Result<u64, u16> {
+        if !matches!(whence, WHENCE_SET | WHENCE_CUR | WHENCE_END) {
+            return Err(INVAL);
+        }
+        self.get(fd)?.fd_seek(offset, whence)
+    }
+    pub fn fd_sync(&self, fd: i32) -> Result<(), u16> {
+        self.get(fd)?.fd_sync()
+    }
+    pub fn fd_filestat_set_size(&self, fd: i32, size: i64) -> Result<(), u16> {
+        u64::try_from(size).map_err(|_| INVAL)?;
+        self.get(fd)?.fd_filestat_set_size(size)
+    }
+    pub fn fdstat(&self, fd: i32) -> Result<(u8, u16, u64, u64), u16> {
+        self.get(fd)?.fdstat()
+    }
+    pub fn prestat(&self, fd: i32) -> Result<&[u8], u16> {
+        self.get(fd)?.prestat()
+    }
+}
+
+fn transfer_read(mut file: &File, bufs: &mut [&mut [u8]]) -> Result<usize, u16> {
     let mut total = 0usize;
     let mut remaining = MAX_TRANSFER;
     for buf in bufs {
@@ -531,7 +720,7 @@ fn transfer_read(file: &mut File, bufs: &mut [&mut [u8]]) -> Result<usize, u16> 
     Ok(total)
 }
 
-fn transfer_write(file: &mut File, bufs: &[&[u8]]) -> Result<usize, u16> {
+fn transfer_write(mut file: &File, bufs: &[&[u8]]) -> Result<usize, u16> {
     let mut total = 0usize;
     let mut remaining = MAX_TRANSFER;
     for buf in bufs {
@@ -776,6 +965,10 @@ mod tests {
         let fd = table
             .path_open(3, LOOKUP_SYMLINK_FOLLOW, b"f", 0, rights_read(), 0, 0)
             .unwrap();
+        let pinned = table.pin(fd).unwrap();
+        let mut byte = [0];
+        assert_eq!(pinned.fd_read(&mut [&mut byte]).unwrap(), 1);
+        assert_eq!(byte, *b"a");
         table.close(fd).unwrap();
         assert_eq!(table.close(fd), Err(BADF));
         assert_eq!(table.fd_read(fd, &mut [&mut [0; 1]]), Err(BADF));
@@ -783,6 +976,12 @@ mod tests {
         assert!(matches!(table.get(1), Err(BADF)));
         assert!(matches!(table.get(2), Err(BADF)));
         assert!(matches!(table.get(-1), Err(BADF)));
+        let reused = table.path_open(3, 0, b"f", 0, rights_read(), 0, 0).unwrap();
+        assert_eq!(reused, fd);
+        pinned.fd_read(&mut [&mut byte]).unwrap();
+        assert_eq!(byte, *b"b");
+        table.fd_read(reused, &mut [&mut byte]).unwrap();
+        assert_eq!(byte, *b"a");
     }
 
     #[test]
@@ -962,7 +1161,7 @@ mod tests {
         let mut table = Table::default();
         let fd = table
             .push(Entry {
-                resource: Resource::File(file),
+                resource: std::sync::Arc::new(Resource::File(file)),
                 rights_base: RIGHTS_FD_READ | RIGHTS_FD_SEEK | RIGHTS_FD_TELL,
                 rights_inheriting: 0,
                 fdflags: 0,
@@ -1035,5 +1234,56 @@ mod tests {
         assert_eq!(fd_close(&mut table, fd), i32::from(SUCCESS));
         assert_eq!(fd_close(&mut table, fd), i32::from(BADF));
         assert_eq!(fd_read(&mut table, &memory, fd, 16, 1, 32), i32::from(BADF));
+    }
+    #[test]
+    fn live_preopens_and_explicit_stdio_grants() {
+        let fixture = Fixture::new();
+        std::fs::write(fixture.0.join("input"), b"input").unwrap();
+        let mut table = Table::default();
+        assert!(matches!(table.resolve_preopen(b"/input"), Err(NOENT)));
+        table
+            .lend_stdio(
+                Stdio::In,
+                std::fs::File::open(fixture.0.join("input")).unwrap(),
+            )
+            .unwrap();
+        let pin = table.pin(0).unwrap();
+        assert_eq!(pin.fd_write(&[b"x"]), Err(NOTCAPABLE));
+        drop(table.take(0).unwrap());
+        assert!(matches!(table.pin(0), Err(BADF)));
+        assert_eq!(pin.fd_read(&mut [&mut [0; 5]]).unwrap(), 5);
+        let mut table = Table::with_preopens([
+            Preopen {
+                host: fixture.0.clone(),
+                guest: b"/".to_vec(),
+                write: true,
+            },
+            Preopen {
+                host: fixture.0.clone(),
+                guest: b"/safe/".to_vec(),
+                write: false,
+            },
+        ])
+        .unwrap();
+        let (dir, relative) = table.resolve_preopen(b"safe/input").unwrap();
+        assert_eq!(relative, b"input");
+        assert!(matches!(
+            dir.open_child(&relative, 0, RIGHTS_FD_WRITE, 0, 0),
+            Err(NOTCAPABLE)
+        ));
+        assert_eq!(
+            table.resolve_preopen(b"/safety/input").unwrap().1,
+            b"safety/input"
+        );
+        table.close(4).unwrap();
+        assert_eq!(
+            table.resolve_preopen(b"/safe/input").unwrap().1,
+            b"safe/input"
+        );
+        let (directory, relative) = table.resolve_preopen(b"../outside").unwrap();
+        assert!(matches!(
+            directory.open_child(&relative, 0, RIGHTS_FD_READ, 0, 0),
+            Err(NOTCAPABLE)
+        ));
     }
 }
