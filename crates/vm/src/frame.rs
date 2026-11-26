@@ -8791,9 +8791,15 @@ impl ExecutingFrame<'_> {
                     *do_extend_arg = false;
                     return Ok(None);
                 }
-                let next = monitoring::layer_site(vm, self.code, index)
-                    .map(|site| site.line_next)
+                let site = monitoring::layer_site(vm, self.code, index)
                     .expect("live monitored code retains its layer entry");
+                // A LINE callback may have removed the last LINE tool,
+                // exposing INSTRUCTION as the top opcode at this site.
+                let next = if matches!(site.top, Instruction::InstrumentedInstruction) {
+                    site.top
+                } else {
+                    site.line_next
+                };
                 self.execute_instruction(
                     next,
                     arg,
