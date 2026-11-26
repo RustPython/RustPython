@@ -15,6 +15,9 @@ type ExecSlot = unsafe extern "C" fn(*mut PyObject) -> c_int;
 static PENDING_EXEC: Mutex<Vec<(usize, Vec<ExecSlot>)>> = Mutex::new(Vec::new());
 
 /// Make `_imp.create_dynamic` able to load extension modules built for the stable ABI.
+///
+/// importlib reads the extension suffixes while the interpreter is built, so code that
+/// builds the interpreter itself must call this before `Interpreter::builder`.
 pub fn register_extension_loader() {
     rustpython_vm::stdlib::set_extension_module_loader(
         load_extension_module,

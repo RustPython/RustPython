@@ -252,12 +252,13 @@ mod _imp {
 
     #[pyfunction]
     fn extension_suffixes(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        // importlib reads this while the interpreter is built, possibly before the C API
-        // loader is registered, so the suffix is advertised whenever loading is possible.
-        // `create_dynamic` reports an error if no loader was registered by then.
-        let suffixes: &[&str] = if !cfg!(all(feature = "host_env", any(unix, windows))) {
-            &[]
-        } else if cfg!(windows) {
+        // Only abi3t extensions can be loaded, and only once a C API loader is registered.
+        // importlib reads this while the interpreter is built, so the loader has to be
+        // registered before that.
+        if super::EXTENSION_MODULE_LOADER.get().is_none() {
+            return Vec::new();
+        }
+        let suffixes: &[&str] = if cfg!(windows) {
             &[".abi3t.pyd"]
         } else {
             &[".abi3t.so"]
