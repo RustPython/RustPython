@@ -251,3 +251,49 @@ class _GAProxy(_GABase):
 _GABase.__getattr__ = lambda self, name: "fallback"
 del _GABase.__getattr__
 assert _GAProxy().x == "hooked"
+
+
+class RaisingHashName(str):
+    def __hash__(self):
+        raise ZeroDivisionError
+
+
+with assert_raises(ZeroDivisionError):
+    getattr(MyObject(), RaisingHashName("x"), None)
+with assert_raises(ZeroDivisionError):
+    hasattr(MyObject(), RaisingHashName("x"))
+with assert_raises(ZeroDivisionError):
+    setattr(MyObject(), RaisingHashName("x"), 1)
+assert getattr(object(), RaisingHashName("x"), None) is None
+
+
+class OwnHashName(str):
+    def __hash__(self):
+        return 1
+
+
+obj = MyObject()
+setattr(obj, OwnHashName("x"), 1)
+assert getattr(obj, OwnHashName("x")) == 1
+delattr(obj, OwnHashName("x"))
+assert obj.__dict__ == {}
+
+obj = MyObject()
+obj.x = 1
+with assert_raises(ZeroDivisionError):
+    delattr(obj, RaisingHashName("x"))
+assert obj.__dict__ == {"x": 1}
+
+
+class KeyErrorHashName(str):
+    def __hash__(self):
+        raise KeyError
+
+
+with assert_raises(AttributeError):
+    setattr(MyObject(), KeyErrorHashName("x"), 1)
+obj = MyObject()
+obj.x = 1
+with assert_raises(AttributeError):
+    delattr(obj, KeyErrorHashName("x"))
+assert obj.__dict__ == {"x": 1}
