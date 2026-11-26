@@ -22,7 +22,7 @@ mod xattr;
 pub mod module {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyBytesRef, PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
+        builtins::{PyBytesRef, PyDictRef, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
         convert::{IntoPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
         function::{ArgBytesLike, ArgMapping, Either, OptionalArg, PySsize},
@@ -2516,17 +2516,18 @@ pub mod module {
 
     impl TryFromObject for PathconfName {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            let i = match obj.downcast::<PyInt>() {
-                Ok(int) => int.try_to_primitive(vm)?,
-                Err(obj) => {
-                    let s = obj.downcast::<PyUtf8Str>().map_err(|_| {
+            let i = match obj.downcast::<PyUtf8Str>() {
+                Ok(s) => s
+                    .as_str()
+                    .parse::<PathconfVar>()
+                    .map_err(|_| vm.new_value_error("unrecognized configuration name"))?
+                    as i32,
+                Err(obj) => obj
+                    .try_index_opt(vm)
+                    .ok_or_else(|| {
                         vm.new_type_error("configuration names must be strings or integers")
-                    })?;
-                    s.as_str()
-                        .parse::<PathconfVar>()
-                        .map_err(|_| vm.new_value_error("unrecognized configuration name"))?
-                        as i32
-                }
+                    })??
+                    .try_to_primitive(vm)?,
             };
             Ok(Self(i))
         }
@@ -2910,23 +2911,23 @@ pub mod module {
 
     impl TryFromObject for SysconfName {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            let i = match obj.downcast::<PyInt>() {
-                Ok(int) => int.try_to_primitive(vm)?,
-                Err(obj) => {
-                    let s = obj.downcast::<PyUtf8Str>().map_err(|_| {
-                        vm.new_type_error("configuration names must be strings or integers")
-                    })?;
-                    {
-                        let name = s.as_str();
-                        name.parse::<SysconfVar>().or_else(|_| {
-                            if name == "SC_PAGESIZE" {
-                                Ok(SysconfVar::SC_PAGESIZE)
-                            } else {
-                                Err(vm.new_value_error("unrecognized configuration name"))
-                            }
-                        })? as i32
-                    }
+            let i = match obj.downcast::<PyUtf8Str>() {
+                Ok(s) => {
+                    let name = s.as_str();
+                    name.parse::<SysconfVar>().or_else(|_| {
+                        if name == "SC_PAGESIZE" {
+                            Ok(SysconfVar::SC_PAGESIZE)
+                        } else {
+                            Err(vm.new_value_error("unrecognized configuration name"))
+                        }
+                    })? as i32
                 }
+                Err(obj) => obj
+                    .try_index_opt(vm)
+                    .ok_or_else(|| {
+                        vm.new_type_error("configuration names must be strings or integers")
+                    })??
+                    .try_to_primitive(vm)?,
             };
             Ok(Self(i))
         }
