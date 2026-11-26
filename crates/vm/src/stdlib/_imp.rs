@@ -241,7 +241,7 @@ mod _imp {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         crate::lazy_import::clear_submodule(&name, false, vm)?;
-        vm.state.lazy_imports.modules.discard(name.into(), vm)
+        vm.state.lazy_imports.discard_module(name, vm)
     }
 
     #[pyfunction]

@@ -2584,6 +2584,7 @@ impl VirtualMachine {
 
         // Phase 7: Clear sys and builtins dicts last
         self.finalize_clear_sys_builtins_dict();
+        self.state.lazy_imports.clear_bookkeeping();
         // Do not keep initialization snapshots alive after interpreter teardown.
         for dict in [
             &self.state.builtins_copy,

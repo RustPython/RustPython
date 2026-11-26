@@ -25,23 +25,43 @@ fn split_parent(name: &Wtf8) -> Option<(&Wtf8, &Wtf8)> {
 }
 
 pub(crate) struct LazyImportsState {
-    pub(crate) modules: PyRef<PySet>,
+    modules: PyMutex<Option<PyRef<PySet>>>,
     pub(crate) default_callback: OnceCell<PyObjectRef>,
     pub(crate) all: AtomicBool,
     filter: PyMutex<Option<PyObjectRef>>,
     // Removed declarations must be dropped after releasing this lock.
-    pending: PyMutex<HashMap<Wtf8Buf, PendingChildren>>,
+    pending: PyMutex<Option<HashMap<Wtf8Buf, PendingChildren>>>,
 }
 
 impl LazyImportsState {
     pub(crate) fn new(ctx: &Context) -> Self {
         Self {
-            modules: PySet::default().into_ref(ctx),
+            modules: PyMutex::new(Some(PySet::default().into_ref(ctx))),
             default_callback: OnceCell::new(),
             all: AtomicBool::new(false),
             filter: PyMutex::default(),
-            pending: PyMutex::default(),
+            pending: PyMutex::new(Some(HashMap::new())),
         }
+    }
+
+    pub(crate) fn modules(&self) -> Option<PyRef<PySet>> {
+        self.modules.lock().clone()
+    }
+
+    pub(crate) fn discard_module(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(modules) = self.modules() {
+            modules.discard(name.into(), vm)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn clear_bookkeeping(&self) {
+        // Detach each root before releasing its contents. Finalizers may use
+        // lazy imports again, and other Python references to the set stay valid.
+        let modules = self.modules.lock().take();
+        drop(modules);
+        let pending = self.pending.lock().take();
+        drop(pending);
     }
 
     pub(crate) fn filter(&self) -> Option<PyObjectRef> {
@@ -60,7 +80,11 @@ impl LazyImportsState {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let mut full = name.as_wtf8();
-        while let Some((parent, child)) = split_parent(full) {
+        let mut split = split_parent(full);
+        if split.is_none() || self.pending.lock().is_none() {
+            return Ok(());
+        }
+        while let Some((parent, child)) = split {
             let cached = raw_imported_module(&vm.ctx.new_str(full), vm)?;
             let value = if cached.as_ref().is_some_and(|value| !vm.is_none(value)) {
                 None
@@ -69,6 +93,9 @@ impl LazyImportsState {
             };
             let _replaced = {
                 let mut pending = self.pending.lock();
+                let Some(pending) = pending.as_mut() else {
+                    return Ok(());
+                };
                 let children = pending.entry(parent.to_owned()).or_default();
                 if source.is_some() {
                     children.insert(child.to_owned(), value)
@@ -78,6 +105,7 @@ impl LazyImportsState {
                 }
             };
             full = parent;
+            split = split_parent(full);
         }
         Ok(())
     }
@@ -450,11 +478,8 @@ fn track_module(name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<Option<PyObje
     } else {
         module.as_ref().is_some_and(|module| !vm.is_none(module))
     };
-    if !loaded {
-        vm.state
-            .lazy_imports
-            .modules
-            .add(name.to_owned().into(), vm)?;
+    if !loaded && let Some(modules) = vm.state.lazy_imports.modules() {
+        modules.add(name.to_owned().into(), vm)?;
     }
     Ok(module)
 }
@@ -661,8 +686,7 @@ fn resolve_impl(
             drop(root_value);
             vm.state
                 .lazy_imports
-                .modules
-                .discard(vm.ctx.new_str(deferred.path()).into(), vm)?;
+                .discard_module(vm.ctx.new_str(deferred.path()), vm)?;
             Ok((value, imported_module))
         })();
         result.inspect_err(|exc| add_declaration_context(deferred, exc, vm))
@@ -779,7 +803,8 @@ pub(crate) fn clear_submodule(name: &Py<PyStr>, bind: bool, vm: &VirtualMachine)
     if !state
         .pending
         .lock()
-        .get(parent_name)
+        .as_ref()
+        .and_then(|pending| pending.get(parent_name))
         .is_some_and(|children| children.contains_key(child))
     {
         return Ok(());
@@ -811,7 +836,10 @@ pub(crate) fn clear_submodule(name: &Py<PyStr>, bind: bool, vm: &VirtualMachine)
     }
     let _removed = {
         let mut pending = state.pending.lock();
-        if let Some(children) = pending.get_mut(parent_name) {
+        if let Some(children) = pending
+            .as_mut()
+            .and_then(|pending| pending.get_mut(parent_name))
+        {
             if initializing {
                 children.get_mut(child).and_then(Option::take)
             } else {
@@ -843,7 +871,8 @@ pub(crate) fn try_load_submodule(
         .lazy_imports
         .pending
         .lock()
-        .get(module_name)
+        .as_ref()
+        .and_then(|pending| pending.get(module_name))
         .and_then(|children| children.get(child).cloned());
     let Some(source) = source else {
         return Ok(None);
@@ -880,12 +909,13 @@ pub(crate) fn try_load_submodule(
                         .entries
                         .delete_if(vm, name, hash, |value| Ok(value.is(&loaded)))
                 });
-                let mut pending = vm.state.lazy_imports.pending.lock();
-                pending
-                    .entry(module_name.to_owned())
-                    .or_default()
-                    .entry(child.to_owned())
-                    .or_insert_with(|| source.clone());
+                if let Some(pending) = vm.state.lazy_imports.pending.lock().as_mut() {
+                    pending
+                        .entry(module_name.to_owned())
+                        .or_default()
+                        .entry(child.to_owned())
+                        .or_insert_with(|| source.clone());
+                }
             }
             crate::import::remove_importlib_frames(vm, &exc);
             return Err(exc);
@@ -906,7 +936,8 @@ pub(crate) fn try_load_submodule(
             .lazy_imports
             .pending
             .lock()
-            .get_mut(module_name)
+            .as_mut()
+            .and_then(|pending| pending.get_mut(module_name))
             .and_then(|children| children.remove(child));
     }
     Ok(Some(imported))
