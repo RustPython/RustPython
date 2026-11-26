@@ -7134,14 +7134,14 @@ mod winconsoleio {
 
     #[derive(FromArgs)]
     pub(super) struct WindowsConsoleIOArgs {
-        #[pyarg(positional)]
-        name: PyObjectRef,
+        #[pyarg(any)]
+        file: PyObjectRef,
         #[pyarg(any, optional, py_default = "'r'")]
         mode: OptionalArg<Option<PyUtf8StrRef>>,
         #[pyarg(any, default = true)]
         closefd: bool,
         #[allow(dead_code)]
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         opener: Option<PyObjectRef>,
     }
 
@@ -7162,7 +7162,7 @@ mod winconsoleio {
                 return Err(nul_char_error(vm));
             }
 
-            let nameobj = args.name;
+            let nameobj = args.file;
 
             if zelf.fd.load() >= 0 {
                 if zelf.closefd.load() {

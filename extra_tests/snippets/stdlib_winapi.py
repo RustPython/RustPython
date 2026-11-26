@@ -1,4 +1,4 @@
-"""Check Windows event-log conversions without invoking host operations."""
+"""Check Windows API bindings with owned handles and temporary files."""
 
 import sys
 
@@ -87,3 +87,32 @@ assert_raises(
     None,
     startup,
 )
+
+
+# These calls must bind keywords to the real native operations, not just
+# advertise a matching signature. Use only resources created in this test.
+import msvcrt
+import tempfile
+
+event = _winapi.CreateEventW(0, 1, 0, None)
+try:
+    assert _winapi.WaitForSingleObject(event, 0) == _winapi.WAIT_TIMEOUT
+    assert _winapi.SetEvent(event=event) is None
+    assert _winapi.WaitForSingleObject(event, 0) == _winapi.WAIT_OBJECT_0
+    assert _winapi.BatchedWaitForMultipleObjects(
+        handle_seq=[event], wait_all=False, milliseconds=100
+    ) == [0]
+    assert _winapi.ResetEvent(event=event) is None
+    assert _winapi.WaitForSingleObject(event, 0) == _winapi.WAIT_TIMEOUT
+finally:
+    _winapi.CloseHandle(event)
+
+mutex = _winapi.CreateMutexW(0, 1, None)
+try:
+    assert _winapi.ReleaseMutex(mutex=mutex) is None
+finally:
+    _winapi.CloseHandle(mutex)
+
+with tempfile.TemporaryFile() as stream:
+    handle = msvcrt.get_osfhandle(stream.fileno())
+    assert _winapi.GetFileType(handle=handle) == _winapi.GetFileType(handle)
