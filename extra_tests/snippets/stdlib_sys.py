@@ -742,6 +742,39 @@ importing.acquire()
 )
 assert proc.stdout == "joined\n", proc.stdout
 
+# An exit callback that is the first to import threading can start a thread
+# that joins the main thread.
+proc = subprocess.run(
+    [
+        sys.executable,
+        "-S",
+        "-c",
+        """
+import atexit
+
+
+def worker():
+    import threading
+
+    threading.main_thread().join()
+    print("joined")
+
+
+def callback():
+    import threading
+
+    threading.Thread(target=worker).start()
+
+
+atexit.register(callback)
+""",
+    ],
+    stdout=subprocess.PIPE,
+    universal_newlines=True,
+    timeout=60,
+)
+assert proc.stdout == "joined\n", proc.stdout
+
 
 # Legacy profiling excludes constructors and callable instances, and binds a
 # method descriptor independently for each event (legacy_tracing.c).
