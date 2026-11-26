@@ -69,6 +69,16 @@ pub(crate) mod _struct {
         }
     }
 
+    struct CachedFormatSpec(PyRc<FormatSpec>);
+
+    impl TryFromObject for CachedFormatSpec {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            IntoStructFormatBytes::try_from_object(vm, obj)?
+                .cached_format_spec(vm)
+                .map(Self)
+        }
+    }
+
     fn get_buffer_offset(
         buffer_len: usize,
         offset: isize,
@@ -123,33 +133,33 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn pack(
-        format: IntoStructFormatBytes,
+        format: CachedFormatSpec,
         values: PosArgs<PyObjectRef, NameValues>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        format.cached_format_spec(vm)?.pack(values.into_vec(), vm)
+        format.0.pack(values.into_vec(), vm)
     }
 
     #[pyfunction]
     fn pack_into(
-        format: IntoStructFormatBytes,
+        format: CachedFormatSpec,
         buffer: ArgMemoryBuffer,
         offset: isize,
         values: PosArgs<PyObjectRef, NameValues>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let format_spec = format.cached_format_spec(vm)?;
+        let format_spec = format.0;
         let offset = get_buffer_offset(buffer.len(), offset, format_spec.size, true, vm)?;
         format_spec.pack_into_buffer(&buffer, offset, values.into_vec(), vm)
     }
 
     #[pyfunction]
     fn unpack(
-        format: IntoStructFormatBytes,
+        format: CachedFormatSpec,
         buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
-        let format_spec = format.cached_format_spec(vm)?;
+        let format_spec = format.0;
         buffer.with_ref(|buf| format_spec.unpack(buf, vm))
     }
 
@@ -162,11 +172,11 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn unpack_from(
-        format: IntoStructFormatBytes,
+        format: CachedFormatSpec,
         args: UpdateFromArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
-        let format_spec = format.cached_format_spec(vm)?;
+        let format_spec = format.0;
         let offset =
             get_buffer_offset(args.buffer.len(), args.offset, format_spec.size, false, vm)?;
         args.buffer
@@ -240,17 +250,17 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn iter_unpack(
-        format: IntoStructFormatBytes,
+        format: CachedFormatSpec,
         buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<UnpackIterator> {
-        let format_spec = format.cached_format_spec(vm)?;
+        let format_spec = format.0;
         UnpackIterator::with_buffer(vm, format_spec, buffer)
     }
 
     #[pyfunction]
-    fn calcsize(format: IntoStructFormatBytes, vm: &VirtualMachine) -> PyResult<usize> {
-        Ok(format.cached_format_spec(vm)?.size)
+    fn calcsize(format: CachedFormatSpec) -> usize {
+        format.0.size
     }
 
     /// What a `Struct` is once a format has been read into it. Held apart
