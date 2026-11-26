@@ -385,7 +385,6 @@ class TestInteractiveInterpreter(unittest.TestCase):
 @support.force_not_colorized_test_class
 class TestInteractiveModeSyntaxErrors(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: Process didn't exit properly.
     def test_interactive_syntax_error_correct_line(self):
         output = run_on_interactive_mode(dedent("""\
         def f():
