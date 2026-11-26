@@ -387,7 +387,7 @@ pub(crate) fn is_spec_initializing(spec: Option<&PyObject>, vm: &VirtualMachine)
 
 /// If `__spec__._initializing` is true, wait for the module to finish
 /// initializing by calling `_lock_unlock_module`, and return whether it was initializing.
-fn import_ensure_initialized(
+pub(crate) fn import_ensure_initialized(
     module: &PyObject,
     name: &Py<PyStr>,
     vm: &VirtualMachine,
@@ -397,7 +397,6 @@ fn import_ensure_initialized(
         let lock_unlock = vm.importlib.get_attr("_lock_unlock_module", vm)?;
         lock_unlock.call((name.to_owned(),), vm)?;
     }
-    report_cached_import(name, vm);
     Ok(initializing)
 }
 
@@ -692,6 +691,7 @@ pub(crate) fn import_module_level(
     let module = match sys_modules.get_item(&*abs_name, vm) {
         Ok(m) if !vm.is_none(&m) => {
             let initializing = import_ensure_initialized(&m, &abs_name, vm)?;
+            report_cached_import(&abs_name, vm);
             if !is_cached_module(&sys_modules, &abs_name, &m, vm)? {
                 find_and_load(&abs_name, "_find_and_load", vm)?
             } else {

@@ -829,6 +829,14 @@ impl VirtualMachine {
         #[cfg(feature = "threading")]
         if let Ok(modules) = vm.sys_module.get_attr("modules", vm)
             && let Ok(threading) = modules.get_item("threading", vm)
+            // Another thread may still be running the module's first import,
+            // and `_shutdown` is defined only once that finishes.
+            && crate::import::import_ensure_initialized(
+                &threading,
+                vm.ctx.intern_str("threading"),
+                vm,
+            )
+            .is_ok()
             && let Ok(shutdown) = threading.get_attr("_shutdown", vm)
             && let Err(e) = shutdown.call((), vm)
         {
