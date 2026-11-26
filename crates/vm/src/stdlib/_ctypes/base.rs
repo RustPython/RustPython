@@ -113,6 +113,9 @@ pub struct StgInfo {
 
     // Cached pointer type (non-inheritable via descriptor)
     pub pointer_type: Option<PyObjectRef>,
+
+    // Tuple of from_param callables for PyCFuncPtrType
+    pub converters: Option<PyObjectRef>,
 }
 
 // StgInfo is stored in type_data which requires Send + Sync.
@@ -138,6 +141,7 @@ impl core::fmt::Debug for StgInfo {
             .field("paramfunc", &self.paramfunc)
             .field("big_endian", &self.big_endian)
             .field("field_layouts", &self.field_layouts.len())
+            .field("converters", &self.converters.is_some())
             .finish()
     }
 }
@@ -163,6 +167,7 @@ impl Default for StgInfo {
             big_endian: cfg!(target_endian = "big"), // native endian by default
             field_layouts: Vec::new(),
             pointer_type: None,
+            converters: None,
         }
     }
 }
@@ -176,6 +181,7 @@ unsafe impl Traverse for StgInfo {
         self.argtypes.traverse(tracer);
         self.restype.traverse(tracer);
         self.checker.traverse(tracer);
+        self.converters.traverse(tracer);
     }
 
     fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
@@ -185,6 +191,7 @@ unsafe impl Traverse for StgInfo {
         out.extend(self.argtypes.take());
         out.extend(self.restype.take());
         out.extend(self.checker.take());
+        out.extend(self.converters.take());
     }
 }
 
@@ -209,6 +216,7 @@ impl StgInfo {
             big_endian: cfg!(target_endian = "big"), // native endian by default
             field_layouts: Vec::new(),
             pointer_type: None,
+            converters: None,
         }
     }
 
@@ -265,6 +273,7 @@ impl StgInfo {
             big_endian: cfg!(target_endian = "big"), // native endian by default
             field_layouts: Vec::new(),
             pointer_type: None,
+            converters: None,
         }
     }
 
