@@ -11,6 +11,8 @@ pub use crate::file_mode::{
 #[derive(Clone, Copy, Debug)]
 pub struct FileTargetInfo {
     pub blksize: Option<i64>,
+    /// True only for a target known not to be a character device.
+    pub known_non_character_device: bool,
 }
 
 pub fn inspect_file_target(_fd: crt_fd::Borrowed<'_>) -> io::Result<FileTargetInfo> {
