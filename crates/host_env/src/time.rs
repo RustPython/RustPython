@@ -69,6 +69,83 @@ pub mod tz {
         unsafe { c_daylight }
     }
 
+    /// Timezone values shared by `time` module initialization and `time.tzset()`.
+    #[derive(Clone, Debug)]
+    pub struct TzInfo {
+        pub timezone: core::ffi::c_long,
+        pub altzone: core::ffi::c_long,
+        #[cfg(not(target_os = "freebsd"))]
+        pub daylight: core::ffi::c_int,
+        pub tzname: (String, String),
+    }
+
+    /// Read the timezone values from the C globals (CPython's non-glibc path).
+    #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+    #[must_use]
+    pub fn tz_info() -> TzInfo {
+        TzInfo {
+            timezone: timezone(),
+            altzone: altzone(),
+            #[cfg(not(target_os = "freebsd"))]
+            daylight: daylight(),
+            tzname: tzname_strings(),
+        }
+    }
+
+    /// Derive the timezone values from the January and July `localtime`
+    /// results, as CPython's `init_timezone()` does on glibc. glibc has no
+    /// `altzone`, and its `timezone` global cannot describe a DST shift that
+    /// is not exactly one hour (e.g. `Australia/Lord_Howe`).
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    #[must_use]
+    pub fn tz_info() -> TzInfo {
+        const YEAR: super::TimeT = (365 * 24 + 6) * 3600;
+
+        fn offset_and_name(when: super::TimeT) -> Option<(core::ffi::c_long, String)> {
+            let tm = super::localtime_from_timestamp(when)?;
+            let name = if tm.tm_zone.is_null() {
+                "   ".to_owned()
+            } else {
+                unsafe { core::ffi::CStr::from_ptr(tm.tm_zone) }
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            Some((-(tm.tm_gmtoff as core::ffi::c_long), name))
+        }
+
+        let year_start = (super::current_time_t() / YEAR) * YEAR;
+        // `checked_add`: with a 32-bit `time_t`, the July sample can overflow.
+        let july_start = year_start.checked_add(YEAR / 2);
+        let (Some((jan_zone, jan_name)), Some((july_zone, july_name))) = (
+            offset_and_name(year_start),
+            july_start.and_then(offset_and_name),
+        ) else {
+            return TzInfo {
+                timezone: timezone(),
+                altzone: altzone(),
+                daylight: daylight(),
+                tzname: tzname_strings(),
+            };
+        };
+        let daylight = core::ffi::c_int::from(jan_zone != july_zone);
+        if jan_zone < july_zone {
+            // DST is reversed in the southern hemisphere.
+            TzInfo {
+                timezone: july_zone,
+                altzone: jan_zone,
+                daylight,
+                tzname: (july_name, jan_name),
+            }
+        } else {
+            TzInfo {
+                timezone: jan_zone,
+                altzone: july_zone,
+                daylight,
+                tzname: (jan_name, july_name),
+            }
+        }
+    }
+
     /// Snapshot of `tzname[0]` / `tzname[1]` as owned `String`s.
     /// Reads the C globals once and copies the bytes out so callers don't
     /// have to handle the raw pointers themselves.
