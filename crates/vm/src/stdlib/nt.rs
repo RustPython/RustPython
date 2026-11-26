@@ -84,13 +84,17 @@ pub(crate) mod module {
         Ok(host_nt::access(&wide, args.mode))
     }
 
+    #[derive(FromArgs)]
+    struct RemoveArgs {
+        #[pyarg(any)]
+        path: OsPath,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'static, 0>,
+    }
+
     #[pyfunction]
     #[pyfunction(name = "unlink")]
-    pub(super) fn remove(
-        path: OsPath,
-        dir_fd: DirFd<'static, 0>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn remove(RemoveArgs { path, dir_fd }: RemoveArgs, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
         let wide = path.to_wide_cstring(vm)?;
         host_nt::remove(&wide).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
@@ -160,7 +164,7 @@ pub(crate) mod module {
         mode: u32,
         #[pyarg(flatten)]
         dir_fd: DirFd<'static, 0>,
-        #[pyarg(named, optional)]
+        #[pyarg(named, optional, py_default = "(os.name != 'nt')")]
         follow_symlinks: OptionalArg<bool>,
     }
 
@@ -176,9 +180,17 @@ pub(crate) mod module {
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))
     }
 
+    #[derive(FromArgs)]
+    struct FchmodArgs {
+        #[pyarg(any)]
+        fd: i32,
+        #[pyarg(any)]
+        mode: i32,
+    }
+
     #[pyfunction]
-    fn fchmod(fd: i32, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        fchmod_impl(fd, mode, vm)
+    fn fchmod(args: FchmodArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fchmod_impl(args.fd, args.mode as u32, vm)
     }
 
     #[pyfunction]
@@ -534,13 +546,19 @@ pub(crate) mod module {
     }
 
     #[cfg(target_env = "msvc")]
-    #[pyfunction]
-    fn execve(
+    #[derive(FromArgs)]
+    struct ExecveArgs {
+        #[pyarg(any)]
         path: OsPath,
+        #[pyarg(any)]
         argv: Either<PyListRef, PyTupleRef>,
+        #[pyarg(any)]
         env: ArgMapping,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[pyfunction]
+    fn execve(ExecveArgs { path, argv, env }: ExecveArgs, vm: &VirtualMachine) -> PyResult<()> {
         if !vm.state.allow_exec() {
             return Err(
                 vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
@@ -1060,9 +1078,9 @@ pub(crate) mod module {
 
     #[derive(FromArgs)]
     struct Dup2Args {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         fd: i32,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         fd2: i32,
         #[pyarg(any, default = true)]
         inheritable: bool,
@@ -1073,9 +1091,18 @@ pub(crate) mod module {
         host_nt::dup2(args.fd, args.fd2, args.inheritable).map_err(|e| e.to_pyexception(vm))
     }
 
+    #[derive(FromArgs)]
+    struct ReadlinkArgs {
+        #[pyarg(any)]
+        path: OsPath,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'static, 0>,
+    }
+
     // returns the substitute name from reparse data which includes the prefix
     #[pyfunction]
-    fn readlink(path: OsPath, vm: &VirtualMachine) -> PyResult {
+    fn readlink(ReadlinkArgs { path, dir_fd }: ReadlinkArgs, vm: &VirtualMachine) -> PyResult {
+        let [] = dir_fd.0;
         let mode = path.mode();
         let wide = path.to_wide_cstring(vm)?;
         match host_nt::readlink(&wide) {
@@ -1152,14 +1179,14 @@ pub(crate) mod module {
     struct StartfileArgs {
         #[pyarg(any)]
         filepath: OsPath,
-        #[pyarg(any, default)]
-        operation: Option<PyStrRef>,
-        #[pyarg(any, default)]
-        arguments: Option<PyStrRef>,
-        #[pyarg(any, default)]
+        #[pyarg(any, optional)]
+        operation: OptionalArg<PyStrRef>,
+        #[pyarg(any, optional)]
+        arguments: OptionalArg<PyStrRef>,
+        #[pyarg(any, default = None)]
         cwd: Option<OsPath>,
-        #[pyarg(any, default)]
-        show_cmd: Option<i32>,
+        #[pyarg(any, default = 1)]
+        show_cmd: i32,
     }
 
     #[pyfunction]
@@ -1167,11 +1194,13 @@ pub(crate) mod module {
         let file = args.filepath.to_wide_cstring(vm)?;
         let operation = args
             .operation
+            .into_option()
             .as_ref()
             .map(|s| pystr_to_wide(s, vm))
             .transpose()?;
         let arguments = args
             .arguments
+            .into_option()
             .as_ref()
             .map(|s| pystr_to_wide(s, vm))
             .transpose()?;
@@ -1180,13 +1209,12 @@ pub(crate) mod module {
             .as_ref()
             .map(|p| p.to_wide_cstring(vm))
             .transpose()?;
-        let show_cmd = args.show_cmd.unwrap_or(host_winapi::SW_SHOWNORMAL);
         host_winapi::shell_execute_w(
             &file,
             operation.as_deref(),
             arguments.as_deref(),
             directory.as_deref(),
-            show_cmd,
+            args.show_cmd,
         )
         .map_err(|err| OSErrorBuilder::with_filename(&err, args.filepath, vm))
     }
