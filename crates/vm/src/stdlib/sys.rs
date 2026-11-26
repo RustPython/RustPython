@@ -224,9 +224,13 @@ pub mod sys {
 
     #[cfg(not(windows))]
     #[pyattr(name = "abiflags")]
-    const ABIFLAGS_ATTR: &str = "t"; // 't' for free-threaded (no GIL)
+    const ABIFLAGS_ATTR: &str = ABIFLAGS;
     // Internal constant used for sysconfigdata_name
     pub const ABIFLAGS: &str = "t";
+    pub(crate) const PLATLIBDIR: &str = match option_env!("RUSTPYTHON_PLATLIBDIR") {
+        Some(dir) => dir,
+        None => "lib",
+    };
     #[pyattr(name = "api_version")]
     const API_VERSION: u32 = 0x0; // what C api?
     #[pyattr(name = "copyright")]
@@ -286,7 +290,7 @@ pub mod sys {
     }
     #[pyattr]
     fn platlibdir(_vm: &VirtualMachine) -> &'static str {
-        option_env!("RUSTPYTHON_PLATLIBDIR").unwrap_or("lib")
+        PLATLIBDIR
     }
     #[pyattr]
     fn _stdlib_dir(vm: &VirtualMachine) -> PyObjectRef {

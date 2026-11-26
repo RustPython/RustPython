@@ -27,12 +27,20 @@ pub fn read_dir(path: impl AsRef<Path>) -> io::Result<ReadDir> {
     fs::read_dir(path)
 }
 
+pub fn create_dir(path: impl AsRef<Path>) -> io::Result<()> {
+    fs::create_dir(path)
+}
+
 pub fn create_dir_all(path: impl AsRef<Path>) -> io::Result<()> {
     fs::create_dir_all(path)
 }
 
 pub fn remove_dir(path: impl AsRef<Path>) -> io::Result<()> {
     fs::remove_dir(path)
+}
+
+pub fn remove_dir_all(path: impl AsRef<Path>) -> io::Result<()> {
+    fs::remove_dir_all(path)
 }
 
 pub fn remove_file(path: impl AsRef<Path>) -> io::Result<()> {

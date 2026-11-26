@@ -15,16 +15,20 @@ use std::path::{Path, PathBuf};
 
 #[cfg(not(windows))]
 mod platform {
+    use crate::stdlib::sys::sys::{ABIFLAGS, PLATLIBDIR};
     use crate::version;
 
     pub(super) const BUILDDIR_TXT: &str = "pybuilddir.txt";
-    pub(super) const BUILD_LANDMARK: &str = "Modules/Setup.local";
     pub(super) const VENV_LANDMARK: &str = "pyvenv.cfg";
     pub(super) const BUILDSTDLIB_LANDMARK: &str = "Lib/os.py";
     pub(super) const DEFAULT_PROGRAM_NAME: &str = "python3";
 
     pub(super) fn stdlib_subdir() -> String {
-        format!("lib/python{}.{}", version::MAJOR, version::MINOR)
+        format!(
+            "{PLATLIBDIR}/python{}.{}{ABIFLAGS}",
+            version::MAJOR,
+            version::MINOR
+        )
     }
 
     pub(super) fn stdlib_landmarks() -> [String; 2] {
@@ -33,15 +37,15 @@ mod platform {
     }
 
     pub(super) fn platstdlib_landmark() -> String {
-        format!(
-            "lib/python{}.{}/lib-dynload",
-            version::MAJOR,
-            version::MINOR
-        )
+        format!("{}/lib-dynload", stdlib_subdir())
     }
 
     pub(super) fn zip_landmark() -> String {
-        format!("lib/python{}{}.zip", version::MAJOR, version::MINOR)
+        format!(
+            "{PLATLIBDIR}/python{}{}{ABIFLAGS}.zip",
+            version::MAJOR,
+            version::MINOR
+        )
     }
 }
 
@@ -386,6 +390,17 @@ fn detect_venv(exe_dir: Option<&PathBuf>) -> (Option<PathBuf>, Option<PathBuf>) 
 }
 
 /// Detect if running from a build directory
+#[cfg(not(windows))]
+fn detect_build_directory(exe_dir: Option<&PathBuf>) -> Option<PathBuf> {
+    let dir = exe_dir?;
+    // CPython 3.15.2 only searches for a build stdlib after seeing the
+    // executable-adjacent build marker. A bare ancestor Lib is not a marker.
+    dir.join(platform::BUILDDIR_TXT).is_file().then(|| {
+        search_up_file(dir, &[platform::BUILDSTDLIB_LANDMARK]).unwrap_or_else(|| dir.clone())
+    })
+}
+
+#[cfg(windows)]
 fn detect_build_directory(exe_dir: Option<&PathBuf>) -> Option<PathBuf> {
     let dir = exe_dir?;
 
@@ -742,6 +757,92 @@ mod tests {
             expected.push("build".into());
             assert_eq!(paths.module_search_paths, expected);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn posix_install_uses_one_abi_tagged_layout() -> io::Result<()> {
+        use crate::host_env::{fs, os};
+        use crate::stdlib::sys::sys::{ABIFLAGS, PLATLIBDIR};
+        use crate::version;
+
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+
+        let root = os::temp_dir().join(format!("rustpython-getpath-{}", os::process_id()));
+        fs::create_dir(&root)?;
+        let root = Fixture(root);
+        let prefix = root.0.join("install");
+        let bin = prefix.join("bin");
+        fs::create_dir_all(&bin)?;
+
+        let lib = prefix.join(PLATLIBDIR);
+        let untagged = lib.join(format!("python{}.{}", version::MAJOR, version::MINOR));
+        let untagged_zip = lib.join(format!("python{}{}.zip", version::MAJOR, version::MINOR));
+        fs::create_dir_all(&untagged)?;
+        fs::create(untagged.join("os.py"))?;
+        fs::create(&untagged_zip)?;
+
+        let explicit_home = Settings {
+            home: Some(prefix.to_string_lossy().into_owned()),
+            ..Settings::default()
+        };
+        let paths = init_path_config(&explicit_home);
+        let tagged = lib.join(format!(
+            "python{}.{}{ABIFLAGS}",
+            version::MAJOR,
+            version::MINOR
+        ));
+        let zip = lib.join(format!(
+            "python{}{}{ABIFLAGS}.zip",
+            version::MAJOR,
+            version::MINOR
+        ));
+        let dynload = tagged.join("lib-dynload");
+        assert_eq!(paths.stdlib_dir, None);
+        assert_eq!(
+            paths.module_search_paths,
+            [&zip, &tagged, &dynload].map(|path| path.as_os_str().to_owned())
+        );
+
+        // A closer untagged install cannot override the tagged landmark above it.
+        let nested = bin.join("nested");
+        let source_lib = root.0.join("Lib");
+        fs::create_dir(&source_lib)?;
+        fs::create(source_lib.join("os.py"))?;
+        let nested_legacy = nested.join(PLATLIBDIR).join(untagged.file_name().unwrap());
+        fs::create_dir_all(&nested_legacy)?;
+        fs::create(nested_legacy.join("os.py"))?;
+        fs::create_dir_all(&dynload)?;
+        fs::create(tagged.join("os.py"))?;
+        let build_prefix = detect_build_directory(Some(&nested));
+        assert!(build_prefix.is_none());
+        assert_eq!(
+            calculate_prefix(Some(&nested), build_prefix.as_ref()),
+            paths.base_prefix
+        );
+        assert_eq!(
+            calculate_exec_prefix(Some(&nested), &paths.base_prefix),
+            paths.base_prefix
+        );
+        assert_eq!(
+            init_path_config(&explicit_home).stdlib_dir.as_deref(),
+            tagged.to_str()
+        );
+
+        // The tagged ZIP also works on its own as the prefix landmark.
+        fs::remove_file(tagged.join("os.py"))?;
+        fs::create(zip)?;
+        assert_eq!(calculate_prefix(Some(&nested), None), paths.base_prefix);
+
+        // After finding an executable-adjacent build marker, use the build Lib.
+        fs::create(nested.join(platform::BUILDDIR_TXT))?;
+        assert_eq!(detect_build_directory(Some(&nested)), Some(root.0.clone()));
+        Ok(())
     }
 
     #[test]
