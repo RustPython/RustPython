@@ -368,7 +368,6 @@ class AutoFileTests:
         a = array('b', b'x'*10)
         f.readinto(a)
 
-    @unittest.skip("TODO: RUSTPYTHON; extra ioctl(TCGETS) syscall for isatty check")
     @strace_helper.requires_strace()
     def test_syscalls_read(self):
         """Check set of system calls during common I/O patterns

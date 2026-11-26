@@ -10,6 +10,8 @@ use crate::{crt_fd, wasi_p1};
 #[derive(Clone, Copy, Debug)]
 pub struct FileTargetInfo {
     pub blksize: Option<i64>,
+    /// True only for a target known not to be a character device.
+    pub known_non_character_device: bool,
 }
 
 pub fn inspect_file_target(fd: crt_fd::Borrowed<'_>) -> io::Result<FileTargetInfo> {
@@ -17,7 +19,10 @@ pub fn inspect_file_target(fd: crt_fd::Borrowed<'_>) -> io::Result<FileTargetInf
     if stat.fs_filetype == wasi_p1::FILETYPE_DIRECTORY {
         return Err(io::Error::from_raw_os_error(EISDIR));
     }
-    Ok(FileTargetInfo { blksize: None })
+    Ok(FileTargetInfo {
+        blksize: None,
+        known_non_character_device: false,
+    })
 }
 
 pub fn open_path(path: &CStr, flags: i32, mode: i32) -> io::Result<crt_fd::Owned> {

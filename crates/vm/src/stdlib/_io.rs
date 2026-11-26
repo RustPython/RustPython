@@ -6252,8 +6252,18 @@ mod _io {
         )?;
 
         let isatty = opts.buffering < 0 && {
-            let atty = vm.call_method(&raw, "isatty", ())?;
-            bool::try_from_object(vm, atty)?
+            let raw = &raw;
+            let isatty = || {
+                let result = vm.call_method(raw, "isatty", ())?;
+                bool::try_from_object(vm, result)
+            };
+            cfg_select! {
+                feature = "host_io" => match raw.downcast_ref::<super::fileio::FileIO>() {
+                    Some(raw) => raw._isatty_open_only(vm)?,
+                    None => isatty()?,
+                },
+                _ => isatty()?,
+            }
         };
 
         // Warn if line buffering is requested in binary mode
@@ -6524,6 +6534,7 @@ mod fileio {
         mode: AtomicCell<host_io::FileMode>,
         seekable: AtomicCell<Option<bool>>,
         blksize: AtomicCell<i64>,
+        known_non_character_device_at_open: AtomicBool,
         #[pymember(name = "_finalizing", writable)]
         finalizing: AtomicBool,
     }
@@ -6550,6 +6561,7 @@ mod fileio {
                 mode: AtomicCell::new(host_io::FileMode::empty()),
                 seekable: AtomicCell::new(None),
                 blksize: AtomicCell::new(super::DEFAULT_BUFFER_SIZE as _),
+                known_non_character_device_at_open: AtomicBool::new(false),
                 finalizing: AtomicBool::new(false),
             }
         }
@@ -6568,6 +6580,8 @@ mod fileio {
             } else {
                 zelf.fd.store(-1);
             }
+            zelf.known_non_character_device_at_open
+                .store(false, Ordering::Relaxed);
             // TODO: let atomic_flag_works
             let name = args.file;
             let arg_fd = super::open_file_descriptor(&name, vm)?;
@@ -6635,6 +6649,8 @@ mod fileio {
 
             match host_io::inspect_file_target(fd) {
                 Ok(info) => {
+                    zelf.known_non_character_device_at_open
+                        .store(info.known_non_character_device, Ordering::Relaxed);
                     if let Some(blksize) = info.blksize {
                         zelf.blksize.store(blksize);
                     }
@@ -6986,6 +7002,21 @@ mod fileio {
         fn isatty(&self, vm: &VirtualMachine) -> PyResult<bool> {
             let fd = self.fileno(vm)?;
             Ok(host_io::isatty(fd))
+        }
+
+        // Only open() can rely on the stat taken during initialization.
+        // The public isatty() must still query the current descriptor.
+        #[pymethod]
+        pub(super) fn _isatty_open_only(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            let fd = self.fileno(vm)?;
+            if self
+                .known_non_character_device_at_open
+                .load(Ordering::Relaxed)
+            {
+                Ok(false)
+            } else {
+                Ok(host_io::isatty(fd))
+            }
         }
 
         #[pymethod]

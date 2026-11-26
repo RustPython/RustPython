@@ -16,17 +16,23 @@ pub use crate::file_mode::{
 #[derive(Clone, Copy, Debug)]
 pub struct FileTargetInfo {
     pub blksize: Option<i64>,
+    /// True only for a target known not to be a character device.
+    pub known_non_character_device: bool,
 }
 
 #[cfg(any(unix, target_os = "wasi"))]
 pub fn inspect_file_target(fd: crt_fd::Borrowed<'_>) -> io::Result<FileTargetInfo> {
     let status = fileutils::fstat(fd)?;
-    if FileType::from_raw_mode(status.st_mode).is_dir() {
+    let file_type = FileType::from_raw_mode(status.st_mode);
+    if file_type.is_dir() {
         return Err(io::Error::from(Errno::ISDIR));
     }
     #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
     let blksize = (status.st_blksize > 1).then(|| i64::from(status.st_blksize));
-    Ok(FileTargetInfo { blksize })
+    Ok(FileTargetInfo {
+        blksize,
+        known_non_character_device: !file_type.is_char_device(),
+    })
 }
 
 #[cfg(windows)]
@@ -36,7 +42,10 @@ pub fn inspect_file_target(fd: crt_fd::Borrowed<'_>) -> io::Result<FileTargetInf
             crate::nt::ERROR_INVALID_HANDLE_I32,
         ));
     }
-    Ok(FileTargetInfo { blksize: None })
+    Ok(FileTargetInfo {
+        blksize: None,
+        known_non_character_device: false,
+    })
 }
 
 #[cfg(any(unix, target_os = "wasi"))]
