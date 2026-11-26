@@ -809,9 +809,10 @@ pub(crate) mod _ctypes {
     }
 
     #[cfg(windows)]
-    #[pyfunction]
-    fn get_last_error() -> u32 {
-        rustpython_host_env::ctypes::get_last_error()
+    #[pyfunction(signature_from_flags)]
+    fn get_last_error(vm: &VirtualMachine) -> PyResult<i32> {
+        vm.audit("ctypes.get_last_error", || ())?;
+        Ok(rustpython_host_env::ctypes::get_last_error() as i32)
     }
 
     #[cfg(windows)]

@@ -41,7 +41,7 @@ mod _uuid {
     }
 
     #[cfg(windows)]
-    #[pyfunction(name = "UuidCreate")]
+    #[pyfunction(name = "UuidCreate", signature_from_flags)]
     fn uuid_create(vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         use rustpython_host_env::uuid;
 

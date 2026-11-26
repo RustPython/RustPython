@@ -31,7 +31,7 @@ mod _scproxy {
         }
     }
 
-    #[pyfunction]
+    #[pyfunction(signature_from_flags)]
     fn _get_proxy_settings(vm: &VirtualMachine) -> PyResult<Option<PyDictRef>> {
         let Some(proxy_dict) = proxy_dict() else {
             return Ok(None);
@@ -66,7 +66,7 @@ mod _scproxy {
         Ok(Some(result))
     }
 
-    #[pyfunction]
+    #[pyfunction(signature_from_flags)]
     fn _get_proxies(vm: &VirtualMachine) -> PyResult<Option<PyDictRef>> {
         let Some(proxy_dict) = proxy_dict() else {
             return Ok(None);

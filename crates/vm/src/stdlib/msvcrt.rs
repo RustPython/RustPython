@@ -57,9 +57,9 @@ mod msvcrt {
     }
 
     #[pyfunction]
-    fn putch(b: PyRef<PyBytes>, vm: &VirtualMachine) -> PyResult<()> {
+    fn putch(char: PyRef<PyBytes>, vm: &VirtualMachine) -> PyResult<()> {
         let &c =
-            b.as_bytes().iter().exactly_one().map_err(|_| {
+            char.as_bytes().iter().exactly_one().map_err(|_| {
                 vm.new_type_error("putch() argument must be a byte string of length 1")
             })?;
         host_msvcrt::putch(c);
@@ -67,8 +67,8 @@ mod msvcrt {
     }
 
     #[pyfunction]
-    fn putwch(s: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        let c = s
+    fn putwch(unicode_char: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        let c = unicode_char
             .expect_str()
             .chars()
             .exactly_one()
@@ -78,19 +78,20 @@ mod msvcrt {
     }
 
     #[pyfunction]
-    fn ungetch(b: PyRef<PyBytes>, vm: &VirtualMachine) -> PyResult<()> {
-        let &c = b.as_bytes().iter().exactly_one().map_err(|_| {
+    fn ungetch(char: PyRef<PyBytes>, vm: &VirtualMachine) -> PyResult<()> {
+        let &c = char.as_bytes().iter().exactly_one().map_err(|_| {
             vm.new_type_error("ungetch() argument must be a byte string of length 1")
         })?;
         host_msvcrt::ungetch(c).map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]
-    fn ungetwch(s: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        let c =
-            s.expect_str().chars().exactly_one().map_err(|_| {
-                vm.new_type_error("ungetwch() argument must be a string of length 1")
-            })?;
+    fn ungetwch(unicode_char: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        let c = unicode_char
+            .expect_str()
+            .chars()
+            .exactly_one()
+            .map_err(|_| vm.new_type_error("ungetwch() argument must be a string of length 1"))?;
         host_msvcrt::ungetwch(c).map_err(|e| e.into_pyexception(vm))
     }
 
@@ -110,8 +111,8 @@ mod msvcrt {
     }
 
     #[pyfunction]
-    fn setmode(fd: crt_fd::Borrowed<'_>, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        host_msvcrt::setmode(fd, flags).map_err(|e| e.into_pyexception(vm))
+    fn setmode(fd: crt_fd::Borrowed<'_>, mode: i32, vm: &VirtualMachine) -> PyResult<i32> {
+        host_msvcrt::setmode(fd, mode).map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]
