@@ -4,7 +4,9 @@
 [wasi-sdk](https://github.com/WebAssembly/wasi-sdk), providing wasi-libc's
 userspace emulation of `signal()`/`raise()` for `wasm32-wasip1` (WebAssembly
 has no asynchronous signal delivery, so this is a synchronous, in-process
-handler table, not a real OS signal mechanism).
+handler table, not a real OS signal mechanism). `crates/host_env/build.rs`
+links it for `wasm32-wasip1`; `../wasm32-wasip2` holds the copy for
+`wasm32-wasip2`.
 
 CPython's own WASI build links the same library
 (`configure.ac`'s `_WASI_EMULATED_SIGNAL` case).

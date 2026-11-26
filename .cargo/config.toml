@@ -11,11 +11,11 @@ rustflags = ["--cfg=getrandom_backend=\"wasm_js\""]
 # (Runaway heap growth is fixed by the smaller DataStack chunk
 # and the size‑optimized wasm‑release profile.)
 
+# `rustpython-host_env`'s build script links `libwasi-emulated-signal` for
+# both WASI targets, so dependent crates get it too.
 [target.wasm32-wasip1]
 rustflags = [
     "-C", "link-arg=-zstack-size=1048576",
-    "-L", "crates/host_env/vendor/wasm32-wasip1",
-    "-l", "wasi-emulated-signal",
 ]
 
 [target.wasm32-wasip2]

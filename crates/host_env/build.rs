@@ -13,13 +13,15 @@ fn main() {
 
     let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let target = env::var("TARGET").unwrap_or_default();
+
+    link_wasi_emulated_signal(&target);
 
     if target_env == "msvc" || target_arch == "wasm32" {
         return;
     }
 
     let host = env::var("HOST").unwrap_or_default();
-    let target = env::var("TARGET").unwrap_or_default();
     // cc::Build resolves CC_<target>, CC_<target_with_underscores>, TARGET_CC, then CC.
     if host != target && !has_target_c_compiler(&target) {
         return;
@@ -28,6 +30,37 @@ fn main() {
     if probe_altzone() {
         println!("cargo:rustc-cfg=has_altzone");
     }
+}
+
+/// WASI targets with a vendored `libwasi-emulated-signal.a`.
+///
+/// `src/signal.rs` declares wasi-libc's `signal`, `raise`, `__SIG_IGN` and
+/// `__SIG_ERR` on every WASI target. wasi-libc ships them in a separate
+/// library that is neither in `libc.a` nor in Rust's self-contained WASI
+/// sysroot, so this crate links its own copy. Linking it here rather than
+/// from `.cargo/config.toml` reaches every crate that depends on
+/// `rustpython-host_env`: Cargo never reads a dependency's config file.
+/// A WASI target missing from this list fails to link with undefined
+/// symbols until its copy is vendored.
+const WASI_EMULATED_SIGNAL_TARGETS: &[&str] = &["wasm32-wasip1", "wasm32-wasip2"];
+
+/// Link the vendored wasi-libc signal emulation for `target`, if vendored.
+///
+/// The `static` kind bundles the archive into this crate's rlib, so the
+/// final link of a dependent crate needs no search path of its own.
+fn link_wasi_emulated_signal(target: &str) {
+    if !WASI_EMULATED_SIGNAL_TARGETS.contains(&target) {
+        return;
+    }
+    let manifest_dir =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let vendor_dir = manifest_dir.join("vendor").join(target);
+    println!(
+        "cargo:rerun-if-changed={}",
+        vendor_dir.join("libwasi-emulated-signal.a").display()
+    );
+    println!("cargo:rustc-link-search=native={}", vendor_dir.display());
+    println!("cargo:rustc-link-lib=static=wasi-emulated-signal");
 }
 
 /// Whether any compiler env var that `cc::Build` would consult for the target is set.
