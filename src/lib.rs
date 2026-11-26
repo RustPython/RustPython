@@ -148,6 +148,10 @@ fn run_impl(mut builder: InterpreterBuilder, configure_locale: bool) -> ExitCode
 
     builder = builder.settings(settings);
 
+    // importlib reads the extension suffixes while the interpreter is built.
+    #[cfg(feature = "capi")]
+    rustpython_capi::register_extension_loader();
+
     let interp = builder.interpreter();
     let exitcode = cfg_select! {
         feature = "capi" => rustpython_capi::run_main_interpreter(interp, move |vm| run_rustpython(vm, run_mode)),

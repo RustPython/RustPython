@@ -18,6 +18,8 @@ pub mod codecs;
 pub mod complexobject;
 pub mod critical_section;
 pub mod descrobject;
+mod extension;
+pub use extension::register_extension_loader;
 pub mod dictobject;
 pub mod fileobject;
 pub mod floatobject;
@@ -65,6 +67,7 @@ pub fn get_main_interpreter() -> MutexGuard<'static, Option<Interpreter>> {
 pub fn init_main_interpreter(interpreter: Interpreter) {
     let mut interp = get_main_interpreter();
     assert!(interp.is_none(), "Main interpreter is already set");
+    register_extension_loader();
     // Safety: Interpreter was not initialized before, so we can safely assume the statics are not used
     unsafe { init_exception_statics(&Context::genesis().exceptions) };
     *interp = Some(interpreter);
