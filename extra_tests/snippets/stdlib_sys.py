@@ -700,6 +700,7 @@ proc = subprocess.run(
 )
 assert proc.stdout == "False\n", proc.stdout
 
+
 # Legacy profiling excludes constructors and callable instances, and binds a
 # method descriptor independently for each event (legacy_tracing.c).
 def check_profile_callables():
