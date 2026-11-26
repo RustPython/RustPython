@@ -19,7 +19,6 @@ mod platform {
     use crate::version;
 
     pub(super) const BUILDDIR_TXT: &str = "pybuilddir.txt";
-    pub(super) const BUILD_LANDMARK: &str = "Modules/Setup.local";
     pub(super) const VENV_LANDMARK: &str = "pyvenv.cfg";
     pub(super) const BUILDSTDLIB_LANDMARK: &str = "Lib/os.py";
     pub(super) const DEFAULT_PROGRAM_NAME: &str = "python3";
@@ -391,6 +390,17 @@ fn detect_venv(exe_dir: Option<&PathBuf>) -> (Option<PathBuf>, Option<PathBuf>) 
 }
 
 /// Detect if running from a build directory
+#[cfg(not(windows))]
+fn detect_build_directory(exe_dir: Option<&PathBuf>) -> Option<PathBuf> {
+    let dir = exe_dir?;
+    // CPython 3.15.2 only searches for a build stdlib after seeing the
+    // executable-adjacent build marker. A bare ancestor Lib is not a marker.
+    dir.join(platform::BUILDDIR_TXT).is_file().then(|| {
+        search_up_file(dir, &[platform::BUILDSTDLIB_LANDMARK]).unwrap_or_else(|| dir.clone())
+    })
+}
+
+#[cfg(windows)]
 fn detect_build_directory(exe_dir: Option<&PathBuf>) -> Option<PathBuf> {
     let dir = exe_dir?;
 
@@ -800,12 +810,20 @@ mod tests {
 
         // A closer untagged install cannot override the tagged landmark above it.
         let nested = bin.join("nested");
+        let source_lib = root.0.join("Lib");
+        std::fs::create_dir(&source_lib)?;
+        std::fs::write(source_lib.join("os.py"), "")?;
         let nested_legacy = nested.join(PLATLIBDIR).join(untagged.file_name().unwrap());
         std::fs::create_dir_all(&nested_legacy)?;
         std::fs::write(nested_legacy.join("os.py"), "")?;
         std::fs::create_dir_all(&dynload)?;
         std::fs::write(tagged.join("os.py"), "")?;
-        assert_eq!(calculate_prefix(Some(&nested), None), paths.base_prefix);
+        let build_prefix = detect_build_directory(Some(&nested));
+        assert!(build_prefix.is_none());
+        assert_eq!(
+            calculate_prefix(Some(&nested), build_prefix.as_ref()),
+            paths.base_prefix
+        );
         assert_eq!(
             calculate_exec_prefix(Some(&nested), &paths.base_prefix),
             paths.base_prefix
@@ -819,6 +837,10 @@ mod tests {
         std::fs::remove_file(tagged.join("os.py"))?;
         std::fs::write(zip, "")?;
         assert_eq!(calculate_prefix(Some(&nested), None), paths.base_prefix);
+
+        // After finding an executable-adjacent build marker, use the build Lib.
+        std::fs::write(nested.join(platform::BUILDDIR_TXT), "")?;
+        assert_eq!(detect_build_directory(Some(&nested)), Some(root.0.clone()));
         Ok(())
     }
 
