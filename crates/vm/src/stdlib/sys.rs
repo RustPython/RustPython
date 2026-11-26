@@ -45,7 +45,7 @@ pub mod sys {
         },
         convert::ToPyObject,
         frame::FrameObjectRef,
-        function::{FuncArgs, OptionalArg, PosArgs},
+        function::{ArgIntoFloat, FuncArgs, OptionalArg, PosArgs},
         stdlib::_warnings::warn,
         types::PyStructSequence,
         version,
@@ -1679,7 +1679,8 @@ pub mod sys {
 
     // TODO: vm.state.switch_interval is currently not used anywhere in the VM
     #[pyfunction]
-    fn setswitchinterval(interval: f64, vm: &VirtualMachine) -> PyResult<()> {
+    fn setswitchinterval(interval: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<()> {
+        let interval = interval.into_float();
         // Validate the interval parameter like CPython does
         if interval <= 0.0 {
             return Err(vm.new_value_error("switch interval must be strictly positive"));
