@@ -6,7 +6,7 @@ mod _collections;
 pub(crate) use _collections::ordered_dict::ordered_dict::PyOrderedDict;
 mod _functools;
 mod _imp;
-pub use _imp::{ExtensionModuleLoader, set_extension_module_loader};
+pub use _imp::{ExtensionModuleExec, ExtensionModuleLoader, set_extension_module_loader};
 pub mod _io;
 mod _lsprof;
 mod _operator;

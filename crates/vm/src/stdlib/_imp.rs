@@ -16,12 +16,19 @@ mod resources;
 pub type ExtensionModuleLoader =
     fn(vm: &VirtualMachine, name: &str, export_fn: usize) -> crate::PyResult;
 
-static EXTENSION_MODULE_LOADER: std::sync::OnceLock<ExtensionModuleLoader> =
+/// Runs the exec slots of a module made by an [`ExtensionModuleLoader`].
+///
+/// Called from `_imp.exec_dynamic`, once importlib has set the module attributes and added
+/// the module to `sys.modules`.
+pub type ExtensionModuleExec =
+    fn(vm: &VirtualMachine, module: &crate::PyObject) -> crate::PyResult<()>;
+
+static EXTENSION_MODULE_LOADER: std::sync::OnceLock<(ExtensionModuleLoader, ExtensionModuleExec)> =
     std::sync::OnceLock::new();
 
-/// Register the loader used to import abi3t extension modules.
-pub fn set_extension_module_loader(loader: ExtensionModuleLoader) {
-    let _ = EXTENSION_MODULE_LOADER.set(loader);
+/// Register the hooks used to import abi3t extension modules.
+pub fn set_extension_module_loader(loader: ExtensionModuleLoader, exec: ExtensionModuleExec) {
+    let _ = EXTENSION_MODULE_LOADER.set((loader, exec));
 }
 
 #[cfg(feature = "threading")]
@@ -245,11 +252,12 @@ mod _imp {
 
     #[pyfunction]
     fn extension_suffixes(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        // Only abi3t extensions can be loaded, and only once a C API loader is registered.
-        if super::EXTENSION_MODULE_LOADER.get().is_none() {
-            return Vec::new();
-        }
-        let suffixes: &[&str] = if cfg!(windows) {
+        // importlib reads this while the interpreter is built, possibly before the C API
+        // loader is registered, so the suffix is advertised whenever loading is possible.
+        // `create_dynamic` reports an error if no loader was registered by then.
+        let suffixes: &[&str] = if !cfg!(all(feature = "host_env", any(unix, windows))) {
+            &[]
+        } else if cfg!(windows) {
             &[".abi3t.pyd"]
         } else {
             &[".abi3t.so"]
@@ -438,9 +446,13 @@ mod _imp {
                 && export_fn_addr != 0
             {
                 // abi3t PyModExport entry point
-                if let Some(loader) = super::EXTENSION_MODULE_LOADER.get() {
-                    return loader(vm, name.as_str(), export_fn_addr);
-                }
+                return match super::EXTENSION_MODULE_LOADER.get() {
+                    Some((loader, _)) => loader(vm, name.as_str(), export_fn_addr),
+                    None => Err(vm.new_import_error(
+                        "no loader for abi3t extension modules is registered",
+                        name.into_wtf8(),
+                    )),
+                };
             }
         }
 
@@ -454,8 +466,15 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn exec_dynamic(_imp: &Py<PyModule>, _mod: PyRef<PyModule>) -> i32 {
-        0
+    fn exec_dynamic(
+        _imp: &Py<PyModule>,
+        module: PyRef<PyModule>,
+        vm: &VirtualMachine,
+    ) -> PyResult<i32> {
+        if let Some((_, exec)) = super::EXTENSION_MODULE_LOADER.get() {
+            exec(vm, module.as_object())?;
+        }
+        Ok(0)
     }
 
     #[pyfunction]

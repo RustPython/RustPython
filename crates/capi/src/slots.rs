@@ -6,10 +6,20 @@ use crate::util::CStrExt;
 use alloc::borrow::Cow;
 use core::ffi::{c_char, c_int, c_void};
 use core::num::TryFromIntError;
-use itertools::Either;
 use rustpython_vm::builtins::{PyModule, PyType};
 use rustpython_vm::types::SlotAccessor;
 use rustpython_vm::{Py, PyResult, VirtualMachine};
+
+/// A slot array being walked by [`PySlot::iter`].
+enum SlotFrame {
+    Slots(*const PySlot),
+    /// A `PyType_Slot` array, or with `legacy_module` a `PyModuleDef_Slot` array reached
+    /// through `Py_mod_slots`. Both have the same layout.
+    TypeSlots {
+        ptr: *const PyType_Slot,
+        legacy_module: bool,
+    },
+}
 
 #[repr(C)]
 #[derive(Clone)]
@@ -49,7 +59,7 @@ impl PySlot {
     }
 
     pub(crate) fn iter<'a>(slots: *const Self) -> impl Iterator<Item = Cow<'a, Self>> {
-        let mut stack: Vec<Either<*const Self, *const PyType_Slot>> = vec![Either::Left(slots)];
+        let mut stack: Vec<SlotFrame> = vec![SlotFrame::Slots(slots)];
         core::iter::from_fn(move || {
             loop {
                 assert!(
@@ -57,7 +67,7 @@ impl PySlot {
                     "Too many nested slots, possible infinite loop in slot iteration"
                 );
                 return match stack.last_mut()? {
-                    Either::Left(slot_ptr) => {
+                    SlotFrame::Slots(slot_ptr) => {
                         let slot = unsafe { &**slot_ptr };
                         if slot.sl_id == 0 {
                             stack.pop();
@@ -69,7 +79,7 @@ impl PySlot {
                         if slot.sl_id == 92 {
                             let subslots = unsafe { slot.value.sl_ptr }.cast_const().cast::<Self>();
                             if !subslots.is_null() {
-                                stack.push(Either::Left(subslots));
+                                stack.push(SlotFrame::Slots(subslots));
                             }
                             continue;
                         }
@@ -79,14 +89,35 @@ impl PySlot {
                                 .cast_const()
                                 .cast::<PyType_Slot>();
                             if !type_slots.is_null() {
-                                stack.push(Either::Right(type_slots));
+                                stack.push(SlotFrame::TypeSlots {
+                                    ptr: type_slots,
+                                    legacy_module: false,
+                                });
+                            }
+                            continue;
+                        }
+
+                        // Py_mod_slots: a legacy PyModuleDef_Slot array
+                        if slot.sl_id == 94 {
+                            let module_slots = unsafe { slot.value.sl_ptr }
+                                .cast_const()
+                                .cast::<PyType_Slot>();
+                            if !module_slots.is_null() {
+                                stack.push(SlotFrame::TypeSlots {
+                                    ptr: module_slots,
+                                    legacy_module: true,
+                                });
                             }
                             continue;
                         }
 
                         Some(Cow::Borrowed(slot))
                     }
-                    Either::Right(slot_ptr) => {
+                    SlotFrame::TypeSlots {
+                        ptr: slot_ptr,
+                        legacy_module,
+                    } => {
+                        let legacy_module = *legacy_module;
                         let type_slot = unsafe { &**slot_ptr };
                         if type_slot.slot == 0 {
                             stack.pop();
@@ -94,7 +125,15 @@ impl PySlot {
                         }
 
                         *slot_ptr = unsafe { slot_ptr.add(1) };
-                        Some(Cow::Owned(type_slot.try_into().expect("invalid slot")))
+                        let mut slot: Self = type_slot.try_into().expect("invalid slot");
+                        if legacy_module {
+                            // Legacy PyModuleDef_Slot ids: 1 create, 2 exec, 3 multiple
+                            // interpreters, 4 gil. They map to 84..=87 in the unified numbering.
+                            if (1..=4).contains(&slot.sl_id) {
+                                slot.sl_id += 83;
+                            }
+                        }
+                        Some(Cow::Owned(slot))
                     }
                 };
             }
@@ -150,8 +189,10 @@ impl PySlot {
             87 => PySlotKind::Module(PySlotModule::Gil {
                 gil_used: !value_ptr.is_null(),
             }),
-            92 | 93 => {
-                unreachable!("Py_slot_subslots and Py_tp_slots should be handled in the iterator")
+            92..=94 => {
+                unreachable!(
+                    "Py_slot_subslots, Py_tp_slots and Py_mod_slots should be handled in the iterator"
+                )
             }
             95 => PySlotKind::Type(PySlotType::Name(unsafe {
                 value_ptr.cast::<c_char>().try_as_str(vm)?
