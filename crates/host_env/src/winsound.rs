@@ -90,3 +90,18 @@ pub fn message_beep(beep_type: u32) -> io::Result<()> {
         Ok(())
     }
 }
+
+/// Format the system error as CPython does for the MessageBeep exception.
+#[must_use]
+pub fn format_message_beep_error(code: u32) -> String {
+    const LANG_NEUTRAL_SUBLANG_DEFAULT: u32 = 1 << 10;
+    crate::windows::format_error_message_with_language(code, LANG_NEUTRAL_SUBLANG_DEFAULT)
+        .map_or_else(
+            || format!("Windows Error 0x{code:x}"),
+            |message| {
+                message
+                    .trim_end_matches(|ch: char| ch <= ' ' || ch == '.')
+                    .to_owned()
+            },
+        )
+}

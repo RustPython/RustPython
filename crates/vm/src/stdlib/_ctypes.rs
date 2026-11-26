@@ -107,6 +107,8 @@ pub(crate) mod _ctypes {
     #[cfg(windows)]
     use crate::convert::ToPyException;
     use crate::convert::ToPyObject;
+    #[cfg(windows)]
+    use crate::function::PosArgs;
     use crate::function::{ArgStrictInt, Either, OptionalArg};
     use crate::types::Representable;
     #[cfg(windows)]
@@ -810,14 +812,26 @@ pub(crate) mod _ctypes {
 
     #[cfg(windows)]
     #[pyfunction]
-    fn get_last_error() -> u32 {
-        rustpython_host_env::ctypes::get_last_error()
+    fn get_last_error(vm: &VirtualMachine) -> PyResult<i32> {
+        vm.audit("ctypes.get_last_error", || ())?;
+        Ok(rustpython_host_env::ctypes::get_last_error() as i32)
     }
 
     #[cfg(windows)]
     #[pyfunction]
-    fn set_last_error(value: u32) -> u32 {
-        rustpython_host_env::ctypes::set_last_error(value)
+    fn set_last_error(args: PosArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        let args = args.as_ref();
+        // CPython's legacy setter audits the original positional tuple
+        // before checking its length or converting the value.
+        vm.audit("ctypes.set_last_error", || PosArgs::new(args.to_vec()))?;
+        let [value] = args else {
+            return Err(vm.new_type_error(format!(
+                "function takes exactly 1 argument ({} given)",
+                args.len(),
+            )));
+        };
+        let value: i32 = value.try_to_value(vm)?;
+        Ok(rustpython_host_env::ctypes::set_last_error(value as u32) as i32)
     }
 
     #[pyattr]
