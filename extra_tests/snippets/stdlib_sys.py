@@ -849,3 +849,26 @@ def check_bound_ex_monitoring():
 
 
 check_bound_ex_monitoring()
+
+
+# setswitchinterval converts its argument like PyFloat_AsDouble
+def check_setswitchinterval_float_conversion():
+    from decimal import Decimal
+    from fractions import Fraction
+
+    orig = sys.getswitchinterval()
+    try:
+        for value in (Fraction(1, 500), Decimal("0.002")):
+            sys.setswitchinterval(value)
+            assert sys.getswitchinterval() == 0.002, (value, sys.getswitchinterval())
+        with assert_raises(ValueError):
+            sys.setswitchinterval(Fraction(-1, 500))
+        with assert_raises(ValueError):
+            sys.setswitchinterval(Decimal(0))
+        with assert_raises(TypeError):
+            sys.setswitchinterval("0.002")
+    finally:
+        sys.setswitchinterval(orig)
+
+
+check_setswitchinterval_float_conversion()
