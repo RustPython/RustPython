@@ -6,7 +6,7 @@ pub(crate) use winsound::module_def;
 #[pymodule]
 mod winsound {
     use crate::builtins::{PyBaseExceptionRef, PyBytes, PyStr};
-    use crate::convert::{IntoPyException, ToPyException};
+    use crate::convert::ToPyException;
     use crate::protocol::{BufferFlags, PyBuffer};
     use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine};
     use rustpython_host_env::winsound as host_winsound;
@@ -145,13 +145,27 @@ mod winsound {
 
     #[derive(FromArgs)]
     struct MessageBeepArgs {
-        #[pyarg(any, default)]
-        r#type: u32,
+        #[pyarg(any, default = MB_OK as i32, py_default = "MB_OK")]
+        r#type: i32,
     }
 
     #[pyfunction]
     fn MessageBeep(args: MessageBeepArgs, vm: &VirtualMachine) -> PyResult<()> {
-        rustpython_host_env::winsound::message_beep(args.r#type).map_err(|e| e.into_pyexception(vm))
+        vm.allow_threads(|| host_winsound::message_beep(args.r#type as u32))
+            .map_err(|error| {
+                let code = error.raw_os_error().unwrap_or_default();
+                let message = host_winsound::format_message_beep_error(code as u32);
+                vm.new_exception(
+                    vm.ctx.exceptions.runtime_error.to_owned(),
+                    vec![
+                        vm.ctx.new_int(0).into(),
+                        vm.ctx.new_str(message).into(),
+                        vm.ctx.none(),
+                        vm.ctx.new_int(code).into(),
+                        vm.ctx.none(),
+                    ],
+                )
+            })
     }
 
     #[cfg(test)]

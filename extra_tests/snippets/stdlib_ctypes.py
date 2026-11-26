@@ -1939,3 +1939,45 @@ for _identity_test_name in _CtypesTypeIdentityTests.__dict__:
         _identity_method = getattr(_identity_test, _identity_test_name)
         if not getattr(_identity_method, "__unittest_skip__", False):
             _identity_method()
+
+
+if _sys.platform == "win32":
+    # The C int Python interface is signed even though the underlying
+    # Windows error value is held as a DWORD.
+    from testutils import assert_raises
+
+    original = ctypes.get_last_error()
+    events = []
+
+    def record_last_error(event, args):
+        if event in ("ctypes.get_last_error", "ctypes.set_last_error"):
+            events.append((event, args))
+
+    _sys.addaudithook(record_last_error)
+    try:
+        ctypes.set_last_error(0)
+        events.clear()
+        assert ctypes.set_last_error(-1) == 0
+        assert ctypes.get_last_error() == -1
+        assert ctypes.set_last_error(-(1 << 31)) == -1
+        assert ctypes.get_last_error() == -(1 << 31)
+        assert events == [
+            ("ctypes.set_last_error", (-1,)),
+            ("ctypes.get_last_error", ()),
+            ("ctypes.set_last_error", (-(1 << 31),)),
+            ("ctypes.get_last_error", ()),
+        ]
+        events.clear()
+        assert_raises(OverflowError, ctypes.set_last_error, 1 << 31)
+        assert_raises(TypeError, ctypes.set_last_error, "invalid")
+        assert_raises(TypeError, ctypes.set_last_error, 1, 2)
+        assert_raises(TypeError, ctypes.set_last_error, value=1)
+        assert_raises(TypeError, ctypes.get_last_error, 1)
+        assert events == [
+            ("ctypes.set_last_error", (1 << 31,)),
+            ("ctypes.set_last_error", ("invalid",)),
+            ("ctypes.set_last_error", (1, 2)),
+        ]
+        assert ctypes.get_last_error() == -(1 << 31)
+    finally:
+        ctypes.set_last_error(original)
