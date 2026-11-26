@@ -28,6 +28,13 @@ mod lzma;
 
 mod zlib;
 
+// Left out on the same targets as the bundled sqlite. libzstd-rs-sys does not
+// build for wasm32-unknown-unknown, where `libc` has none of the C types it
+// uses, and on an x86-64 Unix host its build script needs a C compiler for the
+// target. (It does build for wasm32-wasip1.)
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+mod zstd;
+
 mod blake2;
 mod hashlib;
 mod md5;
@@ -313,5 +320,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         ))]
         uuid::module_def(ctx),
         zlib::module_def(ctx),
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        zstd::module_def(ctx),
     ]
 }
