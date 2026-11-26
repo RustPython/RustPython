@@ -948,3 +948,36 @@ if sys.platform == "win32":
         env=environment,
         check=True,
     )
+
+
+def test_scandir_warning_preserves_source():
+    import gc
+    import warnings
+
+    def check(path_or_fd):
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always", ResourceWarning)
+            iterator = os.scandir(path_or_fd)
+            iterator_type = type(iterator)
+            del iterator
+            gc.collect()
+        assert len(records) == 1
+        assert records[0].category is ResourceWarning
+        source = records[0].source
+        assert type(source) is iterator_type
+        assert next(source, None) is None
+
+    with tempfile.TemporaryDirectory() as directory:
+        with open(os.path.join(directory, "entry"), "wb"):
+            pass
+        check(directory)
+        if os.scandir in os.supports_fd:
+            fd = os.open(directory, os.O_RDONLY)
+            try:
+                check(fd)
+                os.fstat(fd)
+            finally:
+                os.close(fd)
+
+
+test_scandir_warning_preserves_source()

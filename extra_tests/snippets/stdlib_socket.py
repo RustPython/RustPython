@@ -325,3 +325,22 @@ if os.name == "posix":
         socket.if_nametoindex("\udcff\udcfe")
     name = socket.if_indextoname(1)
     assert socket.if_nametoindex(name) == 1
+
+
+def test_socket_warning_preserves_source():
+    import gc
+    import warnings
+
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always", ResourceWarning)
+        resource = socket.socket()
+        del resource
+        gc.collect()
+    assert len(records) == 1
+    assert records[0].category is ResourceWarning
+    source = records[0].source
+    assert isinstance(source, socket.socket)
+    assert source.fileno() == -1
+
+
+test_socket_warning_preserves_source()

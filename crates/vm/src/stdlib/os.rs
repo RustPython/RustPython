@@ -1137,14 +1137,15 @@ pub(super) mod _os {
     impl Destructor for ScandirIterator {
         fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // Emit ResourceWarning if the iterator is not yet exhausted/closed
-            if zelf.entries.read().is_some() {
-                let _ = crate::stdlib::_warnings::warn(
-                    vm.ctx.exceptions.resource_warning,
+            let resource = zelf.entries.write().take();
+            if let Some(resource) = resource {
+                // Close and release the lock before invoking the warning machinery.
+                drop(resource);
+                let _ = crate::warn::warn_resource(
                     format!("unclosed scandir iterator {:?}", zelf.as_object()),
-                    1,
+                    zelf.as_object(),
                     vm,
                 );
-                zelf.close();
             }
             Ok(())
         }
@@ -1289,14 +1290,15 @@ pub(super) mod _os {
     #[cfg(all(unix, not(target_os = "redox")))]
     impl Destructor for ScandirIteratorFd {
         fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
-            if zelf.dir.lock().is_some() {
-                let _ = crate::stdlib::_warnings::warn(
-                    vm.ctx.exceptions.resource_warning,
+            let resource = zelf.dir.lock().take();
+            if let Some(resource) = resource {
+                // Close and release the lock before invoking the warning machinery.
+                drop(resource);
+                let _ = crate::warn::warn_resource(
                     format!("unclosed scandir iterator {:?}", zelf.as_object()),
-                    1,
+                    zelf.as_object(),
                     vm,
                 );
-                zelf.close();
             }
             Ok(())
         }

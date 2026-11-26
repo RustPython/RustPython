@@ -7007,12 +7007,9 @@ mod fileio {
                 let repr = source
                     .repr(vm)
                     .map_or_else(|_| Wtf8Buf::from("<file>"), |s| s.as_wtf8().to_owned());
-                if let Err(e) = crate::stdlib::_warnings::warn(
-                    vm.ctx.exceptions.resource_warning,
-                    format!("unclosed file {repr}"),
-                    1,
-                    vm,
-                ) {
+                if let Err(e) =
+                    crate::warn::warn_resource(format!("unclosed file {repr}"), source, vm)
+                {
                     vm.run_unraisable(e, None, zelf.as_object().to_owned());
                 }
             }
