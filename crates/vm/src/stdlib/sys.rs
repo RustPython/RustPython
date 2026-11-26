@@ -1,8 +1,6 @@
 pub(crate) mod monitoring;
 
-#[cfg(not(native_host_io))]
-use crate::PyPayload;
-use crate::{Py, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
+use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
 
 #[cfg(all(not(feature = "host_env"), feature = "stdio", not(native_host_io)))]
 pub(crate) use sys::SandboxStdio;
