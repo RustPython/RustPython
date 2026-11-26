@@ -2476,15 +2476,15 @@ A[*b:*b]
 
 A[*(1:2)]
 
-    >>> A[*(1:2)]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> A[*(1:2)]
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression
-    >>> A[*(1:2)] = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> A[*(1:2)] = 1
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression
-    >>> del A[*(1:2)]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> del A[*(1:2)]
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression

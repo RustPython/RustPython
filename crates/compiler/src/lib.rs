@@ -1359,12 +1359,125 @@ fn first_parse_error(
         location: diagnostic.range,
     })
     .or_else(|| normalize_raise_parse_error(&parsed))
+    .or_else(|| normalize_starred_slice_parse_error(&parsed))
     .unwrap_or_else(|| first.clone());
     let mut error = CompileError::from_ruff_parse_error(normalized, source_file, mode);
     if after_syntax_error && let CompileError::Parse(error) = &mut error {
         error.is_unclosed_string = false;
     }
     Err(error)
+}
+
+/// Recover CPython's invalid_starred_expression diagnostic when a grouped
+/// subscript operand fails and the parser then treats its colon as a slice.
+pub fn normalize_starred_slice_parse_error(
+    parsed: &parser::Parsed<ast::Mod>,
+) -> Option<parser::ParseError> {
+    let [first, star_error, rest @ ..] = parsed.errors() else {
+        return None;
+    };
+    if !matches!(
+        first.error,
+        ParseErrorType::ExpectedToken {
+            expected: TokenKind::Rpar,
+            found: TokenKind::Colon
+        } | ParseErrorType::ExpectedExpression
+    ) || !matches!(
+        star_error.error,
+        ParseErrorType::InvalidStarredExpressionUsage
+    ) || !parsed.unsupported_syntax_errors().is_empty()
+        || rest
+            .iter()
+            .any(|error| matches!(error.error, ParseErrorType::Lexical(_)))
+        || star_error.location.end() > first.location.start()
+    {
+        return None;
+    }
+
+    let tokens = parsed.tokens();
+    let star = tokens.partition_point(|token| token.start() < star_error.location.start());
+    if !tokens.get(star).is_some_and(|token| {
+        token.kind() == TokenKind::Star && token.range() == star_error.location
+    }) {
+        return None;
+    }
+    let significant = |token: &&ast::token::Token| !token.kind().is_trivia();
+    let mut before = tokens[..star].iter().rev().filter(significant);
+    let prior = before.next()?;
+    if !matches!(prior.kind(), TokenKind::Lsqb | TokenKind::Comma) {
+        return None;
+    }
+    // The star must begin the item, not be a failed right-hand operand.
+    // Mismatched delimiters are excluded by the lexical-error check above.
+    if prior.kind() == TokenKind::Comma {
+        let mut depth = 0;
+        loop {
+            match before.next()?.kind() {
+                TokenKind::Rsqb | TokenKind::Rpar | TokenKind::Rbrace => depth += 1,
+                TokenKind::Lsqb if depth == 0 => break,
+                TokenKind::Lsqb | TokenKind::Lpar | TokenKind::Lbrace => {
+                    depth = usize::checked_sub(depth, 1)?;
+                }
+                TokenKind::Newline => return None,
+                _ => {}
+            }
+        }
+    }
+    let primary = before.next()?.kind();
+    if !(matches!(
+        primary,
+        TokenKind::Identifier
+            | TokenKind::Int
+            | TokenKind::Float
+            | TokenKind::Complex
+            | TokenKind::String
+            | TokenKind::Ellipsis
+            | TokenKind::Rpar
+            | TokenKind::Rsqb
+            | TokenKind::Rbrace
+    ) || primary.is_soft_keyword()
+        || primary.is_singleton()
+        || primary.is_interpolated_string_end())
+    {
+        return None;
+    }
+
+    let mut after = tokens[star + 1..].iter().filter(significant);
+    if after.next()?.kind() != TokenKind::Lpar {
+        return None;
+    }
+    let mut depth = 1;
+    let mut previous = TokenKind::Lpar;
+    for token in after {
+        let kind = token.kind();
+        if token.range() == first.location && kind == TokenKind::Colon {
+            if matches!(first.error, ParseErrorType::ExpectedExpression)
+                && previous != TokenKind::Lpar
+            {
+                return None;
+            }
+            return Some(parser::ParseError {
+                error: ParseErrorType::OtherError("Invalid star expression".to_owned()),
+                location: first.location,
+            });
+        }
+        if token.start() >= first.location.start() {
+            return None;
+        }
+        match kind {
+            TokenKind::Lpar | TokenKind::Lsqb | TokenKind::Lbrace => depth += 1,
+            TokenKind::Rpar | TokenKind::Rsqb | TokenKind::Rbrace => {
+                depth -= 1;
+                if depth == 0 {
+                    return None;
+                }
+            }
+            TokenKind::Newline => return None,
+            _ => {}
+        }
+        previous = kind;
+    }
+    None
 }
 
 /// Convert the sole parser error for an unparenthesized raise operand to
