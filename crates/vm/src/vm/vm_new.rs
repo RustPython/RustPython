@@ -663,8 +663,13 @@ impl VirtualMachine {
             source.and_then(|src| get_statement(src, error.location()))
         };
 
+        let single_input_terminator = eof_token.filter(|eof| {
+            eof.raised_at == rustpython_compiler::EofErrorLocation::SingleInputTerminator
+        });
         let msg = if syntax_error_type.is(self.ctx.exceptions.incomplete_input_error) {
             String::from("incomplete input")
+        } else if single_input_terminator.is_some() {
+            String::from("invalid syntax")
         } else {
             error.to_string()
         };
@@ -752,7 +757,11 @@ impl VirtualMachine {
             .expect("SyntaxError construction from internal args is infallible")
             .upcast();
 
-        let (lineno_raw, offset_raw) = error.python_location();
+        let incomplete_terminator = single_input_terminator.filter(|_| allow_incomplete);
+        let (lineno_raw, offset_raw) = incomplete_terminator.map_or_else(
+            || error.python_location(),
+            |eof| (eof.lineno, eof.line.chars().count()),
+        );
         let lineno = self.ctx.new_int(lineno_raw);
         let offset = self.ctx.new_int(offset_raw);
         set_attrs!(
@@ -786,7 +795,9 @@ impl VirtualMachine {
                         .as_deref()
                         .and_then(|line| line.chars().next())
                         .is_some_and(|ch| ch.is_ascii_whitespace()));
-            let (end_lineno, end_offset) = if let Some(eof_token) = eof_token {
+            let (end_lineno, end_offset) = if let Some(eof) = incomplete_terminator {
+                (eof.lineno, -1)
+            } else if let Some(eof_token) = eof_token {
                 (eof_token.lineno, eof_token.end_offset())
             } else if no_end_offset {
                 (end_lineno, -1)

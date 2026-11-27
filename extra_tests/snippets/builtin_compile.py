@@ -122,32 +122,63 @@ assert_raises(
 PY_CF_DONT_IMPLY_DEDENT = 0x0200
 PY_CF_ALLOW_INCOMPLETE_INPUT = 0x4000
 compile(b"# coding: latin-1\nx = '\xe9'\n", "<test>", "exec")
-compile("if 1:\n pass", "<test>", "single")
-assert_raises(
-    SyntaxError,
-    compile,
-    "if 1:\n pass",
-    "<test>",
-    "single",
-    flags=PY_CF_DONT_IMPLY_DEDENT,
-)
-compile(
-    "if 1:\n pass\n",
-    "<test>",
-    "single",
-    flags=PY_CF_DONT_IMPLY_DEDENT | PY_CF_ALLOW_INCOMPLETE_INPUT,
-)
-try:
-    compile(
-        "if 1:\n pass",
-        "<test>",
-        "single",
-        flags=PY_CF_DONT_IMPLY_DEDENT | PY_CF_ALLOW_INCOMPLETE_INPUT,
+for _ast_flag in (0, ast.PyCF_ONLY_AST):
+    _block = "if 1:\n pass"
+    _both = PY_CF_DONT_IMPLY_DEDENT | PY_CF_ALLOW_INCOMPLETE_INPUT
+    for _flags in (0, PY_CF_ALLOW_INCOMPLETE_INPUT):
+        compile(_block, "<test>", "single", flags=_ast_flag | _flags)
+    compile(_block + "\n", "<test>", "single", flags=_ast_flag | _both)
+    with assert_raises(SyntaxError) as _raised:
+        compile(_block, "<test>", "single", flags=_ast_flag | PY_CF_DONT_IMPLY_DEDENT)
+    _exc = _raised.exception
+    assert type(_exc) is SyntaxError
+    assert (_exc.msg, _exc.lineno, _exc.offset, _exc.end_offset, _exc.text) == (
+        "invalid syntax",
+        2,
+        0,
+        0,
+        " pass",
     )
-except _IncompleteInputError as exc:
-    assert exc.args[0] == "incomplete input", repr(exc)
-else:
-    raise AssertionError("expected _IncompleteInputError")
+    with assert_raises(_IncompleteInputError) as _raised:
+        compile(_block, "<test>", "single", flags=_ast_flag | _both)
+    _exc = _raised.exception
+    assert (_exc.msg, _exc.lineno, _exc.offset, _exc.end_offset, _exc.text) == (
+        "incomplete input",
+        2,
+        5,
+        -1,
+        " pass",
+    )
+
+
+# A compound single input needs a terminator before AST or code validation.
+# A real or implied DEDENT can finish a block, but not an inline suite.
+for _source, _line, _last_line in (
+    ("def f(x, x): ...", 1, "def f(x, x): ..."),
+    ("if (\n 1\n): pass", 3, "): pass"),
+    ("if 1:\n pass\nelse: pass", 3, "else: pass"),
+    ("if 1: 'é'", 1, "if 1: 'é'"),
+):
+    for _flags in (0, ast.PyCF_ONLY_AST):
+        with assert_raises(SyntaxError) as _raised:
+            compile(_source, "<test>", "single", flags=_flags)
+        _exc = _raised.exception
+        assert (_exc.msg, _exc.lineno, _exc.offset) == ("invalid syntax", _line, 0)
+        assert (_exc.end_lineno, _exc.end_offset, _exc.text) == (_line, 0, _last_line)
+        with assert_raises(_IncompleteInputError) as _raised:
+            compile(
+                _source, "<test>", "single", flags=_flags | PY_CF_ALLOW_INCOMPLETE_INPUT
+            )
+        _exc = _raised.exception
+        assert (_exc.msg, _exc.lineno, _exc.offset) == (
+            "incomplete input",
+            _line,
+            len(_last_line),
+        )
+        assert (_exc.end_lineno, _exc.end_offset, _exc.text) == (_line, -1, _last_line)
+
+compile("if 1: pass\n# comment", "<test>", "single", flags=ast.PyCF_ONLY_AST)
+compile("if 1:\n pass", "<test>", "single", flags=ast.PyCF_ONLY_AST)
 
 
 def _expect_incomplete(source, mode):

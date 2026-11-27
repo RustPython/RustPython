@@ -66,6 +66,8 @@ pub enum EofErrorLocation {
     /// From the token to where the tokenizer stopped, as
     /// `RAISE_SYNTAX_ERROR_STARTING_FROM` places it.
     StartingFromToken,
+    /// The synthesized token that cannot terminate a compound single input.
+    SingleInputTerminator,
 }
 
 impl EofToken {
@@ -94,7 +96,9 @@ impl EofToken {
     pub fn offset(&self) -> usize {
         match self.raised_at {
             EofErrorLocation::Tokenizer => self.line.chars().count(),
-            EofErrorLocation::Token | EofErrorLocation::StartingFromToken => 0,
+            EofErrorLocation::Token
+            | EofErrorLocation::StartingFromToken
+            | EofErrorLocation::SingleInputTerminator => 0,
         }
     }
 
@@ -103,7 +107,7 @@ impl EofToken {
     pub fn end_offset(&self) -> isize {
         match self.raised_at {
             EofErrorLocation::Tokenizer => -1,
-            EofErrorLocation::Token => 0,
+            EofErrorLocation::Token | EofErrorLocation::SingleInputTerminator => 0,
             EofErrorLocation::StartingFromToken => self.line.chars().count() as isize,
         }
     }
@@ -1272,28 +1276,6 @@ pub fn unsupported_grammar_error(ast: &ast::Mod, source_file: &SourceFile) -> Op
     checker.error
 }
 
-fn single_mode_body_error(body: &[ast::Stmt], source_file: &SourceFile) -> Option<CompileError> {
-    let first = body.first()?;
-    let source_code = source_file.to_source_code();
-    let first_start = source_code.source_location(first.range().start(), PositionEncoding::Utf8);
-    let first_end = source_code.source_location(first.range().end(), PositionEncoding::Utf8);
-
-    if is_compound_stmt(first)
-        && first_start.line == first_end.line
-        && !ends_with_line_break(source_file.source_text())
-    {
-        return Some(CompileError::from_source_error(
-            source_file,
-            CpythonDiagnostic::new(
-                "invalid syntax".to_owned(),
-                first.range().start().to_usize(),
-                first.range().start().to_usize(),
-            ),
-        ));
-    }
-    None
-}
-
 /// Converts the first parse error. A tokenizer error that follows an earlier syntax error is
 /// only found by the pass over the rest of the source, so it never asks for more input.
 /// Classify an initial INDENT after expression parsing has failed.
@@ -2186,45 +2168,70 @@ pub fn single_mode_multiple_statements_error(
     ))
 }
 
-fn single_mode_source_error(ast: &ast::Mod, source_file: &SourceFile) -> Option<CompileError> {
-    let ast::Mod::Module(module) = ast else {
+/// The interactive grammar consumes a newline after a compound statement.
+/// Ruff's module grammar also synthesizes a newline for the suite at EOF,
+/// so inline suites require a real newline while an indented suite can use
+/// the implicit dedent to finish before the extra interactive newline.
+#[doc(hidden)]
+#[must_use]
+pub fn single_mode_terminator_error(
+    parsed: &parser::Parsed<ast::Mod>,
+    source_file: &SourceFile,
+    dont_imply_dedent: bool,
+) -> Option<CompileError> {
+    let source = source_file.source_text();
+    if source.ends_with(['\n', '\r']) {
+        return None;
+    }
+    let SingleModeStatementBoundary::Compound { end } = single_mode_statement_boundary(parsed)?
+    else {
         return None;
     };
-    single_mode_body_error(&module.body, source_file)
-}
 
-fn ends_with_line_break(source: &str) -> bool {
-    source.ends_with('\n') || source.ends_with('\r')
-}
-
-fn ends_with_implied_dedent(source: &str) -> bool {
-    let mut lexer = parser::lexer::lex(source, parser::Mode::Module);
-    let mut last_kind = TokenKind::EndOfFile;
-    loop {
-        let kind = lexer.next_token();
-        if kind.is_eof() {
-            break;
+    let mut newline = false;
+    let mut dedent = false;
+    for token in parsed
+        .tokens()
+        .iter()
+        .rev()
+        .take_while(|token| token.start() >= end)
+    {
+        match token.kind() {
+            TokenKind::Newline => newline |= !token.range().is_empty(),
+            TokenKind::Dedent => dedent = true,
+            _ => {}
         }
-        last_kind = kind;
     }
-    matches!(last_kind, TokenKind::Dedent)
-}
-
-/// Detect input that only parses because Ruff's lexer closes indentation at EOF.
-///
-/// `PyCF_DONT_IMPLY_DEDENT` is used by `codeop` and interactive compile
-/// paths to keep an indented block incomplete until a terminating newline is seen.
-#[must_use]
-pub fn dont_imply_dedent_source_error(source_file: &SourceFile) -> Option<CompileError> {
-    let source = source_file.source_text();
-    if ends_with_line_break(source) || !ends_with_implied_dedent(source) {
+    let after_suite = &source[end.to_usize()..];
+    if if dedent {
+        !dont_imply_dedent && !after_suite.contains(['\n', '\r'])
+    } else {
+        newline
+    } {
         return None;
     }
+
     let eof = source.len();
-    Some(CompileError::from_source_error(
+    // Keep the direct compiler API's incomplete classification when the
+    // caller explicitly disallows the implied dedent. The VM separately
+    // decides whether to expose IncompleteInputError.
+    let message = if dedent && dont_imply_dedent {
+        "incomplete input"
+    } else {
+        "invalid syntax"
+    };
+    let mut error = CompileError::from_source_error(
         source_file,
-        CpythonDiagnostic::new("incomplete input".to_owned(), eof, eof),
-    ))
+        CpythonDiagnostic::new(message.to_owned(), eof, eof),
+    );
+    if let CompileError::Parse(error) = &mut error {
+        error.eof_token = Some(Box::new(EofToken::new(
+            source,
+            Mode::Single,
+            EofErrorLocation::SingleInputTerminator,
+        )));
+    }
+    Some(error)
 }
 
 /// Find the last unclosed opening bracket in source code.
@@ -2404,9 +2411,9 @@ fn _compile_with_syntax_warning_handler<'a>(
     {
         return Err(error);
     }
-    if opts.dont_imply_dedent
-        && matches!(mode, Mode::Single)
-        && let Some(error) = dont_imply_dedent_source_error(&source_file)
+    if matches!(mode, Mode::Single)
+        && let Some(error) =
+            single_mode_terminator_error(&parsed, &source_file, opts.dont_imply_dedent)
     {
         return Err(error);
     }
@@ -2418,21 +2425,14 @@ fn _compile_with_syntax_warning_handler<'a>(
     if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
         return Err(error);
     }
-    let single_mode_error = matches!(mode, Mode::Single)
-        .then(|| single_mode_source_error(&ast, &source_file))
-        .flatten();
-    let code = compile::compile_top_with_syntax_warning_handler(
+    compile::compile_top_with_syntax_warning_handler(
         ast,
         source_file,
         mode,
         opts,
         syntax_warning_handler,
     )
-    .map_err(CompileError::from)?;
-    if let Some(error) = single_mode_error {
-        return Err(error);
-    }
-    Ok(code)
+    .map_err(CompileError::from)
 }
 
 #[doc(hidden)]
@@ -2776,17 +2776,17 @@ pub fn _compile_symtable(
             {
                 return Err(error);
             }
+            if matches!(mode, Mode::Single)
+                && let Some(error) = single_mode_terminator_error(&ast, &source_file, false)
+            {
+                return Err(error);
+            }
             let ast = ast.into_syntax();
             too_deeply_nested_error(&ast, &source_file, CompileOpts::default().recursion_limit)?;
             if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
                 return Err(error);
             }
             let ast = ast.expect_module();
-            if matches!(mode, Mode::Single)
-                && let Some(error) = single_mode_body_error(&ast.body, &source_file)
-            {
-                return Err(error);
-            }
             let mut ast = ast;
             symtable_preprocess_module(&mut ast, &source_file)?;
             symboltable::SymbolTable::scan_program(&ast, source_file.clone())
