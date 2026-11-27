@@ -230,14 +230,15 @@ pub(super) mod _os {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         builtins::{
             PyBytes, PyBytesRef, PyFloat, PyGenericAlias, PyIntRef, PyStr, PyStrRef, PyTuple,
-            PyTupleRef, PyTypeRef,
+            PyTypeRef,
         },
         class::PyClassDef,
         common::lock::{OnceCell, PyRwLock},
         convert::{IntoPyException, ToPyException, ToPyObject},
         exceptions::OSErrorBuilder,
         function::{
-            ArgBytesLike, ArgMemoryBuffer, ArgumentError, Either, FromArgs, FsPath, FuncArgs, Param,
+            ArgBytesLike, ArgIntoBool, ArgMemoryBuffer, ArgumentError, Either, FromArgs, FsPath,
+            FuncArgs, OptionalArg, Param,
         },
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
@@ -1604,13 +1605,19 @@ pub(super) mod _os {
     }
 
     #[derive(FromArgs)]
+    struct TruthFollowSymlinks {
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        follow_symlinks: ArgIntoBool,
+    }
+
+    #[derive(FromArgs)]
     struct StatArgs<'a> {
         #[pyarg(any)]
         path: OsPathOrFd<'a>,
         #[pyarg(flatten)]
         dir_fd: DirFd<'a, { STAT_DIR_FD as usize }>,
         #[pyarg(flatten)]
-        follow_symlinks: FollowSymlinks,
+        follow_symlinks: TruthFollowSymlinks,
     }
 
     fn stat_at(
@@ -1619,8 +1626,14 @@ pub(super) mod _os {
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult {
-        if matches!(path, OsPathOrFd::Fd(_)) && !follow_symlinks.0 {
-            return Err(vm.new_value_error("stat: cannot use fd and follow_symlinks together"));
+        if matches!(path, OsPathOrFd::Fd(_)) {
+            #[cfg(not(any(windows, target_os = "redox")))]
+            if dir_fd.get_opt().is_some() {
+                return Err(vm.new_value_error("stat: can't specify dir_fd without matching path"));
+            }
+            if !follow_symlinks.0 {
+                return Err(vm.new_value_error("stat: cannot use fd and follow_symlinks together"));
+            }
         }
         let stat = stat_inner(path.clone(), dir_fd, follow_symlinks)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?
@@ -1635,7 +1648,12 @@ pub(super) mod _os {
             dir_fd,
             follow_symlinks,
         } = args;
-        stat_at(path, dir_fd, follow_symlinks, vm)
+        stat_at(
+            path,
+            dir_fd,
+            FollowSymlinks(follow_symlinks.follow_symlinks.into_bool()),
+            vm,
+        )
     }
 
     #[derive(FromArgs)]
@@ -1926,13 +1944,13 @@ pub(super) mod _os {
     struct UtimeArgs<'fd> {
         path: OsPath,
         #[pyarg(any, default = None)]
-        times: Option<PyTupleRef>,
-        #[pyarg(named, default)]
-        ns: Option<PyTupleRef>,
+        times: Option<PyObjectRef>,
+        #[pyarg(named, optional)]
+        ns: OptionalArg<PyObjectRef>,
         #[pyarg(flatten)]
         dir_fd: DirFd<'fd, { UTIME_DIR_FD as usize }>,
         #[pyarg(flatten)]
-        follow_symlinks: FollowSymlinks,
+        follow_symlinks: TruthFollowSymlinks,
     }
 
     fn file_time_seconds(obj: &PyObject, vm: &VirtualMachine) -> PyResult<FileTimeSeconds> {
@@ -1988,15 +2006,23 @@ pub(super) mod _os {
                 Some((tup.as_slice()[0].clone(), tup.as_slice()[1].clone()))
             }
         };
+        let exact_pair = |arg: &PyObject| {
+            arg.class()
+                .is(vm.ctx.types.tuple_type)
+                .then(|| arg.downcast_ref::<PyTuple>().and_then(parse_tup))
+                .flatten()
+        };
         let (acc, modif) = match (args.times, args.ns) {
-            (Some(t), None) => {
-                let (a, m) = parse_tup(&t).ok_or_else(|| {
-                    vm.new_type_error("utime: 'times' must be either a tuple of two ints or None")
+            (Some(t), OptionalArg::Missing) => {
+                let (a, m) = exact_pair(&t).ok_or_else(|| {
+                    vm.new_type_error(
+                        "utime: 'times' must be either a tuple of two numbers or None",
+                    )
                 })?;
                 (file_time(&a, vm)?, file_time(&m, vm)?)
             }
-            (None, Some(ns)) => {
-                let (a, m) = parse_tup(&ns)
+            (None, OptionalArg::Present(ns)) => {
+                let (a, m) = exact_pair(&ns)
                     .ok_or_else(|| vm.new_type_error("utime: 'ns' must be a tuple of two ints"))?;
                 let ns_in_sec: PyObjectRef = vm.ctx.new_int(1_000_000_000).into();
                 let ns_to_time = |obj: PyObjectRef| {
@@ -2027,7 +2053,7 @@ pub(super) mod _os {
                 };
                 (ns_to_time(a)?, ns_to_time(m)?)
             }
-            (None, None) => {
+            (None, OptionalArg::Missing) => {
                 let now = SystemTime::now();
                 let now = now.duration_since(SystemTime::UNIX_EPOCH).unwrap();
                 let now = FileTime {
@@ -2038,13 +2064,20 @@ pub(super) mod _os {
                 };
                 (now, now)
             }
-            (Some(_), Some(_)) => {
+            (Some(_), OptionalArg::Present(_)) => {
                 return Err(vm.new_value_error(
                     "utime: you may specify either 'times' or 'ns' but not both",
                 ));
             }
         };
-        utime_impl(args.path, acc, modif, args.dir_fd, args.follow_symlinks, vm)
+        utime_impl(
+            args.path,
+            acc,
+            modif,
+            args.dir_fd,
+            FollowSymlinks(args.follow_symlinks.follow_symlinks.into_bool()),
+            vm,
+        )
     }
 
     fn utime_impl(

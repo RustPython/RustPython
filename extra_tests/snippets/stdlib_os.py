@@ -187,6 +187,67 @@ assert os.fspath(b"Testing") == b"Testing"
 assert_raises(TypeError, lambda: os.fspath([1, 2, 3]))
 
 
+def test_stat_and_utime_argument_conversion():
+    class TupleSubclass(tuple):
+        pass
+
+    class Truth:
+        def __bool__(self):
+            return True
+
+    class BrokenTruth:
+        def __bool__(self):
+            raise RuntimeError("truth check failed")
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "file")
+        with open(path, "wb") as file:
+            file.write(b"data")
+
+        assert os.utime(path) is None
+        for kwargs in ({"ns": None}, {"ns": []}, {"ns": TupleSubclass((1, 2))}):
+            with assert_raises(TypeError) as error:
+                os.utime(path, **kwargs)
+            assert str(error.exception) == "utime: 'ns' must be a tuple of two ints"
+
+        for times in ([], TupleSubclass((1, 2))):
+            with assert_raises(TypeError) as error:
+                os.utime(path, times)
+            assert str(error.exception) == (
+                "utime: 'times' must be either a tuple of two numbers or None"
+            )
+        for times, ns in (((1, 2), None), ([], ())):
+            with assert_raises(ValueError) as error:
+                os.utime(path, times, ns=ns)
+            assert str(error.exception) == (
+                "utime: you may specify either 'times' or 'ns' but not both"
+            )
+
+        with assert_raises(RuntimeError) as error:
+            os.utime(path, [], follow_symlinks=BrokenTruth())
+        assert str(error.exception) == "truth check failed"
+        os.utime(path, (1_000_000_000, 1_000_000_002), follow_symlinks=Truth())
+        st = os.stat(path, follow_symlinks=Truth())
+        assert st.st_mtime_ns == 1_000_000_002_000_000_000
+        assert st.st_size == 4
+
+        if os.stat in os.supports_dir_fd:
+            directory_fd = os.open(directory, os.O_RDONLY)
+            try:
+                with open(path, "rb") as file:
+                    with assert_raises(ValueError) as error:
+                        os.stat(file.fileno(), dir_fd=directory_fd)
+                    assert str(error.exception) == (
+                        "stat: can't specify dir_fd without matching path"
+                    )
+                assert os.stat("file", dir_fd=directory_fd).st_size == 4
+            finally:
+                os.close(directory_fd)
+
+
+test_stat_and_utime_argument_conversion()
+
+
 class TestWithTempDir:
     def __enter__(self):
         if os.name == "nt":
