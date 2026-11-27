@@ -12,6 +12,8 @@ license.workspace = true
 # On wasm32-unknown-unknown this makes the io/crt_fd backends import the WASI
 # preview1 subset; on other targets it has no effect.
 host_io = []
+# Optional WASIX networking imports for wasm32-wasip1 hosts such as Wasmer.
+wasix = []
 # `ctypes` module: libffi (linked against the system library) and libloading.
 ctypes = ["dep:libffi", "dep:libloading"]
 native-certs = ["dep:rustls-native-certs"]

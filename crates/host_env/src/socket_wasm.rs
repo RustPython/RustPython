@@ -1,8 +1,9 @@
-//! Socket constant surface for `wasm32-unknown-unknown` and WASI.
+// spell-checker:ignore WASIX
+//! Socket constants and backend selection for WebAssembly.
 //!
-//! There are no BSD sockets on unknown-unknown, and WASI does not use the
-//! unix/windows socket engine yet. The numbers are the Linux ABI
-//! `Lib/socket.py` expects so the stdlib can import.
+//! The Python constants use Linux values, independently of the host ABI.
+//! Standard WASI and browser hosts cannot create sockets through this API;
+//! the opt-in WASIX backend translates these constants to its host imports.
 
 pub const AF_UNSPEC: i32 = 0;
 pub const AF_UNIX: i32 = 1;
@@ -55,3 +56,15 @@ pub const INADDR_NONE: u32 = 0xffff_ffff;
 pub const IPPORT_RESERVED: i32 = 1024;
 pub const IPPORT_USERRESERVED: i32 = 5000;
 pub const TCP_NODELAY: i32 = 1;
+
+#[cfg(all(target_os = "wasi", target_env = "p1", feature = "wasix"))]
+#[path = "socket/wasix.rs"]
+mod wasix;
+#[cfg(all(target_os = "wasi", target_env = "p1", feature = "wasix"))]
+pub use wasix::{Socket, resolve};
+
+#[cfg(not(all(target_os = "wasi", target_env = "p1", feature = "wasix")))]
+#[path = "socket/unsupported.rs"]
+mod unsupported;
+#[cfg(not(all(target_os = "wasi", target_env = "p1", feature = "wasix")))]
+pub use unsupported::{Socket, resolve};

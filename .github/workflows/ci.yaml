@@ -1248,6 +1248,10 @@ jobs:
           python3 example_projects/wasm32_without_js/test_wasi_fs.py -v \
             --wasmer "$(command -v wasmer)" \
             --wasi-module target/wasm32-wasip1/wasm-release/rustpython.wasm
+      - name: Check portable WASI socket capability errors
+        if: env.RUN_WASM_WASI == 'true'
+        run: extra_tests/rustpython_wasi.sh "$(pwd)/extra_tests/wasix_socket.py" --unsupported
+
       - name: Setup Python for the snippet harness
         if: env.RUN_WASM_WASI == 'true'
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -1275,6 +1279,16 @@ jobs:
             extra_tests/rustpython_wasi.sh -X frozen_modules=off -m test -u none "$name"
             echo "::endgroup::"
           done
+
+      - name: Build the opt-in WASIX socket backend
+        if: env.RUN_WASM_WASI == 'true'
+        run: cargo build --locked --profile wasm-release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env,doc,ucd_3_2_0,wasix
+
+      - name: Test WASIX loopback sockets and denied networking
+        if: env.RUN_WASM_WASI == 'true'
+        run: |
+          timeout 120 wasmer run --net --volume "$PWD" --env "RUSTPYTHONPATH=$PWD/Lib" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$PWD/extra_tests/wasix_socket.py" -v
+          timeout 30 extra_tests/rustpython_wasi.sh "$PWD/extra_tests/wasix_socket.py" --denied
 
   cargo_doc:
     needs:
