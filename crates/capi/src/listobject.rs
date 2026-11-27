@@ -42,6 +42,20 @@ pub unsafe extern "C" fn PyList_GetItemRef(obj: *mut PyObject, index: isize) -> 
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyList_GetItem(obj: *mut PyObject, index: isize) -> *mut PyObject {
+    with_vm(|vm| {
+        let list = unsafe { obj.assume_borrowed_and_cast::<PyList>(vm) }?;
+        let vec = list.borrow_vec();
+        let item = index
+            .try_into()
+            .ok()
+            .and_then(|index: usize| vec.get(index))
+            .ok_or_else(|| vm.new_index_error("list index out of range"))?;
+        Ok(item.as_object().as_raw().cast_mut())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyList_SetItem(
     list: *mut PyObject,
     index: isize,
@@ -167,9 +181,53 @@ pub unsafe extern "C" fn PyList_Sort(list: *mut PyObject) -> c_int {
 
 #[cfg(test)]
 mod tests {
-    use pyo3::exceptions::PyIndexError;
+    use pyo3::exceptions::{PyIndexError, PyTypeError};
     use pyo3::prelude::*;
-    use pyo3::types::{PyList, PyListMethods};
+    use pyo3::types::{PyDict, PyList, PyListMethods, PyStringMethods, PyTuple};
+
+    #[test]
+    fn get_item_borrowed() {
+        Python::attach(|py| {
+            let list = PyList::empty(py);
+            let first = PyDict::new(py);
+            let last = PyDict::new(py);
+            list.append(&first).unwrap();
+            list.append(&last).unwrap();
+
+            let got_first = unsafe {
+                Borrowed::from_ptr(py, super::PyList_GetItem(list.as_ptr().cast(), 0).cast())
+            };
+            let got_last = unsafe {
+                Borrowed::from_ptr(py, super::PyList_GetItem(list.as_ptr().cast(), 1).cast())
+            };
+            assert!(got_first.is(&first));
+            assert!(got_last.is(&last));
+
+            assert!(unsafe { super::PyList_GetItem(list.as_ptr().cast(), -1) }.is_null());
+            let error = PyErr::fetch(py);
+            assert!(error.is_instance_of::<PyIndexError>(py));
+            assert_eq!(
+                error.value(py).str().unwrap().to_str().unwrap(),
+                "list index out of range"
+            );
+
+            assert!(unsafe { super::PyList_GetItem(list.as_ptr().cast(), 2) }.is_null());
+            let error = PyErr::fetch(py);
+            assert!(error.is_instance_of::<PyIndexError>(py));
+            assert_eq!(
+                error.value(py).str().unwrap().to_str().unwrap(),
+                "list index out of range"
+            );
+
+            let empty = PyList::empty(py);
+            assert!(unsafe { super::PyList_GetItem(empty.as_ptr().cast(), 0) }.is_null());
+            assert!(PyErr::fetch(py).is_instance_of::<PyIndexError>(py));
+
+            let tuple = PyTuple::new(py, [10]).unwrap();
+            assert!(unsafe { super::PyList_GetItem(tuple.as_ptr().cast(), 0) }.is_null());
+            assert!(PyErr::fetch(py).is_instance_of::<PyTypeError>(py));
+        });
+    }
 
     #[test]
     fn create_list() {
