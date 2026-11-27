@@ -114,7 +114,7 @@ pub(crate) mod module {
             args.dst.as_ref(),
             &src,
             &dst,
-            args.target_is_directory.target_is_directory,
+            args.target_is_directory.into_bool(),
         ) {
             return Err(OSErrorBuilder::with_filenames(
                 &err, &args.src, &args.dst, vm,
