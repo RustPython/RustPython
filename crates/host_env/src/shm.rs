@@ -1,4 +1,3 @@
-use core::ffi::CStr;
 use std::io;
 
 use rustix::{
@@ -8,7 +7,7 @@ use rustix::{
 
 pub use libc::mode_t;
 
-pub fn shm_open(name: &CStr, flags: libc::c_int, mode: libc::mode_t) -> io::Result<libc::c_int> {
+pub fn shm_open(name: &str, flags: libc::c_int, mode: libc::mode_t) -> io::Result<libc::c_int> {
     // FreeBSD implements shared memory differently from Linux so NO_FOLLOW isn't set or needed.
     #[cfg(not(target_os = "linux"))]
     let flags = shm::OFlags::from_bits_retain(flags as _);
@@ -24,6 +23,6 @@ pub fn shm_open(name: &CStr, flags: libc::c_int, mode: libc::mode_t) -> io::Resu
         .map_err(Into::into)
 }
 
-pub fn shm_unlink(name: &CStr) -> io::Result<()> {
+pub fn shm_unlink(name: &str) -> io::Result<()> {
     shm::unlink(name).map_err(Into::into)
 }

@@ -1650,12 +1650,15 @@ mod _socket {
 
                     let ifindex = if ifname.is_empty() {
                         0
-                    } else if ifname.len() >= 16 {
+                    } else if ifname.len() >= libc::IF_NAMESIZE {
                         return Err(vm.new_os_error("AF_CAN interface name too long").into());
                     } else {
-                        let cstr = alloc::ffi::CString::new(ifname)
+                        let mut buf = [0u8; libc::IF_NAMESIZE];
+                        buf[..ifname.len()].copy_from_slice(ifname.as_bytes());
+                        // IF_NAMESIZE is the max length including NUL, so buf should have a NUL.
+                        let cstr = core::ffi::CStr::from_bytes_with_nul(&buf[..=ifname.len()])
                             .map_err(|_| vm.new_os_error("invalid interface name"))?;
-                        host_socket::if_nametoindex_checked(cstr.as_c_str())? as i32
+                        host_socket::if_nametoindex_checked(cstr)? as i32
                     };
 
                     let mut storage: c::sockaddr_storage = unsafe { core::mem::zeroed() };

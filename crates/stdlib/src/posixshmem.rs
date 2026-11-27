@@ -4,11 +4,12 @@ pub(crate) use _posixshmem::module_def;
 #[cfg(all(unix, not(target_os = "android")))]
 #[pymodule]
 mod _posixshmem {
-    use alloc::ffi::CString;
-
     use crate::vm::{
         FromArgs, PyResult, VirtualMachine, builtins::PyUtf8StrRef, convert::IntoPyException,
+        exceptions,
     };
+    use core::hint::cold_path;
+    use memchr::memchr;
     use rustpython_host_env::shm;
 
     #[derive(FromArgs)]
@@ -24,13 +25,21 @@ mod _posixshmem {
 
     #[pyfunction]
     fn shm_open(args: ShmOpenArgs, vm: &VirtualMachine) -> PyResult<core::ffi::c_int> {
-        let path = CString::new(args.path.as_str()).map_err(|e| e.into_pyexception(vm))?;
-        shm::shm_open(&path, args.flags, args.mode).map_err(|e| e.into_pyexception(vm))
+        let path = args.path.as_str();
+        if memchr(b'\0', path.as_bytes()).is_some() {
+            cold_path();
+            return Err(exceptions::nul_char_error(vm));
+        }
+        shm::shm_open(path, args.flags, args.mode).map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]
     fn shm_unlink(path: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
-        let path = CString::new(path.as_str()).map_err(|e| e.into_pyexception(vm))?;
-        shm::shm_unlink(&path).map_err(|e| e.into_pyexception(vm))
+        let path = path.as_str();
+        if memchr(b'\0', path.as_bytes()).is_some() {
+            cold_path();
+            return Err(exceptions::nul_char_error(vm));
+        }
+        shm::shm_unlink(path).map_err(|e| e.into_pyexception(vm))
     }
 }
