@@ -8,7 +8,7 @@ mod _lsprof {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
-            PyFloat, PyModule, PyStr, PyType,
+            PyModule, PyStr, PyType,
             builtin_func::{PyNativeFunction, PyNativeMethod},
             descriptor::PyMethodDescriptor,
         },
@@ -16,7 +16,10 @@ mod _lsprof {
         convert::ToPyObject,
         function::{ArgIntoBool, ArgIntoFloat, FuncArgs, OptionalArg, PyMethodDef},
         object::{Traverse, TraverseFn},
-        stdlib::sys::monitoring::MonitoringEvent,
+        stdlib::{
+            sys::monitoring::MonitoringEvent,
+            time::pytime::{self, Round},
+        },
         types::{Constructor, Initializer, PyStructSequence},
         vm::thread::{self, critical_section, lock::PyMutex as OperationMutex},
     };
@@ -268,26 +271,8 @@ mod _lsprof {
                 value.and_then(|value| {
                     if unit > 0.0 {
                         value.try_into_value::<i64>(vm).map(i128::from)
-                    } else if let Some(value) = value.downcast_ref::<PyFloat>() {
-                        let nanos = (value.to_f64() * 1_000_000_000.0).floor();
-                        if nanos.is_nan() {
-                            Err(vm.new_value_error("Invalid value NaN (not a number)"))
-                        } else if !(i64::MIN as f64..-(i64::MIN as f64)).contains(&nanos) {
-                            Err(vm
-                                .new_overflow_error("timestamp too large to convert to C PyTime_t"))
-                        } else {
-                            Ok(nanos as i64 as i128)
-                        }
                     } else {
-                        let seconds = value.try_into_value::<i64>(vm)?;
-                        seconds
-                            .checked_mul(1_000_000_000)
-                            .map(i128::from)
-                            .ok_or_else(|| {
-                                vm.new_overflow_error(
-                                    "timestamp too large to convert to C PyTime_t",
-                                )
-                            })
+                        pytime::from_seconds_object(&value, Round::Floor, vm).map(i128::from)
                     }
                 })
             } else {
