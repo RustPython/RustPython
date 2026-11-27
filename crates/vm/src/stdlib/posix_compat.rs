@@ -16,7 +16,7 @@ pub(crate) mod module {
         Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::PyStrRef,
         ospath::OsPath,
-        stdlib::os::{_os, DirFd, SupportFunc, SymlinkArgs, TargetIsDirectory},
+        stdlib::os::{_os, DirFd, SupportFunc, SymlinkArgs},
     };
 
     #[cfg(target_os = "wasi")]

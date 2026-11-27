@@ -5,7 +5,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyModule, PySet},
     convert::{IntoPyException, ToPyException, ToPyObject},
-    function::{ArgumentError, FromArgs, FuncArgs, Param},
+    function::{ArgIntoBool, ArgumentError, FromArgs, FuncArgs, Param},
     host_env::{crt_fd, posix::RawMode},
     ospath::OsPath,
 };
@@ -21,13 +21,6 @@ pub(crate) fn fs_metadata<P: AsRef<Path>>(
     } else {
         crate::host_env::fs::symlink_metadata(path.as_ref())
     }
-}
-
-#[allow(dead_code)]
-#[derive(FromArgs, Default)]
-pub struct TargetIsDirectory {
-    #[pyarg(any, default)]
-    pub(crate) target_is_directory: bool,
 }
 
 use crate::host_env::os::AT_FDCWD;
@@ -131,9 +124,9 @@ impl<const AVAILABLE: usize, KW: DirFdKeyword> FromArgs for DirFd<'_, AVAILABLE,
 pub(crate) struct SymlinkArgs<'fd> {
     pub src: OsPath,
     pub dst: OsPath,
-    #[cfg_attr(any(unix, target_os = "wasi"), expect(unused))]
-    #[pyarg(flatten)]
-    pub target_is_directory: TargetIsDirectory,
+    #[cfg_attr(not(windows), expect(unused))]
+    #[pyarg(any, default = ArgIntoBool::FALSE)]
+    pub target_is_directory: ArgIntoBool,
     #[cfg_attr(not(unix), expect(unused))]
     #[pyarg(flatten)]
     pub dir_fd: DirFd<'fd, { _os::SYMLINK_DIR_FD as usize }>,
@@ -237,7 +230,8 @@ pub(super) mod _os {
         convert::{IntoPyException, ToPyException, ToPyObject},
         exceptions::OSErrorBuilder,
         function::{
-            ArgBytesLike, ArgMemoryBuffer, ArgumentError, Either, FromArgs, FsPath, FuncArgs, Param,
+            ArgBytesLike, ArgIntoBool, ArgMemoryBuffer, ArgumentError, Either, FromArgs, FsPath,
+            FuncArgs, Param,
         },
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
@@ -1834,8 +1828,12 @@ pub(super) mod _os {
         src_dir_fd: DirFd<'fd, { LINK_DIR_FD as usize }, SrcDirFd>,
         #[pyarg(flatten)]
         dst_dir_fd: DirFd<'fd, { LINK_DIR_FD as usize }, DstDirFd>,
-        #[pyarg(named, default = cfg!(not(windows)), py_default = "(os.name != 'nt')")]
-        follow_symlinks: bool,
+        #[pyarg(
+            named,
+            default = if cfg!(windows) { ArgIntoBool::FALSE } else { ArgIntoBool::TRUE },
+            py_default = "(os.name != 'nt')"
+        )]
+        follow_symlinks: ArgIntoBool,
     }
 
     #[pyfunction]
@@ -1847,6 +1845,7 @@ pub(super) mod _os {
             dst_dir_fd,
             follow_symlinks,
         } = args;
+        let follow_symlinks = follow_symlinks.into_bool();
 
         #[cfg(unix)]
         {
@@ -1876,16 +1875,13 @@ pub(super) mod _os {
         #[cfg(windows)]
         {
             let _ = (src_dir_fd, dst_dir_fd);
-            let src_path = if follow_symlinks {
-                crate::host_env::fs::canonicalize(&src.path)
-                    .unwrap_or_else(|_| PathBuf::from(src.path.clone()))
-            } else {
-                PathBuf::from(src.path.clone())
-            };
+            if follow_symlinks {
+                return Err(vm.new_not_implemented_error(
+                    "link: follow_symlinks=True unavailable on this platform",
+                ));
+            }
             // CreateHardLinkW(new, existing)
-            let src_wide = src_path
-                .to_wide_cstring()
-                .map_err(|err| err.into_pyexception(vm))?;
+            let src_wide = src.to_wide_cstring(vm)?;
             let dst_wide = dst.to_wide_cstring(vm)?;
             rustpython_host_env::winapi::create_hard_link(&dst_wide, &src_wide)
                 .map_err(|err| OSErrorBuilder::with_filenames(&err, &src, &dst, vm))
@@ -2517,7 +2513,7 @@ pub(super) mod _os {
             )))),
             SupportFunc::new("chdir", None, Some(false), Some(false)),
             // chflags Some, None Some
-            SupportFunc::new("link", Some(false), Some(false), Some(cfg!(unix))),
+            SupportFunc::new("link", Some(false), Some(cfg!(unix)), Some(cfg!(unix))),
             SupportFunc::new("listdir", Some(LISTDIR_FD), Some(false), Some(false)),
             SupportFunc::new("mkdir", Some(false), Some(MKDIR_DIR_FD), Some(false)),
             // mkfifo Some Some None

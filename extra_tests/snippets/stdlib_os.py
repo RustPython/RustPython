@@ -612,6 +612,7 @@ with TestWithTempDir() as tmpdir:
             collected_files = [dir_entry.name for dir_entry in dir_iter]
             assert set(collected_files) == set(expected_files)
 
+
 # system()
 if os.name in ("posix", "nt"):
     assert os.system("echo test") == 0
@@ -619,6 +620,69 @@ if os.name in ("posix", "nt"):
 
     for arg in [None, 1, 1.0, TabError]:
         assert_raises(TypeError, os.system, arg)
+
+
+def test_link_argument_conversion():
+    class Truth:
+        def __init__(self, value):
+            self.value = value
+
+        def __bool__(self):
+            return self.value
+
+    class BrokenTruth:
+        def __bool__(self):
+            raise RuntimeError("link truth check failed")
+
+    with tempfile.TemporaryDirectory() as directory:
+        src = os.path.join(directory, "file")
+        with open(src, "wb") as file:
+            file.write(b"data")
+
+        omitted = os.path.join(directory, "omitted")
+        nofollow = os.path.join(directory, "nofollow")
+        follow = os.path.join(directory, "follow")
+        os.link(src, omitted)
+        os.link(src, nofollow, follow_symlinks=Truth(False))
+        assert os.path.samefile(src, omitted)
+        assert os.path.samefile(src, nofollow)
+
+        if os.name == "nt":
+            with assert_raises(NotImplementedError) as error:
+                os.link(src, follow, follow_symlinks=Truth(True))
+            assert str(error.exception) == (
+                "link: follow_symlinks=True unavailable on this platform"
+            )
+            assert not os.path.lexists(follow)
+        else:
+            os.link(src, follow, follow_symlinks=Truth(True))
+            assert os.path.samefile(src, follow)
+
+        if sys.platform.startswith("linux"):
+            assert os.link in os.supports_dir_fd
+            fd = os.open(directory, os.O_RDONLY)
+            try:
+                os.link("file", "relative", src_dir_fd=fd, dst_dir_fd=fd)
+                assert os.path.samefile(src, os.path.join(directory, "relative"))
+            finally:
+                os.close(fd)
+
+        with assert_raises(RuntimeError) as error:
+            os.link(src, follow, follow_symlinks=BrokenTruth())
+        assert str(error.exception) == "link truth check failed"
+
+        symlink = os.path.join(directory, "symlink")
+        with assert_raises(RuntimeError) as error:
+            os.symlink(src, symlink, target_is_directory=BrokenTruth())
+        assert str(error.exception) == "link truth check failed"
+        assert not os.path.lexists(symlink)
+        if os.name == "posix":
+            os.symlink(src, symlink, target_is_directory=Truth(False))
+            assert os.path.samefile(src, symlink)
+
+
+test_link_argument_conversion()
+
 
 # Testing for os.pathconf_names
 if not sys.platform.startswith("win"):
