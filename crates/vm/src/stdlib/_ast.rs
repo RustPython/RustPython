@@ -1995,9 +1995,12 @@ pub(crate) fn parse<E: From<CompileError> + From<crate::builtins::PyBaseExceptio
     if let Some(error) = barry_source.diagnostic(None, &source_file) {
         return Err(error.into());
     }
-    if dont_imply_dedent
-        && interactive
-        && let Some(error) = rustpython_compiler::dont_imply_dedent_source_error(&source_file)
+    if interactive
+        && let Some(error) = rustpython_compiler::single_mode_terminator_error(
+            &parsed,
+            &source_file,
+            dont_imply_dedent,
+        )
     {
         return Err(error.into());
     }

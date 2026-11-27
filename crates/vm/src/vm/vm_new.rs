@@ -752,7 +752,14 @@ impl VirtualMachine {
             .expect("SyntaxError construction from internal args is infallible")
             .upcast();
 
-        let (lineno_raw, offset_raw) = error.python_location();
+        let incomplete_terminator = eof_token.filter(|eof| {
+            allow_incomplete
+                && eof.raised_at == rustpython_compiler::EofErrorLocation::SingleInputTerminator
+        });
+        let (lineno_raw, offset_raw) = incomplete_terminator.map_or_else(
+            || error.python_location(),
+            |eof| (eof.lineno, eof.line.chars().count()),
+        );
         let lineno = self.ctx.new_int(lineno_raw);
         let offset = self.ctx.new_int(offset_raw);
         set_attrs!(
@@ -786,7 +793,9 @@ impl VirtualMachine {
                         .as_deref()
                         .and_then(|line| line.chars().next())
                         .is_some_and(|ch| ch.is_ascii_whitespace()));
-            let (end_lineno, end_offset) = if let Some(eof_token) = eof_token {
+            let (end_lineno, end_offset) = if let Some(eof) = incomplete_terminator {
+                (eof.lineno, -1)
+            } else if let Some(eof_token) = eof_token {
                 (eof_token.lineno, eof_token.end_offset())
             } else if no_end_offset {
                 (end_lineno, -1)

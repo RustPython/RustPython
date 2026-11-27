@@ -150,6 +150,36 @@ else:
     raise AssertionError("expected _IncompleteInputError")
 
 
+# A compound single input needs a terminator before AST or code validation.
+# A real or implied DEDENT can finish a block, but not an inline suite.
+for _source, _line, _last_line in (
+    ("def f(x, x): ...", 1, "def f(x, x): ..."),
+    ("if (\n 1\n): pass", 3, "): pass"),
+    ("if 1:\n pass\nelse: pass", 3, "else: pass"),
+    ("if 1: 'é'", 1, "if 1: 'é'"),
+):
+    for _flags in (0, ast.PyCF_ONLY_AST):
+        with assert_raises(SyntaxError) as _raised:
+            compile(_source, "<test>", "single", flags=_flags)
+        _exc = _raised.exception
+        assert (_exc.msg, _exc.lineno, _exc.offset) == ("invalid syntax", _line, 0)
+        assert (_exc.end_lineno, _exc.end_offset, _exc.text) == (_line, 0, _last_line)
+        with assert_raises(_IncompleteInputError) as _raised:
+            compile(
+                _source, "<test>", "single", flags=_flags | PY_CF_ALLOW_INCOMPLETE_INPUT
+            )
+        _exc = _raised.exception
+        assert (_exc.msg, _exc.lineno, _exc.offset) == (
+            "incomplete input",
+            _line,
+            len(_last_line),
+        )
+        assert (_exc.end_lineno, _exc.end_offset, _exc.text) == (_line, -1, _last_line)
+
+compile("if 1: pass\n# comment", "<test>", "single", flags=ast.PyCF_ONLY_AST)
+compile("if 1:\n pass", "<test>", "single", flags=ast.PyCF_ONLY_AST)
+
+
 def _expect_incomplete(source, mode):
     try:
         compile(source, "<test>", mode, flags=PY_CF_ALLOW_INCOMPLETE_INPUT)
