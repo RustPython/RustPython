@@ -69,19 +69,19 @@ pub(crate) mod module {
     #[pyfunction]
     pub(super) fn access(args: AccessArgs<'_>, vm: &VirtualMachine) -> PyResult<bool> {
         let [] = args.dir_fd.0;
-        if !args.follow_symlinks.0 {
+        if !args.follow_symlinks.into_bool() {
             return Err(vm.new_not_implemented_error(
                 "access: follow_symlinks unavailable on this platform",
             ));
         }
-        if args.effective_ids {
+        if args.effective_ids.into_bool() {
             return Err(
                 vm.new_not_implemented_error("access: effective_ids unavailable on this platform")
             );
         }
-        let wide = args.path.to_wide_cstring(vm)?;
+        let wide = args.path.0.to_wide_cstring(vm)?;
 
-        Ok(host_nt::access(&wide, args.mode))
+        Ok(host_nt::access(&wide, args.mode.into_primitive()))
     }
 
     #[derive(FromArgs)]

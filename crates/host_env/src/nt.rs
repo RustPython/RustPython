@@ -268,7 +268,7 @@ pub enum ReadConsoleError {
     BufferTooSmall { available: usize, required: usize },
 }
 
-pub fn access(path: &WideCStr, mode: u8) -> bool {
+pub fn access(path: &WideCStr, mode: libc::c_int) -> bool {
     let attr = unsafe { GetFileAttributesW(path.as_ptr()) };
     attr != INVALID_FILE_ATTRIBUTES
         && (mode & 2 == 0

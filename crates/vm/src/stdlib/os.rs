@@ -5,9 +5,9 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyModule, PySet},
     convert::{IntoPyException, ToPyException, ToPyObject},
-    function::{ArgumentError, FromArgs, FuncArgs, Param},
+    function::{ArgCInt, ArgIntoBool, ArgumentError, FromArgs, FuncArgs, Param},
     host_env::{crt_fd, posix::RawMode},
-    ospath::OsPath,
+    ospath::{OsPath, PathConverter},
 };
 use core::marker::PhantomData;
 use std::{io, path::Path};
@@ -144,18 +144,29 @@ pub(super) struct FollowSymlinks(
     #[pyarg(named, name = "follow_symlinks", default = true)] pub bool,
 );
 
+pub(super) struct AccessPath(pub(super) OsPath);
+
+impl TryFromObject for AccessPath {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        PathConverter::new()
+            .function("access")
+            .try_path_inner(obj, false, vm)
+            .map(Self)
+    }
+}
+
 #[derive(FromArgs)]
 pub(super) struct AccessArgs<'fd> {
     #[pyarg(any)]
-    pub(super) path: OsPath,
+    pub(super) path: AccessPath,
     #[pyarg(any)]
-    pub(super) mode: u8,
+    pub(super) mode: ArgCInt,
     #[pyarg(flatten)]
     pub(super) dir_fd: DirFd<'fd, { _os::ACCESS_DIR_FD as usize }>,
-    #[pyarg(named, default)]
-    pub(super) effective_ids: bool,
-    #[pyarg(flatten)]
-    pub(super) follow_symlinks: FollowSymlinks,
+    #[pyarg(named, default = ArgIntoBool::FALSE)]
+    pub(super) effective_ids: ArgIntoBool,
+    #[pyarg(named, default = ArgIntoBool::TRUE)]
+    pub(super) follow_symlinks: ArgIntoBool,
 }
 
 #[cfg(not(windows))]
