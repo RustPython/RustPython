@@ -2212,9 +2212,17 @@ pub fn single_mode_terminator_error(
     }
 
     let eof = source.len();
+    // Keep the direct compiler API's incomplete classification when the
+    // caller explicitly disallows the implied dedent. The VM separately
+    // decides whether to expose IncompleteInputError.
+    let message = if dedent && dont_imply_dedent {
+        "incomplete input"
+    } else {
+        "invalid syntax"
+    };
     let mut error = CompileError::from_source_error(
         source_file,
-        CpythonDiagnostic::new("invalid syntax".to_owned(), eof, eof),
+        CpythonDiagnostic::new(message.to_owned(), eof, eof),
     );
     if let CompileError::Parse(error) = &mut error {
         error.eof_token = Some(Box::new(EofToken::new(
