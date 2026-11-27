@@ -237,7 +237,8 @@ pub(super) mod _os {
         convert::{IntoPyException, ToPyException, ToPyObject},
         exceptions::OSErrorBuilder,
         function::{
-            ArgBytesLike, ArgMemoryBuffer, ArgumentError, Either, FromArgs, FsPath, FuncArgs, Param,
+            ArgBytesLike, ArgIntoBool, ArgMemoryBuffer, ArgumentError, Either, FromArgs, FsPath,
+            FuncArgs, Param,
         },
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
@@ -799,6 +800,12 @@ pub(super) mod _os {
         find: Option<host_nt::ScandirEntry>,
     }
 
+    #[derive(FromArgs)]
+    struct DirEntryFollowSymlinks {
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        follow_symlinks: ArgIntoBool,
+    }
+
     impl DirEntry {
         /// Build the DirFd to use for stat calls.
         /// If this entry was produced by fd-based scandir, use the stored dir_fd
@@ -815,7 +822,7 @@ pub(super) mod _os {
         }
 
         /// Stat-based mode test fallback. Uses fstatat when dir_fd is available.
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         fn test_mode_via_stat(
             &self,
             follow_symlinks: bool,
@@ -923,34 +930,37 @@ pub(super) mod _os {
         }
 
         #[pymethod]
-        fn is_dir(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
+        fn is_dir(&self, args: DirEntryFollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
+            let follow_symlinks = args.follow_symlinks.into_bool();
             #[cfg(windows)]
             if let Some(find) = &self.find {
                 // Follow only real symlinks. Junctions are not symlinks, so
                 // FILE_ATTRIBUTE_DIRECTORY is used as-is. A directory symlink
                 // is not a directory when follow_symlinks is false.
                 let is_symlink = find.is_symlink();
-                if !(follow_symlinks.0 && is_symlink) {
-                    return Ok(!is_symlink && find.is_directory());
-                }
+                return if follow_symlinks && is_symlink {
+                    self.test_mode_via_stat(true, libc::S_IFDIR as _, vm)
+                } else {
+                    Ok(!is_symlink && find.is_directory())
+                };
             }
             if let Ok(file_type) = &self.file_type
-                && (!follow_symlinks.0 || !file_type.is_symlink())
+                && (!follow_symlinks || !file_type.is_symlink())
             {
                 return Ok(file_type.is_dir());
             }
             #[cfg(unix)]
             if let Some(dt) = self.d_type {
                 let is_symlink = dt == libc::DT_LNK;
-                let need_stat = dt == libc::DT_UNKNOWN || (follow_symlinks.0 && is_symlink);
+                let need_stat = dt == libc::DT_UNKNOWN || (follow_symlinks && is_symlink);
                 if !need_stat {
                     return Ok(dt == libc::DT_DIR);
                 }
             }
             #[cfg(unix)]
-            return self.test_mode_via_stat(follow_symlinks.0, libc::S_IFDIR as _, vm);
+            return self.test_mode_via_stat(follow_symlinks, libc::S_IFDIR as _, vm);
             #[cfg(not(unix))]
-            match super::fs_metadata(&self.pathval, follow_symlinks.0) {
+            match super::fs_metadata(&self.pathval, follow_symlinks) {
                 Ok(meta) => Ok(meta.is_dir()),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
                 Err(e) => Err(e.into_pyexception(vm)),
@@ -958,30 +968,33 @@ pub(super) mod _os {
         }
 
         #[pymethod]
-        fn is_file(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
+        fn is_file(&self, args: DirEntryFollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
+            let follow_symlinks = args.follow_symlinks.into_bool();
             #[cfg(windows)]
-            if let Some(find) = &self.find
-                && (!follow_symlinks.0 || !find.is_symlink())
-            {
-                return Ok(find.is_file());
+            if let Some(find) = &self.find {
+                return if follow_symlinks && find.is_symlink() {
+                    self.test_mode_via_stat(true, libc::S_IFREG as _, vm)
+                } else {
+                    Ok(find.is_file())
+                };
             }
             if let Ok(file_type) = &self.file_type
-                && (!follow_symlinks.0 || !file_type.is_symlink())
+                && (!follow_symlinks || !file_type.is_symlink())
             {
                 return Ok(file_type.is_file());
             }
             #[cfg(unix)]
             if let Some(dt) = self.d_type {
                 let is_symlink = dt == libc::DT_LNK;
-                let need_stat = dt == libc::DT_UNKNOWN || (follow_symlinks.0 && is_symlink);
+                let need_stat = dt == libc::DT_UNKNOWN || (follow_symlinks && is_symlink);
                 if !need_stat {
                     return Ok(dt == libc::DT_REG);
                 }
             }
             #[cfg(unix)]
-            return self.test_mode_via_stat(follow_symlinks.0, libc::S_IFREG as _, vm);
+            return self.test_mode_via_stat(follow_symlinks, libc::S_IFREG as _, vm);
             #[cfg(not(unix))]
-            match super::fs_metadata(&self.pathval, follow_symlinks.0) {
+            match super::fs_metadata(&self.pathval, follow_symlinks) {
                 Ok(meta) => Ok(meta.is_file()),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
                 Err(e) => Err(e.into_pyexception(vm)),
@@ -994,8 +1007,9 @@ pub(super) mod _os {
         }
 
         #[pymethod]
-        fn stat(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
-            self.payload.stat(follow_symlinks, vm)
+        fn stat(&self, args: DirEntryFollowSymlinks, vm: &VirtualMachine) -> PyResult {
+            self.payload
+                .stat(FollowSymlinks(args.follow_symlinks.into_bool()), vm)
         }
 
         #[cfg(windows)]
@@ -1044,9 +1058,9 @@ pub(super) mod _os {
         #[cfg(windows)]
         #[pymethod]
         fn is_junction(&self, _vm: &VirtualMachine) -> bool {
-            self.pathval.to_wide_cstring().is_ok_and(|path| {
-                host_nt::test_file_type_by_name(&path, host_nt::TestType::Junction)
-            })
+            self.find
+                .as_ref()
+                .is_some_and(host_nt::ScandirEntry::is_junction)
         }
 
         #[pymethod]

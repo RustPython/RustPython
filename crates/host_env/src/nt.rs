@@ -583,6 +583,11 @@ impl ScandirEntry {
             && self.reserved0 == IO_REPARSE_TAG_SYMLINK
     }
 
+    pub fn is_junction(&self) -> bool {
+        self.file_attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+            && self.reserved0 == IO_REPARSE_TAG_MOUNT_POINT
+    }
+
     pub fn is_file(&self) -> bool {
         !self.is_directory() && !self.is_symlink()
     }

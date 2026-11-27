@@ -612,6 +612,74 @@ with TestWithTempDir() as tmpdir:
             collected_files = [dir_entry.name for dir_entry in dir_iter]
             assert set(collected_files) == set(expected_files)
 
+
+def test_direntry_follow_symlinks_truth():
+    calls = []
+
+    class Truth:
+        def __bool__(self):
+            calls.append("bool")
+            return False
+
+    class BrokenTruth:
+        def __bool__(self):
+            raise TypeError("cannot test truth")
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "file")
+        with open(path, "wb"):
+            pass
+        with os.scandir(directory) as entries:
+            entry = next(entries)
+        for method in (entry.stat, entry.is_file, entry.is_dir):
+            assert method(follow_symlinks=Truth()) == method(follow_symlinks=False)
+            assert method(follow_symlinks=[]) == method(follow_symlinks=False)
+            with assert_raises(TypeError) as error:
+                method(follow_symlinks=BrokenTruth())
+            assert str(error.exception) == "cannot test truth"
+            with assert_raises(TypeError):
+                method(False)
+        assert calls == ["bool"] * 3
+
+
+def test_windows_direntry_cached_metadata():
+    from _winapi import CreateJunction
+
+    with tempfile.TemporaryDirectory() as directory:
+        target = os.path.join(directory, "target")
+        junction = os.path.join(directory, "junction")
+        moved = os.path.join(directory, "moved")
+        os.mkdir(target)
+        CreateJunction(target, junction)
+        try:
+            with os.scandir(directory) as entries:
+                by_name = {entry.name: entry for entry in entries}
+            os.rename(junction, moved)
+            assert by_name["junction"].is_junction()
+            assert not by_name["target"].is_junction()
+        finally:
+            os.rmdir(moved if os.path.lexists(moved) else junction)
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "file")
+        link = os.path.join(directory, "link")
+        with open(path, "wb"):
+            pass
+        os.symlink(path, link)
+        with os.scandir(directory) as entries:
+            entry = next(entry for entry in entries if entry.name == "link")
+        assert stat.S_ISREG(entry.stat().st_mode)
+        os.rename(path, os.path.join(directory, "moved"))
+        assert entry.is_file()
+        assert not entry.is_dir()
+        assert not entry.is_file(follow_symlinks=False)
+
+
+test_direntry_follow_symlinks_truth()
+if sys.platform == "win32":
+    test_windows_direntry_cached_metadata()
+
+
 # system()
 if os.name in ("posix", "nt"):
     assert os.system("echo test") == 0
