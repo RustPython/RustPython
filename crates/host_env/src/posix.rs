@@ -1056,13 +1056,13 @@ pub fn getgroups() -> std::io::Result<Vec<u32>> {
 pub fn check_access(
     dir_fd: Option<crt_fd::Borrowed<'_>>,
     path: &Path,
-    mode: u8,
+    mode: libc::c_int,
     effective_ids: bool,
     follow_symlinks: bool,
 ) -> bool {
     use std::os::unix::fs::MetadataExt;
 
-    let Some(mode) = AccessMode::from_bits(mode) else {
+    let Some(mode) = u8::try_from(mode).ok().and_then(AccessMode::from_bits) else {
         return false;
     };
 

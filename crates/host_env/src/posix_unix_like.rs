@@ -28,7 +28,7 @@ impl From<io::Error> for AccessError {
 pub fn check_access(
     dir_fd: Option<crt_fd::Borrowed<'_>>,
     path: impl AsRef<Path>,
-    access: u8,
+    access: libc::c_int,
     #[cfg_attr(target_os = "android", expect(unused))] effective_ids: bool,
     follow_symlinks: bool,
 ) -> bool {

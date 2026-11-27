@@ -414,13 +414,13 @@ pub mod module {
             target_os = "horizon",
             target_os = "vita",
         ))]
-        if args.effective_ids {
+        if args.effective_ids.into_bool() {
             return Err(
                 vm.new_not_implemented_error("access: effective_ids unavailable on this platform")
             );
         }
         #[cfg(any(target_os = "espidf", target_os = "horizon", target_os = "vita",))]
-        if !args.follow_symlinks.0 {
+        if !args.follow_symlinks.into_bool() {
             return Err(vm.new_not_implemented_error(
                 "access: follow_symlinks unavailable on this platform",
             ));
@@ -449,10 +449,10 @@ pub mod module {
 
         Ok(rustpython_host_env::posix::check_access(
             dir_fd,
-            args.path.as_ref(),
-            args.mode,
-            args.effective_ids,
-            args.follow_symlinks.0,
+            args.path.0.as_ref(),
+            args.mode.into_primitive(),
+            args.effective_ids.into_bool(),
+            args.follow_symlinks.into_bool(),
         ))
     }
 

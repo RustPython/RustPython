@@ -646,6 +646,62 @@ if os.name != "nt":
     with tempfile.NamedTemporaryFile() as tmp:
         assert not os.access(tmp.name, 255)
 
+
+def test_access_argument_conversion():
+    class Mode:
+        def __index__(self):
+            return os.F_OK
+
+    class Truth:
+        def __init__(self, value):
+            self.value = value
+
+        def __bool__(self):
+            return self.value
+
+    class BrokenTruth:
+        def __bool__(self):
+            raise RuntimeError("access truth check failed")
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "file")
+        with open(path, "wb"):
+            pass
+
+        assert (
+            os.access(
+                path, Mode(), effective_ids=Truth(False), follow_symlinks=Truth(True)
+            )
+            is True
+        )
+        with assert_raises(OverflowError) as error:
+            os.access(path, 1 << 31)
+        assert str(error.exception) == "Python int too large to convert to C int"
+
+        for args in (
+            {"effective_ids": BrokenTruth()},
+            {"follow_symlinks": BrokenTruth()},
+        ):
+            with assert_raises(RuntimeError) as error:
+                os.access(path, os.F_OK, **args)
+            assert str(error.exception) == "access truth check failed"
+
+        with assert_raises(ValueError) as error:
+            os.access(path + "\0", os.F_OK)
+        assert str(error.exception) == "access: embedded null character in path"
+
+        if sys.platform.startswith("linux"):
+            assert os.access(path, 256) is False
+            assert os.access(path, -1) is False
+        elif sys.platform == "win32":
+            # Windows examines the write bit and ignores the other bits.
+            assert os.access(path, 256) is True
+            assert os.access(path, -256) is True
+
+
+test_access_argument_conversion()
+
+
 # argv and the group list are sequences; an arbitrary iterable must be rejected
 # rather than drained.
 if hasattr(os, "posix_spawn"):
