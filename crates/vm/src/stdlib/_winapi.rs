@@ -11,7 +11,7 @@ mod _winapi {
         common::lock::{PyMutex, PyMutexGuard},
         convert::{ToPyException, ToPyObject},
         exceptions::nul_char_error,
-        function::{ArgBytesLike, ArgMapping, ArgSequence, OptionalArg},
+        function::{ArgBytesLike, ArgIntoBool, ArgMapping, ArgSequence, OptionalArg},
         types::Constructor,
         windows::{WinHandle, WindowsSysResult},
     };
@@ -811,9 +811,13 @@ mod _winapi {
     #[pyclass(with(Constructor))]
     impl Py<Overlapped> {
         #[pymethod]
-        fn GetOverlappedResult(&self, wait: bool, vm: &VirtualMachine) -> PyResult<(u32, u32)> {
+        fn GetOverlappedResult(
+            &self,
+            wait: ArgIntoBool,
+            vm: &VirtualMachine,
+        ) -> PyResult<(u32, u32)> {
             let mut inner = self.lock_inner(vm);
-            vm.allow_threads(|| inner.get_result(wait))
+            vm.allow_threads(|| inner.get_result(wait.into_bool()))
                 .map(|result| (result.transferred, result.error))
                 .map_err(|e| e.to_pyexception(vm))
         }
@@ -861,14 +865,14 @@ mod _winapi {
     struct ConnectNamedPipeArgs {
         #[pyarg(any)]
         handle: WinHandle,
-        #[pyarg(any, default)]
-        overlapped: bool,
+        #[pyarg(any, default = ArgIntoBool::FALSE)]
+        overlapped: ArgIntoBool,
     }
 
     #[pyfunction]
     fn ConnectNamedPipe(args: ConnectNamedPipeArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let handle = args.handle;
-        let use_overlapped = args.overlapped;
+        let use_overlapped = args.overlapped.into_bool();
 
         if use_overlapped {
             let ov = Overlapped::new_with_handle(handle.0, vm)?;
@@ -1015,20 +1019,25 @@ mod _winapi {
         #[pyarg(any)]
         handle: WinHandle,
         #[pyarg(any)]
-        buffer: ArgBytesLike,
-        #[pyarg(any, default)]
-        overlapped: bool,
+        buffer: PyObjectRef,
+        #[pyarg(any, default = ArgIntoBool::FALSE)]
+        overlapped: ArgIntoBool,
     }
 
     // WriteFile - Write data to a file or I/O device.
     #[pyfunction]
     fn WriteFile(args: WriteFileArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let handle = args.handle;
-        let use_overlapped = args.overlapped;
-        let buf = args.buffer.borrow_buf();
-
-        if use_overlapped {
-            let ov = Overlapped::new_with_handle(handle.0, vm)?;
+        let ov = if args.overlapped.into_bool() {
+            Some(Overlapped::new_with_handle(handle.0, vm)?)
+        } else {
+            None
+        };
+        // Clinic truth-tests the overlapped flag before WriteFile obtains a
+        // buffer export. In particular, __bool__ can resize the input.
+        let buffer = ArgBytesLike::try_from_object(vm, args.buffer)?;
+        let buf = buffer.borrow_buf();
+        if let Some(ov) = ov {
             let err = {
                 let mut inner = ov.inner.lock();
                 inner.write(&buf).map_err(|e| e.to_pyexception(vm))?
@@ -1057,8 +1066,8 @@ mod _winapi {
         handle: WinHandle,
         #[pyarg(any)]
         size: u32,
-        #[pyarg(any, default)]
-        overlapped: bool,
+        #[pyarg(any, default = ArgIntoBool::FALSE)]
+        overlapped: ArgIntoBool,
     }
 
     // ReadFile - Read data from a file or I/O device.
@@ -1066,7 +1075,7 @@ mod _winapi {
     fn ReadFile(args: ReadFileArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let handle = args.handle;
         let size = args.size;
-        let use_overlapped = args.overlapped;
+        let use_overlapped = args.overlapped.into_bool();
 
         if use_overlapped {
             let ov = Overlapped::new_with_handle(handle.0, vm)?;

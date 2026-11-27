@@ -14,7 +14,8 @@ mod _overlapped {
         },
         common::lock::PyMutex,
         convert::{ToPyException, ToPyObject},
-        function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg},
+        exceptions::nul_char_error,
+        function::{ArgBytesLike, ArgCInt, ArgMemoryBuffer, OptionalArg},
         object::{Traverse, TraverseFn},
         protocol::PyBuffer,
         types::{Constructor, Destructor},
@@ -44,8 +45,8 @@ mod _overlapped {
 
     #[derive(FromArgs)]
     struct ResultWait {
-        #[pyarg(positional, default)]
-        wait: bool,
+        #[pyarg(positional, default = ArgCInt { value: 0 }, py_default = "False")]
+        wait: ArgCInt,
     }
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
@@ -365,7 +366,11 @@ mod _overlapped {
             }
 
             let result = vm.allow_threads(|| {
-                host_overlapped::get_overlapped_result(inner.handle, &inner.overlapped, wait)
+                host_overlapped::get_overlapped_result(
+                    inner.handle,
+                    &inner.overlapped,
+                    wait.into_primitive() != 0,
+                )
             });
             let transferred = result.transferred;
             let err = result.error;
@@ -1244,8 +1249,16 @@ mod _overlapped {
         }
     }
 
+    fn wide_name(value: &PyStrRef, vm: &VirtualMachine) -> PyResult<widestring::WideCString> {
+        value
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))
+    }
+
     #[pyfunction]
-    fn ConnectPipe(addr: String, vm: &VirtualMachine) -> PyResult<isize> {
+    fn ConnectPipe(addr: PyStrRef, vm: &VirtualMachine) -> PyResult<isize> {
+        let addr = wide_name(&addr, vm)?;
         host_overlapped::connect_pipe(&addr)
             .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
     }
@@ -1361,21 +1374,23 @@ mod _overlapped {
     #[pyfunction]
     fn CreateEvent(
         EventAttributes: PyObjectRef,
-        ManualReset: bool,
-        InitialState: bool,
-        Name: Option<String>,
+        ManualReset: ArgCInt,
+        InitialState: ArgCInt,
+        Name: Option<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<isize> {
+        let name_wide = Name.as_ref().map(|name| wide_name(name, vm)).transpose()?;
         if !vm.is_none(&EventAttributes) {
             return Err(vm.new_value_error("EventAttributes must be None"));
         }
 
-        let name_wide: Option<widestring::WideCString> = Name
-            .map(|n| widestring::WideCString::from_str(&n).map_err(|err| err.to_pyexception(vm)))
-            .transpose()?;
-        host_winapi::create_event_w(ManualReset, InitialState, name_wide.as_deref())
-            .map(|h| h as isize)
-            .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
+        host_winapi::create_event_w(
+            ManualReset.into_primitive() != 0,
+            InitialState.into_primitive() != 0,
+            name_wide.as_deref(),
+        )
+        .map(|h| h as isize)
+        .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
     }
 
     #[pyfunction]
