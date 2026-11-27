@@ -471,6 +471,35 @@ pub fn warn_resource(
     )
 }
 
+/// Emit a ResourceWarning during finalization. Like the CPython fileio and
+/// scandir finalizers, report Warning failures as unraisable and discard other
+/// errors, which can occur while the warnings machinery is shutting down.
+#[cfg(feature = "host_io")]
+pub(crate) fn warn_unclosed_resource(
+    kind: &str,
+    source: &PyObject,
+    owner: &PyObject,
+    vm: &VirtualMachine,
+) {
+    use rustpython_common::wtf8::Wtf8Buf;
+
+    let result = source.repr(vm).and_then(|repr| {
+        let mut message = Wtf8Buf::from(format!("unclosed {kind} "));
+        message.push_wtf8(repr.as_wtf8());
+        warn_resource(message, source, vm)
+    });
+    if let Err(error) = result
+        && error.fast_isinstance(vm.ctx.exceptions.warning)
+    {
+        let message = owner.repr(vm).ok().map(|repr| {
+            let mut message = Wtf8Buf::from(format!("Exception ignored while finalizing {kind} "));
+            message.push_wtf8(repr.as_wtf8());
+            vm.ctx.new_str(message)
+        });
+        vm.run_unraisable_with_message(error, message, vm.ctx.none());
+    }
+}
+
 /// Warn that `coro` was never awaited.
 ///
 /// Prefer `warnings._warn_unawaited_coroutine` so origin tracking can
