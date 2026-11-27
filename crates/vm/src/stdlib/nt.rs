@@ -1115,7 +1115,12 @@ pub(crate) mod module {
     }
 
     pub(crate) fn support_funcs() -> Vec<SupportFunc> {
-        Vec::new()
+        vec![SupportFunc::new(
+            "chmod",
+            Some(true),
+            Some(false),
+            Some(true),
+        )]
     }
 
     pub(crate) fn module_exec(

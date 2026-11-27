@@ -115,6 +115,11 @@ if os.name == "posix" and hasattr(os, "fchmod"):
 
 
 def chmod_uses_clinic_converters():
+    if os.name == "nt":
+        assert hasattr(os, "lchmod")
+        assert os.chmod in os.supports_fd
+        assert os.chmod in os.supports_follow_symlinks
+
     calls = []
 
     class Mode:
