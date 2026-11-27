@@ -114,6 +114,91 @@ if os.name == "posix" and hasattr(os, "fchmod"):
     chmod_supports_directory_descriptors()
 
 
+def chmod_uses_clinic_converters():
+    calls = []
+
+    class Mode:
+        def __init__(self, value):
+            self.value = value
+
+        def __index__(self):
+            calls.append("mode")
+            return self.value
+
+    class Follow:
+        def __bool__(self):
+            calls.append("follow")
+            return True
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "file")
+        with open(path, "wb") as stream:
+            fd = stream.fileno()
+            for target in (path, fd):
+                calls.clear()
+                os.chmod(target, Mode(-(2**31) + 0o600), follow_symlinks=Follow())
+                assert calls == ["mode", "follow"]
+
+                calls.clear()
+                with assert_raises(OverflowError):
+                    os.chmod(target, Mode(2**31 + 0o600), follow_symlinks=Follow())
+                assert calls == ["mode"]
+
+            os.fchmod(fd, Mode(-(2**31) + 0o600))
+            with assert_raises(OverflowError):
+                os.fchmod(fd, Mode(2**31 + 0o600))
+
+        if hasattr(os, "lchmod"):
+            os.lchmod(path, Mode(-(2**31) + 0o600))
+            with assert_raises(OverflowError):
+                os.lchmod(path, Mode(2**31 + 0o600))
+
+
+if hasattr(os, "fchmod") and sys.platform not in ("emscripten", "wasi"):
+    chmod_uses_clinic_converters()
+
+
+def chown_uses_uid_and_gid_converters():
+    class Unchanged:
+        def __index__(self):
+            return -1
+
+    class Follow:
+        def __bool__(self):
+            return True
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "file")
+        with open(path, "wb") as stream:
+            fd = stream.fileno()
+            for func, target in ((os.chown, path), (os.lchown, path), (os.fchown, fd)):
+                func(target, Unchanged(), Unchanged())
+                with assert_raises(OverflowError):
+                    func(target, -1, -2)
+
+            missing = os.path.join(directory, "missing")
+            for func in (os.chown, os.lchown):
+                with assert_raises(OverflowError):
+                    func(missing, 2**32, -1)
+
+            os.chown(fd, -1, -1, follow_symlinks=Follow())
+            with assert_raises(ValueError) as error:
+                os.chown(fd, -1, -1, follow_symlinks=False)
+            assert "cannot use fd and follow_symlinks together" in str(error.exception)
+
+            dir_fd = os.open(directory, os.O_RDONLY)
+            try:
+                with assert_raises(ValueError) as error:
+                    os.chown(fd, -1, -1, dir_fd=dir_fd)
+                assert "can't specify both dir_fd and fd" in str(error.exception)
+            finally:
+                os.close(dir_fd)
+
+
+if hasattr(os, "lchown") and hasattr(os, "fchown") and os.chown in os.supports_dir_fd:
+    chown_uses_uid_and_gid_converters()
+
+
 fd = os.open("README.md", os.O_RDONLY)
 assert fd > 0
 

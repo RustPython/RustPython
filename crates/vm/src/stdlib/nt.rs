@@ -10,7 +10,7 @@ pub(crate) mod module {
         builtins::{PyBytes, PyCapsule, PyDictRef, PyListRef, PyStr, PyStrRef, PyTupleRef},
         convert::ToPyException,
         exceptions::{self, OSErrorBuilder},
-        function::{ArgMapping, Either, FsPath, OptionalArg},
+        function::{ArgCInt, ArgIntoBool, ArgMapping, Either, FsPath, OptionalArg},
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd, PathConverter},
         stdlib::os::{_os, AccessArgs, DirFd, SupportFunc, SymlinkArgs},
@@ -161,11 +161,11 @@ pub(crate) mod module {
         #[pyarg(any)]
         path: OsPathOrFd<'a>,
         #[pyarg(any)]
-        mode: u32,
+        mode: ArgCInt,
         #[pyarg(flatten)]
         dir_fd: DirFd<'static, 0>,
-        #[pyarg(named, optional, py_default = "(os.name != 'nt')")]
-        follow_symlinks: OptionalArg<bool>,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "(os.name != 'nt')")]
+        follow_symlinks: ArgIntoBool,
     }
 
     const S_IWRITE: u32 = 128;
@@ -185,12 +185,12 @@ pub(crate) mod module {
         #[pyarg(any)]
         fd: i32,
         #[pyarg(any)]
-        mode: i32,
+        mode: ArgCInt,
     }
 
     #[pyfunction]
     fn fchmod(args: FchmodArgs, vm: &VirtualMachine) -> PyResult<()> {
-        fchmod_impl(args.fd, args.mode as u32, vm)
+        fchmod_impl(args.fd, args.mode.into_primitive() as u32, vm)
     }
 
     #[pyfunction]
@@ -203,29 +203,29 @@ pub(crate) mod module {
         } = args;
         let [] = dir_fd.0;
 
-        // If path is a file descriptor, use fchmod
-        if let OsPathOrFd::Fd(fd) = path {
-            if follow_symlinks.into_option().is_some() {
-                return Err(
-                    vm.new_value_error("chmod: follow_symlinks is not supported with fd argument")
-                );
+        let mode = mode.into_primitive() as u32;
+        match path {
+            OsPathOrFd::Fd(fd) => fchmod_impl(fd.as_raw(), mode, vm),
+            OsPathOrFd::Path(path) if follow_symlinks.into_bool() => {
+                let wide = path.to_wide_cstring(vm)?;
+                host_nt::chmod_follow(&wide, mode, S_IWRITE)
+                    .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
             }
-            return fchmod_impl(fd.as_raw(), mode, vm);
+            OsPathOrFd::Path(path) => win32_lchmod(&path, mode, vm),
         }
+    }
 
-        let OsPathOrFd::Path(path) = path else {
-            unreachable!()
-        };
+    #[pyfunction]
+    fn lchmod(args: LchmodArgs, vm: &VirtualMachine) -> PyResult<()> {
+        win32_lchmod(&args.path, args.mode.into_primitive() as u32, vm)
+    }
 
-        let follow_symlinks = follow_symlinks.into_option().unwrap_or(false);
-
-        if follow_symlinks {
-            let wide = path.to_wide_cstring(vm)?;
-            host_nt::chmod_follow(&wide, mode, S_IWRITE)
-                .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
-        } else {
-            win32_lchmod(&path, mode, vm)
-        }
+    #[derive(FromArgs)]
+    struct LchmodArgs {
+        #[pyarg(any)]
+        path: OsPath,
+        #[pyarg(any)]
+        mode: ArgCInt,
     }
 
     // Uses FindFirstFileW to get the name as stored on the filesystem.
