@@ -25,11 +25,10 @@ pub mod module {
         builtins::{PyBytesRef, PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
         convert::{IntoPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
-        function::{ArgBytesLike, ArgMapping, Either, OptionalArg, PySsize},
+        function::{ArgBytesLike, ArgCInt, ArgIntoBool, ArgMapping, Either, OptionalArg, PySsize},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{
-            _os, AccessArgs, DirFd, FollowSymlinks, SupportFunc, SymlinkArgs, fs_metadata,
-            warn_if_bool_fd,
+            _os, AccessArgs, DirFd, SupportFunc, SymlinkArgs, fs_metadata, warn_if_bool_fd,
         },
     };
     #[cfg(any(
@@ -520,27 +519,14 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     fn chown_inner(
         path: OsPathOrFd<'_>,
-        uid: isize,
-        gid: isize,
+        uid: RawUid,
+        gid: RawGid,
         dir_fd: DirFd<'_, 1>,
-        follow_symlinks: FollowSymlinks,
+        follow_symlinks: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let uid = if uid >= 0 {
-            Some(uid as u32)
-        } else if uid == -1 {
-            None
-        } else {
-            return Err(vm.new_os_error("Specified uid is not valid."));
-        };
-
-        let gid = if gid >= 0 {
-            Some(gid as u32)
-        } else if gid == -1 {
-            None
-        } else {
-            return Err(vm.new_os_error("Specified gid is not valid."));
-        };
+        let uid = (uid.0 != u32::MAX).then_some(uid.0);
+        let gid = (gid.0 != u32::MAX).then_some(gid.0);
 
         match path {
             OsPathOrFd::Path(ref p) => rustpython_host_env::posix::fchownat(
@@ -548,7 +534,7 @@ pub mod module {
                 p.path.as_os_str(),
                 uid,
                 gid,
-                follow_symlinks.0,
+                follow_symlinks,
             ),
             OsPathOrFd::Fd(fd) => rustpython_host_env::posix::fchown(fd.into(), uid, gid),
         }
@@ -561,24 +547,33 @@ pub mod module {
         #[pyarg(any)]
         path: OsPathOrFd<'a>,
         #[pyarg(any)]
-        uid: isize,
+        uid: RawUid,
         #[pyarg(any)]
-        gid: isize,
+        gid: RawGid,
         #[pyarg(flatten)]
         dir_fd: DirFd<'a, 1>,
-        #[pyarg(flatten)]
-        follow_symlinks: FollowSymlinks,
+        #[pyarg(named, default = ArgIntoBool::TRUE)]
+        follow_symlinks: ArgIntoBool,
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn chown(args: ChownArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        let follow_symlinks = args.follow_symlinks.into_bool();
+        if matches!(args.path, OsPathOrFd::Fd(_)) {
+            if args.dir_fd.get_opt().is_some() {
+                return Err(vm.new_value_error("chown: can't specify both dir_fd and fd"));
+            }
+            if !follow_symlinks {
+                return Err(vm.new_value_error("chown: cannot use fd and follow_symlinks together"));
+            }
+        }
         chown_inner(
             args.path,
             args.uid,
             args.gid,
             args.dir_fd,
-            args.follow_symlinks,
+            follow_symlinks,
             vm,
         )
     }
@@ -589,9 +584,9 @@ pub mod module {
         #[pyarg(any)]
         path: OsPath,
         #[pyarg(any)]
-        uid: isize,
+        uid: RawUid,
         #[pyarg(any)]
-        gid: isize,
+        gid: RawGid,
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -603,7 +598,7 @@ pub mod module {
             uid,
             gid,
             DirFd::default(),
-            FollowSymlinks(false),
+            false,
             vm,
         )
     }
@@ -614,9 +609,9 @@ pub mod module {
         #[pyarg(any)]
         fd: BorrowedFd<'a>,
         #[pyarg(any)]
-        uid: isize,
+        uid: RawUid,
         #[pyarg(any)]
-        gid: isize,
+        gid: RawGid,
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -628,7 +623,7 @@ pub mod module {
             uid,
             gid,
             DirFd::default(),
-            FollowSymlinks(true),
+            true,
             vm,
         )
     }
@@ -1414,12 +1409,12 @@ pub mod module {
         #[pyarg(any)]
         path: OsPathOrFd<'fd>,
         #[pyarg(any)]
-        mode: u32,
+        mode: ArgCInt,
         #[pyarg(named, default = None)]
         dir_fd: Option<ChmodDirFd>,
         // CPython writes the platform expression; on posix it is always true.
-        #[pyarg(named, default = true, py_default = "(os.name != 'nt')")]
-        follow_symlinks: bool,
+        #[pyarg(named, default = ArgIntoBool::TRUE, py_default = "(os.name != 'nt')")]
+        follow_symlinks: ArgIntoBool,
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -1432,15 +1427,22 @@ pub mod module {
             follow_symlinks,
         } = args;
         let dir_fd = dir_fd.map_or(AT_FDCWD, |fd| fd.0);
+        let follow_symlinks = follow_symlinks.into_bool();
         match path {
             OsPathOrFd::Path(path) => {
                 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd",))]
                 if !follow_symlinks && dir_fd == AT_FDCWD {
                     return lchmod(LchmodArgs { path, mode }, vm);
                 }
-                _chmod(path, dir_fd, mode, follow_symlinks, vm)
+                _chmod(
+                    path,
+                    dir_fd,
+                    mode.into_primitive() as u32,
+                    follow_symlinks,
+                    vm,
+                )
             }
-            OsPathOrFd::Fd(fd) => _fchmod(fd.into(), mode, vm),
+            OsPathOrFd::Fd(fd) => _fchmod(fd.into(), mode.into_primitive() as u32, vm),
         }
     }
 
@@ -1450,12 +1452,12 @@ pub mod module {
         #[pyarg(any)]
         path: OsPath,
         #[pyarg(any)]
-        mode: u32,
+        mode: ArgCInt,
         #[pyarg(flatten)]
         dir_fd: DirFd<'static, 0>,
         // CPython writes the platform expression; on posix it is always true.
-        #[pyarg(named, default = true, py_default = "(os.name != 'nt')")]
-        follow_symlinks: bool,
+        #[pyarg(named, default = ArgIntoBool::TRUE, py_default = "(os.name != 'nt')")]
+        follow_symlinks: ArgIntoBool,
     }
 
     #[cfg(target_os = "redox")]
@@ -1468,7 +1470,13 @@ pub mod module {
             follow_symlinks,
         } = args;
         let [] = dir_fd.0;
-        _chmod(path, AT_FDCWD, mode, follow_symlinks, vm)
+        _chmod(
+            path,
+            AT_FDCWD,
+            mode.into_primitive() as u32,
+            follow_symlinks.into_bool(),
+            vm,
+        )
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -1477,13 +1485,13 @@ pub mod module {
         #[pyarg(any)]
         fd: BorrowedFd<'a>,
         #[pyarg(any)]
-        mode: u32,
+        mode: ArgCInt,
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn fchmod(args: FchmodArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
-        _fchmod(args.fd, args.mode, vm)
+        _fchmod(args.fd, args.mode.into_primitive() as u32, vm)
     }
 
     #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd",))]
@@ -1492,7 +1500,7 @@ pub mod module {
         #[pyarg(any)]
         path: OsPath,
         #[pyarg(any)]
-        mode: u32,
+        mode: ArgCInt,
     }
 
     #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd",))]
@@ -1500,7 +1508,7 @@ pub mod module {
     fn lchmod(args: LchmodArgs, vm: &VirtualMachine) -> PyResult<()> {
         let LchmodArgs { path, mode } = args;
         let c_path = path.clone().into_cstring(vm)?;
-        rustpython_host_env::posix::lchmod(&c_path, mode as libc::mode_t)
+        rustpython_host_env::posix::lchmod(&c_path, mode.into_primitive() as libc::mode_t)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
