@@ -1141,8 +1141,9 @@ pub(super) mod _os {
             if let Some(resource) = resource {
                 // Close and release the lock before invoking the warning machinery.
                 drop(resource);
-                let _ = crate::warn::warn_resource(
-                    format!("unclosed scandir iterator {:?}", zelf.as_object()),
+                crate::warn::warn_unclosed_resource(
+                    "scandir iterator",
+                    zelf.as_object(),
                     zelf.as_object(),
                     vm,
                 );
@@ -1294,8 +1295,9 @@ pub(super) mod _os {
             if let Some(resource) = resource {
                 // Close and release the lock before invoking the warning machinery.
                 drop(resource);
-                let _ = crate::warn::warn_resource(
-                    format!("unclosed scandir iterator {:?}", zelf.as_object()),
+                crate::warn::warn_unclosed_resource(
+                    "scandir iterator",
+                    zelf.as_object(),
                     zelf.as_object(),
                     vm,
                 );

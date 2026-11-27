@@ -74,3 +74,74 @@ for has_name in (True, False):
     if has_name:
         del module_globals["__name__"]
     assert events == expected
+
+
+def check_unclosed_warning_finalizer():
+    import gc
+    import io
+    import os
+    import tempfile
+
+    calls = []
+
+    def report_unraisable(info):
+        calls.append((info.exc_type, info.err_msg, info.object))
+
+    def check(factory, kind, error_type):
+        warnings_seen = []
+
+        def show_warning(message):
+            assert message.category is ResourceWarning
+            assert message.source is not None
+            warnings_seen.append(message.category)
+            raise error_type("warning display failed")
+
+        original_show = warnings._showwarnmsg
+        original_hook = sys.unraisablehook
+        calls.clear()
+        with warnings.catch_warnings():
+            warnings.simplefilter("always", ResourceWarning)
+            warnings._showwarnmsg = show_warning
+            sys.unraisablehook = report_unraisable
+            try:
+                stream = factory()
+                del stream
+                gc.collect()
+            finally:
+                warnings._showwarnmsg = original_show
+                sys.unraisablehook = original_hook
+
+        assert warnings_seen == [ResourceWarning]
+        if issubclass(error_type, Warning):
+            ((reported, message, obj),) = calls
+            assert reported is error_type
+            assert message.startswith(f"Exception ignored while finalizing {kind} ")
+            assert obj is None
+        else:
+            assert not calls
+
+    with tempfile.TemporaryDirectory() as folder:
+        path = os.path.join(folder, "resource")
+        with open(path, "wb"):
+            pass
+        factories = [
+            (lambda: io.FileIO(path), "file"),
+            (lambda: open(path, "rb"), "file"),
+            (lambda: open(path, encoding="utf-8"), "file"),
+            (lambda: os.scandir(folder), "scandir iterator"),
+        ]
+        for factory, kind in factories:
+            for error_type in (ValueError, ResourceWarning, UserWarning):
+                check(factory, kind, error_type)
+
+        if os.scandir in os.supports_fd:
+            fd = os.open(folder, os.O_RDONLY)
+            try:
+                for error_type in (ValueError, ResourceWarning, UserWarning):
+                    check(lambda: os.scandir(fd), "scandir iterator", error_type)
+            finally:
+                os.close(fd)
+
+
+if sys.platform not in ("emscripten", "wasi"):
+    check_unclosed_warning_finalizer()

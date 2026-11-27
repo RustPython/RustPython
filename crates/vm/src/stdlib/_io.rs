@@ -6512,7 +6512,6 @@ mod fileio {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyUtf8Str, PyUtf8StrRef},
-        common::wtf8::Wtf8Buf,
         convert::{IntoPyException, ToPyException},
         exceptions::ToOSErrorBuilder,
         function::{ArgBytesLike, ArgMemoryBuffer},
@@ -7034,14 +7033,7 @@ mod fileio {
         /// Issue ResourceWarning if fd is still open and closefd is true.
         fn dealloc_warn(zelf: &Py<Self>, source: &PyObject, vm: &VirtualMachine) {
             if zelf.fd.load() >= 0 && zelf.closefd.load() {
-                let repr = source
-                    .repr(vm)
-                    .map_or_else(|_| Wtf8Buf::from("<file>"), |s| s.as_wtf8().to_owned());
-                if let Err(e) =
-                    crate::warn::warn_resource(format!("unclosed file {repr}"), source, vm)
-                {
-                    vm.run_unraisable(e, None, zelf.as_object().to_owned());
-                }
+                crate::warn::warn_unclosed_resource("file", source, zelf.as_object(), vm);
             }
         }
     }
