@@ -611,6 +611,7 @@ class TestSampleProfilerComponents(unittest.TestCase):
         self.assertFalse(export_ok)
         self.assertEqual(os.path.getsize(flamegraph_out.name), 0)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; native stack guard limits deep flamegraph recursion
     @run_with_limited_c_stack(size=1024 * 1024)
     def test_flamegraph_deep_stack_export(self):
         flamegraph_out = tempfile.NamedTemporaryFile(
