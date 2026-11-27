@@ -374,3 +374,48 @@ if sys.platform != "win32":
         assert fcntl.fcntl(f, fcntl.F_SETFD, Index(fcntl.FD_CLOEXEC)) == 0
         assert fcntl.fcntl(f, fcntl.F_GETFD) == fcntl.FD_CLOEXEC
         fcntl.lockf(f, fcntl.LOCK_SH | fcntl.LOCK_NB, Index(0), Index(0))
+
+
+if sys.platform == "win32":
+    import _overlapped
+    import _winapi
+
+    operation = _overlapped.Overlapped()
+    for wait in (Index(0), Index(-1), OverrideIndex(1)):
+        with assert_raises(ValueError) as error:
+            operation.getresult(wait)
+        assert str(error.exception) == "operation not yet attempted"
+    for wait in (1 << 31, -(1 << 31) - 1):
+        with assert_raises(OverflowError):
+            operation.getresult(wait)
+    with assert_raises(KeyError):
+        operation.getresult(BoomIndex())
+
+    event = _overlapped.CreateEvent(None, Index(0), Index(-1), None)
+    try:
+        assert _winapi.WaitForSingleObject(event, 0) == _winapi.WAIT_OBJECT_0
+    finally:
+        _winapi.CloseHandle(event)
+    with assert_raises(OverflowError):
+        _overlapped.CreateEvent(None, 1 << 31, 0, None)
+
+    for call in (
+        lambda: _overlapped.ConnectPipe("pipe\0name"),
+        lambda: _overlapped.CreateEvent(object(), 0, 0, "event\0name"),
+    ):
+        with assert_raises(ValueError) as error:
+            call()
+        assert str(error.exception) == "embedded null character"
+
+    class BoomBool:
+        def __bool__(self):
+            raise KeyError("overlapped")
+
+    for call in (
+        lambda: _winapi.ConnectNamedPipe(handle=0, overlapped=BoomBool()),
+        lambda: _winapi.ReadFile(0, 1, overlapped=BoomBool()),
+        # Truth testing precedes buffer acquisition even for an invalid buffer.
+        lambda: _winapi.WriteFile(0, object(), overlapped=BoomBool()),
+    ):
+        with assert_raises(KeyError):
+            call()
