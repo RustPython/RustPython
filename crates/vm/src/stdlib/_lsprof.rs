@@ -14,7 +14,7 @@ mod _lsprof {
         },
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         convert::ToPyObject,
-        function::{ArgIntoBool, FuncArgs, OptionalArg, PyMethodDef},
+        function::{ArgIntoBool, ArgIntoFloat, FuncArgs, OptionalArg, PyMethodDef},
         object::{Traverse, TraverseFn},
         stdlib::sys::monitoring::MonitoringEvent,
         types::{Constructor, Initializer, PyStructSequence},
@@ -169,8 +169,8 @@ mod _lsprof {
     struct InitArgs {
         #[pyarg(any, optional, py_default = "None")]
         timer: OptionalArg<PyObjectRef>,
-        #[pyarg(any, default = 0.0)]
-        timeunit: f64,
+        #[pyarg(any, optional, py_default = "0.0")]
+        timeunit: OptionalArg<ArgIntoFloat>,
         #[pyarg(any, default = ArgIntoBool::TRUE)]
         subcalls: ArgIntoBool,
         #[pyarg(any, default = ArgIntoBool::TRUE)]
@@ -203,7 +203,15 @@ mod _lsprof {
         fn init(zelf: &Py<Self>, args: InitArgs, vm: &VirtualMachine) -> PyResult<()> {
             let old_timer = {
                 let mut state = zelf.state.lock();
-                state.unit = args.timeunit;
+                if state.in_timer {
+                    return Err(
+                        vm.new_runtime_error("cannot initialize profiler in external timer")
+                    );
+                }
+                state.unit = args
+                    .timeunit
+                    .into_option()
+                    .map_or(0.0, ArgIntoFloat::into_float);
                 state.subcalls = args.subcalls.into_bool();
                 state.builtins = args.builtins.into_bool();
                 core::mem::replace(&mut state.timer, args.timer.into_option())
@@ -221,8 +229,8 @@ mod _lsprof {
         }
     }
 
-    // Declared before the callable snapshot so its finalizer still observes
-    // in_timer during unwinding, as it does on the ordinary call-return path.
+    // Hold the guard through result conversion, result destruction and
+    // unraisable reporting, all of which can run Python code.
     struct TimerCallGuard<'a> {
         profiler: &'a Profiler,
         active: bool,
@@ -256,8 +264,6 @@ mod _lsprof {
                 // Release our callable root at call return, before clearing the
                 // flag. A replaced timer's finalizer is still inside the call.
                 drop(timer);
-                drop(reset);
-                // Conversion and result destruction occur with the flag clear.
                 let unit = self.state.lock().unit;
                 value.and_then(|value| {
                     if unit > 0.0 {
