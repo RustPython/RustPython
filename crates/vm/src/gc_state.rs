@@ -2,6 +2,8 @@
 //!
 //! Generational garbage collection using an intrusive doubly-linked list.
 
+use crate::builtins::PyTuple;
+use crate::class::StaticType;
 use crate::common::linked_list::LinkedList;
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::object::{GC_NO_OWNER, GC_PERMANENT, GC_REACHABLE, GC_UNTRACKED, GcLink, GcOwner};
@@ -590,6 +592,10 @@ impl GcState {
         // keeps the candidates in a walkable order, and the bit is what keeps
         // an object that appears in two generation lists out of it twice.
         let mut candidate_ptrs: Vec<GcPtr> = Vec::new();
+        // Exact atomic tuples cannot participate in cycles. Pin them until
+        // their lists can be updated outside the generation read locks, and
+        // do not drop these pins until the world has restarted.
+        let mut atomic_tuples = Vec::new();
         for gen_list in &gen_locks {
             for obj in gen_list.iter() {
                 if retired.binary_search(&obj.gc_owner()).is_ok() {
@@ -597,6 +603,20 @@ impl GcState {
                 }
                 let strong_count = obj.strong_count();
                 if strong_count > 0 && is_owned_by(obj, owner) && !obj.is_gc_collecting() {
+                    if obj.downcast_ref::<PyTuple>().is_some_and(|tuple| {
+                        PyTuple::static_cell()
+                            .get()
+                            .is_some_and(|typ| tuple.class().is(typ))
+                            && tuple
+                                .as_slice()
+                                .iter()
+                                .all(|item| !item.gc_may_have_edges())
+                    }) {
+                        if let Some(tuple) = obj.try_to_owned() {
+                            atomic_tuples.push(tuple);
+                        }
+                        continue;
+                    }
                     obj.start_gc_refs(strong_count);
                     candidate_ptrs.push(GcPtr(NonNull::from(obj)));
                 }
@@ -619,6 +639,14 @@ impl GcState {
         }
 
         if candidate_ptrs.is_empty() {
+            drop(gen_locks);
+            for tuple in &atomic_tuples {
+                // SAFETY: pinned exact tuples, with the world still stopped.
+                unsafe { self.untrack_object(NonNull::from(tuple.as_ref())) };
+            }
+            #[cfg(feature = "threading")]
+            stw.restart();
+            drop(atomic_tuples);
             // Reset counts for generations whose objects were promoted away.
             // For gen2 (oldest), survivors stay in-place so don't reset gen2 count.
             let reset_end = if generation >= 2 { 2 } else { generation + 1 };
@@ -791,11 +819,17 @@ impl GcState {
         // the world restarted. Finalizers and tp_clear must not run under
         // stop-the-world — they execute arbitrary Python — and they only touch
         // dead/husk objects, never a running frame.
+        drop(gen_locks);
+        for tuple in &atomic_tuples {
+            // SAFETY: pinned exact tuples; no thread can insert a new edge
+            // between the atomic check and untracking while stopped.
+            unsafe { self.untrack_object(NonNull::from(tuple.as_ref())) };
+        }
         #[cfg(feature = "threading")]
         stw.restart();
+        drop(atomic_tuples);
 
         if unreachable.is_empty() {
-            drop(gen_locks);
             self.promote_survivors(generation, &survivor_refs);
             let reset_end = if generation >= 2 { 2 } else { generation + 1 };
             for count in self.counts.iter().take(reset_end) {
@@ -812,9 +846,6 @@ impl GcState {
                 duration,
             };
         }
-
-        // Release read locks before finalization phase.
-        drop(gen_locks);
 
         // Step 6: Finalize unreachable objects and handle resurrection
 
