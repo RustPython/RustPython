@@ -1,8 +1,6 @@
 // Python/fileutils.c in CPython
 #![allow(non_snake_case)]
 
-use alloc::ffi::CString;
-
 /// Check a raw descriptor without borrowing it or taking ownership.
 /// This is only a point-in-time check: another thread can close it afterwards.
 pub fn is_valid_fd(fd: i32) -> bool {
@@ -483,7 +481,8 @@ pub unsafe fn fclose(fp: *mut CFile) -> core::ffi::c_int {
 // Open a file using std::fs::File and convert to FILE*
 // Automatically handles path encoding and EINTR retries
 pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut CFile> {
-    use std::fs::File;
+    use core::ffi::CStr;
+    use std::{fs::File, io};
 
     // Currently only supports read mode
     // Can be extended to support "wb", "w+b", etc. if needed
@@ -508,8 +507,16 @@ pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut CFile> 
             return Err(std::io::Error::last_os_error());
         }
 
+        // 16 is arbitrary but plenty of space for mode. If the user passed in an invalid mode,
+        // fdopen would fail with EINVAL so we don't need to validate the length ourselves.
+        // Truncating the buf is fine.
+        let mut mode_buf = [0u8; 16];
+        let len = mode_buf.len().saturating_sub(1).min(mode.len());
+        mode_buf[..len].copy_from_slice(&mode.as_bytes()[..len]);
+
         // Convert fd to FILE*
-        let mode_cstr = CString::new(mode).unwrap();
+        let mode_cstr = CStr::from_bytes_with_nul(&mode_buf[..=len])
+            .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
         let fp = unsafe { libc::fdopen(fd, mode_cstr.as_ptr()) };
         if fp.is_null() {
             unsafe { libc::close(fd) };
@@ -532,8 +539,16 @@ pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut CFile> 
         // Convert File to raw fd
         let fd = file.into_raw_fd();
 
+        // 16 is arbitrary but plenty of space for mode. If the user passed in an invalid mode,
+        // fdopen would fail with EINVAL so we don't need to validate the length ourselves.
+        // Truncating the buf is fine.
+        let mut mode_buf = [0u8; 16];
+        let len = mode_buf.len().saturating_sub(1).min(mode.len());
+        mode_buf[..len].copy_from_slice(&mode.as_bytes()[..len]);
+
+        let mode_cstr = CStr::from_bytes_with_nul(&mode_buf[..=len])
+            .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
         // Convert fd to FILE*
-        let mode_cstr = CString::new(mode).unwrap();
         let fp = unsafe { libc::fdopen(fd, mode_cstr.as_ptr()) };
         if fp.is_null() {
             unsafe { libc::close(fd) };
