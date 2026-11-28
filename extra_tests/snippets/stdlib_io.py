@@ -289,6 +289,75 @@ def _text_cookie(
     return int.from_bytes(packed, "little")
 
 
+def test_text_position_checks_attachment_and_closed_first():
+    from io import UnsupportedOperation
+
+    class NoSeek(BytesIO):
+        def seekable(self):
+            return False
+
+    for raw_type in (BytesIO, NoSeek):
+        for state in ("closed", "detached"):
+            raw = raw_type()
+            stream = TextIOWrapper(raw, encoding="utf-8")
+            if state == "closed":
+                raw.close()
+                message = "I/O operation on closed file."
+            else:
+                assert stream.detach() is raw
+                message = "underlying buffer has been detached"
+            for operation in (stream.tell, lambda: stream.seek(0, 99)):
+                with assert_raises(ValueError) as error:
+                    operation()
+                assert str(error.exception) == message
+            raw.close()
+
+    with TextIOWrapper(NoSeek()) as stream:
+        for operation in (stream.tell, lambda: stream.seek(0, 99)):
+            with assert_raises(UnsupportedOperation):
+                operation()
+
+    class ClosedText(TextIOWrapper):
+        @property
+        def closed(self):
+            return True
+
+    with BytesIO() as raw:
+        stream = ClosedText(raw)
+        for operation in (stream.tell, lambda: stream.seek(0)):
+            with assert_raises(ValueError) as error:
+                operation()
+            assert str(error.exception) == "I/O operation on closed file."
+
+
+def test_text_isatty_forwards_without_closed_check():
+    calls = []
+    sentinel = object()
+
+    class Terminal(BytesIO):
+        @property
+        def closed(self):
+            calls.append("closed")
+            return super().closed
+
+        def isatty(self):
+            calls.append("isatty")
+            return sentinel
+
+    raw = Terminal()
+    stream = TextIOWrapper(raw)
+    for closed in (False, True):
+        if closed:
+            raw.close()
+        calls.clear()
+        assert stream.isatty() is sentinel
+        assert calls == ["isatty"]
+
+
+test_text_position_checks_attachment_and_closed_first()
+test_text_isatty_forwards_without_closed_check()
+
+
 # A cookie names a position both in characters and in bytes, and everything
 # read back from it indexes what was decoded, so a position past the end is
 # refused rather than stored.

@@ -3713,6 +3713,22 @@ mod _io {
         flags(BASETYPE, HAS_WEAKREF)
     )]
     impl Py<TextIOWrapper> {
+        fn check_position_open(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let buffer = self.initialized_buffer(vm)?;
+            let closed = if self.class().is(TextIOWrapper::class(&vm.ctx)) {
+                file_closed(&buffer, vm)?
+            } else {
+                vm.get_attribute_opt(self.as_object(), "closed")?
+                    .map(|value| value.try_to_bool(vm))
+                    .transpose()?
+                    .unwrap_or(false)
+            };
+            if closed {
+                return Err(vm.new_value_error("I/O operation on closed file."));
+            }
+            Ok(())
+        }
+
         #[pymethod]
         fn reconfigure(
             &self,
@@ -3941,6 +3957,7 @@ mod _io {
                 }
             };
 
+            zelf.check_position_open(vm)?;
             if !zelf.lock(vm)?.seekable {
                 return Err(new_unsupported_operation(
                     "underlying stream is not seekable",
@@ -4059,6 +4076,7 @@ mod _io {
 
         #[pymethod]
         fn tell(zelf: PyRef<TextIOWrapper>, vm: &VirtualMachine) -> PyResult {
+            zelf.check_position_open(vm)?;
             {
                 let data = zelf.lock(vm)?;
                 if !data.seekable {
@@ -4432,11 +4450,7 @@ mod _io {
 
         #[pymethod]
         fn isatty(&self, vm: &VirtualMachine) -> PyResult {
-            let buffer = {
-                let _data = self.lock(vm)?;
-                text_buffer(&self.buffer, vm)?
-            };
-            check_closed(&buffer, vm)?;
+            let buffer = self.initialized_buffer(vm)?;
             vm.call_method(&buffer, "isatty", ())
         }
 
