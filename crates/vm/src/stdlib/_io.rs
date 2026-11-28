@@ -5211,6 +5211,72 @@ mod _io {
         }
     }
 
+    fn memory_state_dict(stream: &PyObject, vm: &VirtualMachine) -> PyObjectRef {
+        match stream.dict() {
+            Some(dict) => dict.copy().into_ref(&vm.ctx).into(),
+            None => vm.ctx.none(),
+        }
+    }
+
+    fn memory_state_type_name(ty: &Py<PyType>) -> String {
+        let name = ty.slot_name();
+        name[..name.floor_char_boundary(200.min(name.len()))].to_owned()
+    }
+
+    fn restore_memory_state_dict(
+        stream: &PyObject,
+        dict: &PyObject,
+        field: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if vm.is_none(dict) {
+            return Ok(());
+        }
+        let dict = dict.downcast_ref::<PyDict>().ok_or_else(|| {
+            let name = memory_state_type_name(dict.class());
+            vm.new_type_error(format!(
+                "{field} item of state should be a dict, got a {name}"
+            ))
+        })?;
+        if let Some(obj_dict) = stream.dict() {
+            obj_dict.merge_object(dict.to_owned().into(), vm)
+        } else {
+            stream
+                .set_dict(Some(dict.to_owned()))
+                .map_err(|_| vm.new_attribute_error("This object has no __dict__"))
+        }
+    }
+
+    struct StringIONewline(Newlines);
+
+    impl TryFromObject for StringIONewline {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            if vm.is_none(&obj) {
+                return Ok(Self(Newlines::Universal));
+            }
+            let text = obj.downcast_ref::<PyStr>().ok_or_else(|| {
+                let name = memory_state_type_name(obj.class());
+                vm.new_type_error(format!("newline must be str or None, not {name}"))
+            })?;
+            let utf8 = text.try_as_utf8(vm)?;
+            // StringIO passes the NUL-terminated UTF-8 representation to its
+            // native newline validator.
+            let newline = utf8.as_str().split('\0').next().unwrap();
+            match newline {
+                "" => Ok(Self(Newlines::Passthrough)),
+                "\n" => Ok(Self(Newlines::Lf)),
+                "\r" => Ok(Self(Newlines::Cr)),
+                "\r\n" => Ok(Self(Newlines::Crlf)),
+                _ => {
+                    let repr = text.as_object().repr(vm)?;
+                    let mut message = Wtf8Buf::from("illegal newline value: ");
+                    message.push_wtf8(repr.as_wtf8());
+                    Err(vm.new_value_error(message))
+                }
+            }
+        }
+    }
+
     #[derive(FromArgs)]
     struct StringIONewArgs {
         // None means an empty buffer.
@@ -5219,11 +5285,17 @@ mod _io {
 
         // Omitted newline is \n. None selects universal newlines.
         #[pyarg(any, default, py_default = "'\\n'")]
-        newline: OptionalOption<Newlines>,
+        newline: OptionalArg<StringIONewline>,
     }
 
     impl Constructor for StringIO {
         type Args = FuncArgs;
+
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            Self::py_new(&cls, args, vm)?
+                .into_ref_with_type_lazy_dict(vm, cls)
+                .map(Into::into)
+        }
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self {
@@ -5249,28 +5321,17 @@ mod _io {
         ) -> PyResult<()> {
             let newline = match newline {
                 OptionalArg::Missing => Newlines::Lf,
-                OptionalArg::Present(None) => Newlines::Universal,
-                OptionalArg::Present(Some(newline)) => newline,
+                OptionalArg::Present(StringIONewline(newline)) => newline,
             };
-            // Checked here rather than while binding, so a bad newline is reported first.
-            let initial_value = initial_value
-                .map(|value| {
-                    value.downcast::<PyStr>().map_err(|value| {
-                        vm.new_type_error(format!(
-                            "initial_value must be str or None, not {}",
-                            value.class().slot_name()
-                        ))
-                    })
-                })
-                .transpose()?;
-            let raw_bytes = initial_value.as_ref().map_or_else(Vec::new, |v| {
+            let initial_value = StringIO::initial_text(initial_value.as_deref(), vm)?;
+            let raw_bytes = initial_value.map_or_else(Vec::new, |v| {
                 Self::translate_newlines(v.as_wtf8(), newline).into_bytes()
             });
             let mut buffer = zelf.buffer.write();
             *buffer = StringIOBuffer::new(raw_bytes);
             zelf.newline.store(newline);
             zelf.seennl.store(SeenNewline::empty());
-            if let Some(initial_value) = initial_value.as_ref() {
+            if let Some(initial_value) = initial_value {
                 zelf.observe_newlines(initial_value.as_wtf8(), newline);
             }
             zelf.closed.store(false);
@@ -5279,6 +5340,21 @@ mod _io {
     }
 
     impl StringIO {
+        fn initial_text<'a>(
+            value: Option<&'a PyObject>,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<&'a Py<PyStr>>> {
+            value
+                .filter(|value| !vm.is_none(value))
+                .map(|value| {
+                    value.downcast_ref::<PyStr>().ok_or_else(|| {
+                        let name = memory_state_type_name(value.class());
+                        vm.new_type_error(format!("initial_value must be str or None, not {name}"))
+                    })
+                })
+                .transpose()
+        }
+
         fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, StringIOBuffer>> {
             let buffer = self.buffer.write();
             if !self.closed.load() {
@@ -5470,15 +5546,12 @@ mod _io {
             let content = Wtf8Buf::from_bytes(buffer.bytes.getvalue())
                 .map_err(|_| vm.new_value_error("Error Retrieving Value"))?;
             let pos = buffer.position;
+            let newline = zelf.newline.load();
             drop(buffer);
 
-            // Get __dict__ if it exists and is non-empty
-            let dict_obj: PyObjectRef = match zelf.as_object().dict() {
-                Some(d) if !d.is_empty() => d.into(),
-                _ => vm.ctx.none(),
-            };
+            let dict_obj = memory_state_dict(zelf.as_object(), vm);
 
-            let newline = match zelf.newline.load() {
+            let newline = match newline {
                 Newlines::Universal => vm.ctx.none(),
                 Newlines::Passthrough => vm.ctx.new_str("").into(),
                 Newlines::Lf => vm.ctx.new_str("\n").into(),
@@ -5498,53 +5571,54 @@ mod _io {
         #[pymethod]
         fn __setstate__(
             zelf: PyRef<StringIO>,
-            state: PyTupleRef,
+            state: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            // Check closed state first (like CHECK_CLOSED)
             if zelf.closed.load() {
-                return Err(vm.new_value_error("__setstate__ on closed file"));
+                return Err(io_closed_error(vm));
             }
-            if state.as_slice().len() != 4 {
-                return Err(vm.new_type_error(format!(
-                    "__setstate__ argument should be 4-tuple, got {}",
-                    state.as_slice().len()
-                )));
-            }
+            let state = state
+                .downcast_ref::<PyTuple>()
+                .filter(|state| state.len() >= 4)
+                .ok_or_else(|| {
+                    let stream_type = memory_state_type_name(zelf.class());
+                    let state_type = memory_state_type_name(state.class());
+                    vm.new_type_error(format!(
+                        "{stream_type}.__setstate__ argument should be 4-tuple, got {state_type}"
+                    ))
+                })?;
+            let [text, newline, position, dict, ..] = state.as_slice() else {
+                unreachable!("state length was checked");
+            };
 
-            let content: PyStrRef = state.as_slice()[0].clone().try_into_value(vm)?;
-            let newline = Newlines::try_from_object(vm, state.as_slice()[1].clone())?;
-            let pos: isize = isize::try_from_object(vm, state.as_slice()[2].clone())?;
-            if pos < 0 {
-                return Err(vm.new_value_error("negative seek position"));
-            }
-            let dict = &state.as_slice()[3];
-
-            // Set content and position
-            let raw_bytes = content.as_bytes().to_vec();
+            let StringIONewline(newline) = StringIONewline::try_from_object(vm, newline.clone())?;
+            let text = StringIO::initial_text(Some(text), vm)?;
             let mut buffer = zelf.buffer(vm)?;
-            *buffer = StringIOBuffer::new(raw_bytes);
-            buffer.seek(pos as usize);
-            drop(buffer);
+            // The saved text is already translated. Initialize newline
+            // observation from it without translating the restored buffer.
+            *buffer = StringIOBuffer::new(text.map_or_else(Vec::new, |s| s.as_bytes().to_vec()));
             zelf.newline.store(newline);
-            let mut seennl = SeenNewline::empty();
-            if matches!(newline, Newlines::Universal | Newlines::Passthrough) {
-                seennl.observe(content.as_wtf8());
-            }
-            zelf.seennl.store(seennl);
-
-            // Set __dict__ if provided
-            if !vm.is_none(dict) {
-                let dict_ref: PyRef<PyDict> = dict.clone().try_into_value(vm)?;
-                if let Some(obj_dict) = zelf.as_object().dict() {
-                    obj_dict.clear();
-                    for (key, value) in dict_ref {
-                        obj_dict.set_item(&*key, value, vm)?;
-                    }
-                }
+            zelf.seennl.store(SeenNewline::empty());
+            if let Some(text) = text {
+                zelf.observe_newlines(text.as_wtf8(), newline);
             }
 
-            Ok(())
+            let position = position
+                .downcast_ref::<crate::builtins::PyInt>()
+                .ok_or_else(|| {
+                    let name = memory_state_type_name(position.class());
+                    vm.new_type_error(format!(
+                        "third item of state must be an integer, got {name}"
+                    ))
+                })?;
+            let position = position.as_ssize_t(vm)?;
+            if position < 0 {
+                return Err(vm.new_value_error("position value cannot be negative"));
+            }
+            buffer.seek(position as usize);
+            drop(buffer);
+
+            restore_memory_state_dict(zelf.as_object(), dict, "fourth", vm)
         }
     }
 
@@ -5567,6 +5641,12 @@ mod _io {
 
     impl Constructor for BytesIO {
         type Args = FuncArgs;
+
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            Self::py_new(&cls, args, vm)?
+                .into_ref_with_type_lazy_dict(vm, cls)
+                .map(Into::into)
+        }
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self {
@@ -5831,11 +5911,7 @@ mod _io {
             let pos = buffer.tell();
             drop(buffer);
 
-            // Get __dict__ if it exists and is non-empty
-            let dict_obj: PyObjectRef = match zelf.as_object().dict() {
-                Some(d) if !d.is_empty() => d.into(),
-                _ => vm.ctx.none(),
-            };
+            let dict_obj = memory_state_dict(zelf.as_object(), vm);
 
             // Return (content, position, dict)
             Ok(vm.ctx.new_tuple(vec![
@@ -5851,18 +5927,14 @@ mod _io {
             object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let type_name = |object: &PyObject| {
-                let name = object.class().slot_name().to_string();
-                name[..name.floor_char_boundary(200.min(name.len()))].to_owned()
-            };
             let state = object
                 .downcast_ref::<PyTuple>()
                 .filter(|state| state.len() >= 3)
                 .ok_or_else(|| {
                     vm.new_type_error(format!(
                         "{}.__setstate__ argument should be 3-tuple, got {}",
-                        type_name(zelf.as_object()),
-                        type_name(&object),
+                        memory_state_type_name(zelf.class()),
+                        memory_state_type_name(object.class()),
                     ))
                 })?;
 
@@ -5878,7 +5950,7 @@ mod _io {
                 .ok_or_else(|| {
                     vm.new_type_error(format!(
                         "second item of state must be an integer, not {}",
-                        type_name(position),
+                        memory_state_type_name(position.class()),
                     ))
                 })?;
             let position = position.as_bigint().to_isize().ok_or_else(|| {
@@ -5889,23 +5961,7 @@ mod _io {
             }
             zelf.buffer.write().cursor.set_position(position as u64);
 
-            let dict = &state.as_slice()[2];
-            if !vm.is_none(dict) {
-                let dict = dict.downcast_ref::<PyDict>().ok_or_else(|| {
-                    vm.new_type_error(format!(
-                        "third item of state should be a dict, got a {}",
-                        type_name(dict),
-                    ))
-                })?;
-                if let Some(obj_dict) = zelf.as_object().dict() {
-                    obj_dict.merge_object(dict.to_owned().into(), vm)?;
-                } else {
-                    zelf.as_object()
-                        .set_dict(Some(dict.to_owned()))
-                        .map_err(|_| vm.new_attribute_error("This object has no __dict__"))?;
-                }
-            }
-            Ok(())
+            restore_memory_state_dict(zelf.as_object(), &state.as_slice()[2], "third", vm)
         }
 
         #[pymethod]

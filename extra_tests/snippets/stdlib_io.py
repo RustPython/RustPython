@@ -37,6 +37,56 @@ assert stream.getvalue() == "é\0\0\0Ж"
 assert stream.tell() == 5
 
 
+def test_memory_stream_state_snapshot():
+    for stream in (StringIO(), BytesIO()):
+        assert stream.__getstate__()[-1] is None
+        attrs = stream.__dict__
+        snapshot = stream.__getstate__()[-1]
+        assert snapshot == {}
+        assert snapshot is not attrs
+
+        stream.nested = []
+        snapshot = stream.__getstate__()[-1]
+        assert snapshot["nested"] is stream.nested
+        snapshot["other"] = 1
+        assert "other" not in attrs
+
+
+def test_stringio_restore_state():
+    stream = StringIO()
+    attrs = {"keep": 1}
+    stream.__setstate__((None, None, 2, attrs, "future extension"))
+    assert stream.getvalue() == ""
+    assert stream.tell() == 2
+    assert stream.__dict__ is attrs
+
+    stream.__setstate__(("a\r\nb\r", None, 3, {"added": 2}))
+    assert stream.getvalue() == "a\r\nb\r"
+    assert stream.tell() == 3
+    assert stream.newlines == ("\r", "\r\n")
+    assert stream.__dict__ is attrs
+    assert attrs == {"keep": 1, "added": 2}
+
+    class IndexOnly:
+        def __index__(self):
+            raise AssertionError("restore must not call __index__")
+
+    for position, error_type in ((-1, ValueError), (IndexOnly(), TypeError)):
+        with assert_raises(error_type):
+            stream.__setstate__(("new\r", None, position, {"ignored": True}))
+        assert stream.__getstate__() == ("new\r", None, 0, attrs)
+        assert stream.newlines == "\r"
+
+    stream.close()
+    with assert_raises(ValueError) as error:
+        stream.__setstate__([])
+    assert str(error.exception) == "I/O operation on closed file"
+
+
+test_memory_stream_state_snapshot()
+test_stringio_restore_state()
+
+
 fi = FileIO("README.md")
 assert fi.seekable()
 bb = BufferedReader(fi)
