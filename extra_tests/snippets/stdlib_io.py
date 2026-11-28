@@ -436,6 +436,74 @@ def test_buffered_stream_capabilities():
             assert str(error.exception) == "raw stream has been detached"
 
 
+def test_buffered_constructor_capabilities():
+    from io import BufferedRandom, BufferedRWPair, BufferedWriter, UnsupportedOperation
+
+    events = []
+
+    class Truthy:
+        def __bool__(self):
+            raise AssertionError("capability checks must not call __bool__")
+
+    class Raw(BytesIO):
+        def __init__(self, capability):
+            super().__init__()
+            self.capability = capability
+
+        def readable(self):
+            events.append("readable")
+            return self.capability
+
+        def writable(self):
+            events.append("writable")
+            return self.capability
+
+        def seekable(self):
+            events.append("seekable")
+            return self.capability
+
+    for check, method in (
+        ("_checkReadable", "readable"),
+        ("_checkWritable", "writable"),
+        ("_checkSeekable", "seekable"),
+    ):
+        events.clear()
+        assert getattr(Raw(True), check)() is True
+        assert events == [method]
+        for value in (False, 1, Truthy()):
+            events.clear()
+            with assert_raises(
+                UnsupportedOperation, _msg=f"File or stream is not {method}."
+            ):
+                getattr(Raw(value), check)()
+            assert events == [method]
+
+    for factory, calls in (
+        (BufferedReader, ["readable"]),
+        (BufferedWriter, ["writable"]),
+        (BufferedRandom, ["seekable", "readable", "writable"]),
+    ):
+        events.clear()
+        with assert_raises(UnsupportedOperation):
+            factory(Raw(1), 0)
+        assert events == calls[:1]
+        events.clear()
+        with assert_raises(ValueError, _msg="buffer size must be strictly positive"):
+            factory(Raw(True), 0)
+        assert events == calls
+
+    events.clear()
+    with BufferedRWPair(Raw(True), Raw(True)):
+        assert events == ["readable", "writable", "readable", "writable"]
+    events.clear()
+    with assert_raises(UnsupportedOperation):
+        BufferedRWPair(Raw(True), Raw(False))
+    assert events == ["readable", "writable"]
+
+
+test_buffered_constructor_capabilities()
+
+
 def test_buffered_pair_isatty_forwarding():
     from _io import BufferedRWPair
 

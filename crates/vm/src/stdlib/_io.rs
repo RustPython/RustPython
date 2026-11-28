@@ -489,34 +489,16 @@ mod _io {
         }
     }
 
-    fn check_readable(file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.call_method(file, "readable", ())?.try_to_bool(vm)? {
+    fn check_stream_capability(
+        file: &PyObject,
+        capability: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if vm.call_method(file, capability, ())?.is(&vm.ctx.true_value) {
             Ok(())
         } else {
             Err(new_unsupported_operation(
-                "File or stream is not readable",
-                vm,
-            ))
-        }
-    }
-
-    fn check_writable(file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.call_method(file, "writable", ())?.try_to_bool(vm)? {
-            Ok(())
-        } else {
-            Err(new_unsupported_operation(
-                "File or stream is not writable.",
-                vm,
-            ))
-        }
-    }
-
-    fn check_seekable(file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.call_method(file, "seekable", ())?.try_to_bool(vm)? {
-            Ok(())
-        } else {
-            Err(new_unsupported_operation(
-                "File or stream is not seekable",
+                format!("File or stream is not {capability}."),
                 vm,
             ))
         }
@@ -689,18 +671,21 @@ mod _io {
         }
 
         #[pymethod(name = "_checkReadable")]
-        fn check_readable(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            check_readable(&zelf, vm)
+        fn check_readable(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+            check_stream_capability(&zelf, "readable", vm)?;
+            Ok(true)
         }
 
         #[pymethod(name = "_checkWritable")]
-        fn check_writable(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            check_writable(&zelf, vm)
+        fn check_writable(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+            check_stream_capability(&zelf, "writable", vm)?;
+            Ok(true)
         }
 
         #[pymethod(name = "_checkSeekable")]
-        fn check_seekable(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            check_seekable(&zelf, vm)
+        fn check_seekable(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+            check_stream_capability(&zelf, "seekable", vm)?;
+            Ok(true)
         }
     }
 
@@ -1909,22 +1894,22 @@ mod _io {
             self.raw_cell().store(None);
             data.flags.remove(BufferedFlags::DETACHED);
 
+            if Self::SEEKABLE {
+                check_stream_capability(&raw, "seekable", vm)?;
+            }
+            if Self::READABLE {
+                data.flags.insert(BufferedFlags::READABLE);
+                check_stream_capability(&raw, "readable", vm)?;
+            }
+            if Self::WRITABLE {
+                data.flags.insert(BufferedFlags::WRITABLE);
+                check_stream_capability(&raw, "writable", vm)?;
+            }
+
             if buffer_size <= 0 {
                 return Err(vm.new_value_error("buffer size must be strictly positive"));
             }
             let buffer_size = buffer_size as usize;
-
-            if Self::SEEKABLE {
-                check_seekable(&raw, vm)?;
-            }
-            if Self::READABLE {
-                data.flags.insert(BufferedFlags::READABLE);
-                check_readable(&raw, vm)?;
-            }
-            if Self::WRITABLE {
-                data.flags.insert(BufferedFlags::WRITABLE);
-                check_writable(&raw, vm)?;
-            }
 
             data.buffer = vm.new_zeroed_bytes(buffer_size)?;
 
@@ -1957,7 +1942,7 @@ mod _io {
             let mut data = zelf.lock(vm)?;
             let raw_obj = data.check_init(zelf.raw_cell(), vm)?;
             ensure_unclosed(raw_obj, "seek of closed file", vm)?;
-            check_seekable(raw_obj, vm)?;
+            check_stream_capability(raw_obj, "seekable", vm)?;
             let target = get_offset(&target, vm)?;
             data.seek(zelf.raw_cell(), target, whence, vm)
         }
@@ -2656,6 +2641,8 @@ mod _io {
             }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            check_stream_capability(&reader, "readable", vm)?;
+            check_stream_capability(&writer, "writable", vm)?;
             let size = BufferSize { buffer_size };
             zelf.read.init(reader, size.clone(), vm)?;
             zelf.write.init(writer, size, vm)?;
