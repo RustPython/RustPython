@@ -3369,6 +3369,17 @@ mod _io {
                 .map_err(|_| vm.new_value_error("I/O operation on uninitialized object"))
         }
 
+        fn lock_attached(
+            &self,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyMappedThreadMutexGuard<'_, TextIOData>> {
+            let data = self.lock(vm)?;
+            if self.buffer.deref().is_none() {
+                return Err(vm.new_value_error("underlying buffer has been detached"));
+            }
+            Ok(data)
+        }
+
         // Python subclasses can finalize on their last reference. Return the
         // replaced value out of the guard's scope before releasing it, in the
         // same order as CPython's Py_XSETREF / Py_CLEAR operations.
@@ -3437,6 +3448,14 @@ mod _io {
             let buffer = text_buffer(&self.buffer, vm)?;
             vm.call_method(&buffer, "write", (pending,))?;
             Ok(())
+        }
+
+        fn read_chunk_retry(&self, size_hint: usize, vm: &VirtualMachine) -> PyResult<bool> {
+            loop {
+                if let Some(eof) = trap_eintr(self.read_chunk(size_hint, vm), vm)? {
+                    return Ok(eof);
+                }
+            }
         }
 
         // No TextIOData borrow may cross a Python callback. In particular, a
@@ -3876,7 +3895,7 @@ mod _io {
 
         #[pygetset(name = "_CHUNK_SIZE")]
         fn chunksize(&self, vm: &VirtualMachine) -> PyResult<usize> {
-            Ok(self.lock(vm)?.chunk_size)
+            Ok(self.lock_attached(vm)?.chunk_size)
         }
 
         #[pygetset(setter, name = "_CHUNK_SIZE")]
@@ -3890,12 +3909,7 @@ mod _io {
                     &type_name[..end]
                 )));
             };
-            {
-                let _textio = self.lock(vm)?;
-                if self.buffer.deref().is_none() {
-                    return Err(vm.new_value_error("underlying buffer has been detached"));
-                }
-            }
+            drop(self.lock_attached(vm)?);
 
             let integer = object_value.try_index(vm)?;
 
@@ -4237,7 +4251,7 @@ mod _io {
                         break;
                     }
                     drop(textio);
-                    let eof = self.read_chunk(remaining, vm)?;
+                    let eof = self.read_chunk_retry(remaining, vm)?;
                     textio = self.lock(vm)?;
                     if eof {
                         break;
@@ -4543,7 +4557,7 @@ mod _io {
                         _ => {}
                     }
                     drop(textio);
-                    let eof = self.read_chunk(0, vm)?;
+                    let eof = self.read_chunk_retry(0, vm)?;
                     textio = self.lock(vm)?;
                     if eof {
                         drop(textio);
@@ -4855,23 +4869,33 @@ mod _io {
 
     impl IterNext for TextIOWrapper {
         fn slot_iternext(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            // Set telling = false during iteration (matches CPython behavior)
-            let textio_ref: PyRef<Self> = zelf.downcast_ref::<Self>().unwrap().to_owned();
-            {
-                let mut textio = textio_ref.lock(vm)?;
-                textio.telling = false;
-            }
+            let textio_ref = zelf.downcast_ref::<Self>().unwrap();
+            textio_ref.lock_attached(vm)?.telling = false;
 
-            let line = vm.call_method(zelf, "readline", ())?;
+            let line = if zelf.class().is(Self::class(&vm.ctx)) {
+                textio_ref.readline(OptionalSize { size: None }, vm)?
+            } else {
+                vm.call_method(zelf, "readline", ())?
+                    .downcast::<PyStr>()
+                    .map_err(|object| {
+                        let class = object.class();
+                        let name = class.slot_name();
+                        let end = name.floor_char_boundary(200.min(name.len()));
+                        vm.new_os_error(format!(
+                            "readline() should have returned a str object, not '{}'",
+                            &name[..end],
+                        ))
+                    })?
+            };
 
-            if !line.try_to_bool(vm)? {
+            if line.is_empty() {
                 // Restore telling on StopIteration
                 textio_ref.set_snapshot(None, vm)?;
                 let mut textio = textio_ref.lock(vm)?;
                 textio.telling = textio.seekable;
                 Ok(PyIterReturn::StopIteration(None))
             } else {
-                Ok(PyIterReturn::Return(line))
+                Ok(PyIterReturn::Return(line.into()))
             }
         }
 

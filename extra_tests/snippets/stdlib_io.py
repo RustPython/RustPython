@@ -342,6 +342,81 @@ assert _released_values == [b"new"]
 assert _stream.closed
 
 
+def test_text_iteration_readline_contract():
+    calls = []
+
+    class Text(str):
+        def __bool__(self):
+            raise AssertionError("iteration must not truth-test readline()")
+
+    class Reader(TextIOWrapper):
+        def readline(self):
+            calls.append("readline")
+            return self.result
+
+    with Reader(BytesIO()) as stream:
+        stream.result = 42
+        with assert_raises(OSError) as error:
+            next(stream)
+        assert str(error.exception) == (
+            "readline() should have returned a str object, not 'int'"
+        )
+
+        stream.result = Text("line")
+        assert next(stream) is stream.result
+        stream.result = Text("")
+        with assert_raises(StopIteration):
+            next(stream)
+        assert stream.tell() == 0
+
+        stream._CHUNK_SIZE = 13
+        assert stream._CHUNK_SIZE == 13
+
+    stream = Reader(BytesIO())
+    with stream.detach():
+        calls.clear()
+        for operation in (lambda: next(stream), lambda: stream._CHUNK_SIZE):
+            with assert_raises(ValueError) as error:
+                operation()
+            assert str(error.exception) == "underlying buffer has been detached"
+        assert calls == []
+
+
+def test_text_chunk_interruption():
+    from errno import EINTR, EIO
+
+    class Raw(BytesIO):
+        def __init__(self, error):
+            super().__init__(b"ab\ncd")
+            self.error = error
+            self.calls = 0
+
+        def read1(self, size):
+            self.calls += 1
+            if self.calls == 1:
+                raise self.error
+            return super().read1(size)
+
+    for operation in (lambda stream: stream.read(3), TextIOWrapper.readline, next):
+        error = InterruptedError(EINTR, "interrupted")
+        raw = Raw(error)
+        with TextIOWrapper(raw, encoding="utf-8") as stream:
+            assert operation(stream) == "ab\n"
+            assert raw.calls == 2
+
+        error = OSError(EIO, "unrelated failure")
+        raw = Raw(error)
+        with TextIOWrapper(raw, encoding="utf-8") as stream:
+            with assert_raises(OSError) as caught:
+                operation(stream)
+            assert caught.exception is error
+            assert raw.calls == 1
+
+
+test_text_iteration_readline_contract()
+test_text_chunk_interruption()
+
+
 # OSError.filename is the original FileIO path argument, including path-like objects.
 class PathLikeName:
     def __fspath__(self):
