@@ -5323,7 +5323,7 @@ mod _io {
                 OptionalArg::Missing => Newlines::Lf,
                 OptionalArg::Present(StringIONewline(newline)) => newline,
             };
-            let initial_value = StringIO::initial_text(initial_value.as_deref(), vm)?;
+            let initial_value = Self::initial_text(initial_value.as_deref(), vm)?;
             let raw_bytes = initial_value.map_or_else(Vec::new, |v| {
                 Self::translate_newlines(v.as_wtf8(), newline).into_bytes()
             });
