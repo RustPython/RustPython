@@ -1,6 +1,14 @@
 import os
 import sys
-from io import BufferedReader, BytesIO, FileIO, RawIOBase, StringIO, TextIOWrapper
+from io import (
+    BufferedIOBase,
+    BufferedReader,
+    BytesIO,
+    FileIO,
+    RawIOBase,
+    StringIO,
+    TextIOWrapper,
+)
 
 from testutils import assert_raises
 
@@ -509,3 +517,47 @@ def test_fileio_warning_preserves_source():
 
 
 test_fileio_warning_preserves_source()
+
+
+# Native read callbacks must return bytes, not just a readable buffer.
+class BufferedResult(BufferedIOBase):
+    def __init__(self, result):
+        self.result = result
+
+    def read(self, size):
+        return self.result
+
+    read1 = read
+
+
+class ReadResultBytes(bytes):
+    pass
+
+
+for name in ("readinto", "readinto1"):
+    destination = bytearray(b"....")
+    readinto = getattr(BufferedResult(ReadResultBytes(b"ab")), name)
+    assert readinto(destination) == 2
+    assert destination == b"ab.."
+    for result in (bytearray(b"z"), memoryview(b"z"), destination, None):
+        with assert_raises(TypeError) as err:
+            getattr(BufferedResult(result), name)(destination)
+        assert str(err.exception) == "read() should return bytes"
+        assert destination == b"ab.."
+    with assert_raises(ValueError) as err:
+        getattr(BufferedResult(b"abcde"), name)(destination)
+    assert (
+        str(err.exception)
+        == "read() returned too much data: 4 bytes requested, 5 returned"
+    )
+    assert destination == b"ab.."
+
+
+class InvalidRawReadResult(RawIOBase):
+    def read(self, size):
+        return bytearray(b"ab")
+
+
+with assert_raises(TypeError) as err:
+    InvalidRawReadResult().readall()
+assert str(err.exception) == "read() should return bytes"
