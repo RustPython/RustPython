@@ -119,6 +119,63 @@ raw.textio = textio
 with assert_raises(AttributeError):
     textio.writelines(["x"])
 
+
+def test_textio_reconfigure():
+    import struct
+    from io import UnsupportedOperation
+
+    # reconfigure distinguishes an explicitly supplied value from omission.
+    with TextIOWrapper(BytesIO(), encoding="ascii", errors="replace") as stream:
+        stream.reconfigure(encoding="ascii")
+        assert stream.errors == "strict"
+        with assert_raises(UnicodeEncodeError):
+            stream.write("é")
+
+    for options in ({"encoding": "ascii"}, {"errors": "replace"}, {"newline": None}):
+        with TextIOWrapper(
+            BytesIO(b"abc"), encoding="ascii", errors="replace"
+        ) as stream:
+            assert stream.read(1) == "a"
+            with assert_raises(UnsupportedOperation):
+                stream.reconfigure(**options)
+            stream.reconfigure(encoding=None, errors=None, line_buffering=True)
+            assert stream.line_buffering is True
+            assert stream.read() == "bc"
+            stream.reconfigure(**options)
+
+    class RecordingFlush(TextIOWrapper):
+        flush_count = 0
+
+        def flush(self):
+            self.flush_count += 1
+            return super().flush()
+
+    with RecordingFlush(BytesIO(), encoding="ascii") as stream:
+        stream.reconfigure()
+        assert stream.flush_count == 1
+
+    class WideIndex:
+        def __index__(self):
+            return 1 << 32
+
+    with TextIOWrapper(BytesIO(), encoding="ascii") as stream:
+        for flag in ("line_buffering", "write_through"):
+            if struct.calcsize("l") > 4:
+                stream.reconfigure(**{flag: WideIndex()})
+                assert getattr(stream, flag) is True
+            else:
+                with assert_raises(
+                    OverflowError, _msg="Python int too large to convert to C long"
+                ):
+                    stream.reconfigure(**{flag: WideIndex()})
+            with assert_raises(
+                OverflowError, _msg="Python int too large to convert to C long"
+            ):
+                stream.reconfigure(**{flag: 1 << 80})
+
+
+test_textio_reconfigure()
+
 textio = TextIOWrapper(BytesIO())
 
 for invalid_chunk_size in (0, -1, 2**100):
