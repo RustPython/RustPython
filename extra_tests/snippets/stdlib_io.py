@@ -1,3 +1,4 @@
+import io
 import os
 import sys
 from io import BufferedReader, BytesIO, FileIO, RawIOBase, StringIO, TextIOWrapper
@@ -92,6 +93,70 @@ assert f.closed
 
 with assert_raises(ValueError):
     f.isatty()
+
+
+# A callback may return an index object. Distinguish errors it raises from a
+# successful conversion whose integer does not fit in a Py_ssize_t.
+class ReadWriteCount:
+    def __index__(self):
+        return sys.maxsize + 1
+
+
+class CallbackOverflow:
+    def __index__(self):
+        raise OverflowError("callback overflow")
+
+
+class CountRaw(RawIOBase):
+    def readable(self):
+        return True
+
+    def writable(self):
+        return True
+
+    def readinto(self, buffer):
+        return self.result
+
+    def write(self, data):
+        return self.result
+
+
+for count, conversion_error, message in (
+    (
+        ReadWriteCount(),
+        ValueError,
+        "cannot fit 'ReadWriteCount' into an index-sized integer",
+    ),
+    (CallbackOverflow(), OverflowError, "callback overflow"),
+):
+    raw = CountRaw()
+    raw.result = count
+    with assert_raises(conversion_error) as err:
+        raw.read(1)
+    assert str(err.exception) == message
+
+    with BufferedReader(CountRaw(), 1) as reader:
+        reader.raw.result = count
+        with assert_raises(OSError) as err:
+            reader.read(1)
+        assert str(err.exception) == "raw readinto() failed"
+        cause = err.exception.__cause__
+        assert type(cause) is conversion_error
+        assert str(cause) == message
+        assert err.exception.__context__ is cause
+
+    with io.BufferedWriter(CountRaw(), 2) as writer:
+        writer.raw.result = count
+        writer.write(b"x")
+        try:
+            with assert_raises(OSError) as err:
+                writer.flush()
+            assert str(err.exception) == (
+                "raw write() returned invalid length -1 (should have been between 0 and 1)"
+            )
+            assert err.exception.__cause__ is None
+        finally:
+            writer.raw.result = 1
 
 
 class Gh6588:
