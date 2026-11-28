@@ -203,6 +203,11 @@ mod _io {
         host_io::validate_whence(whence)
     }
 
+    fn read_result_as_bytes(data: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+        data.downcast::<PyBytes>()
+            .map_err(|_| vm.new_type_error("read() should return bytes"))
+    }
+
     fn ensure_unclosed(file: &PyObject, msg: &str, vm: &VirtualMachine) -> PyResult<()> {
         if file.get_attr("closed", vm)?.try_to_bool(vm)? {
             Err(vm.new_value_error(msg))
@@ -809,22 +814,18 @@ mod _io {
                         None => continue,
                     }
                 };
-                let data = <Option<PyBytesRef>>::try_from_object(vm, data)?;
-                match data {
-                    None => {
-                        if chunks.is_empty() {
-                            return Ok(None);
-                        }
-                        break;
+                if vm.is_none(&data) {
+                    if chunks.is_empty() {
+                        return Ok(None);
                     }
-                    Some(b) => {
-                        if b.as_bytes().is_empty() {
-                            break;
-                        }
-                        total_len += b.as_bytes().len();
-                        chunks.push(b)
-                    }
+                    break;
                 }
+                let data = read_result_as_bytes(data, vm)?;
+                if data.as_bytes().is_empty() {
+                    break;
+                }
+                total_len += data.as_bytes().len();
+                chunks.push(data);
             }
             let mut ret = Vec::with_capacity(total_len);
             for b in chunks {
@@ -869,23 +870,17 @@ mod _io {
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
             let b = ArgMemoryBuffer::try_from_borrowed_object(vm, buf_obj)?;
-            let l = b.len();
-            let data = vm.call_method(zelf, method, (l,))?;
-            if data.is(buf_obj) {
-                return Ok(l);
+            let requested = b.len();
+            let data = read_result_as_bytes(vm.call_method(zelf, method, (requested,))?, vm)?;
+            let data = data.as_bytes();
+            if data.len() > requested {
+                return Err(vm.new_value_error(format!(
+                    "read() returned too much data: {requested} bytes requested, {} returned",
+                    data.len()
+                )));
             }
-            let mut buf = b.borrow_buf_mut();
-            let data = ArgBytesLike::try_from_object(vm, data)?;
-            let data = data.borrow_buf();
-            match buf.get_mut(..data.len()) {
-                Some(slice) => {
-                    slice.copy_from_slice(&data);
-                    Ok(data.len())
-                }
-                None => {
-                    Err(vm.new_value_error("readinto: buffer and read data have different lengths"))
-                }
-            }
+            b.borrow_buf_mut()[..data.len()].copy_from_slice(data);
+            Ok(data.len())
         }
         #[pymethod]
         fn readinto(
