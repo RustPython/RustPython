@@ -368,6 +368,79 @@ with FileIO(__file__, "rbb") as rbb:
     assert rbb.mode == "rb"
 
 
+def test_iobase_line_callbacks():
+    import errno
+    from io import IOBase
+
+    class BytesResult(bytes):
+        pass
+
+    class Source(IOBase):
+        def __init__(self):
+            self.data = b"ab\ncd"
+            self.calls = []
+            self.peek_type = BytesResult
+            self.read_type = BytesResult
+            self.interrupt_read = False
+
+        def peek(self, size):
+            self.calls.append(("peek", size))
+            return self.peek_type(self.data)
+
+        def read(self, size):
+            self.calls.append(("read", size))
+            if self.interrupt_read:
+                self.interrupt_read = False
+                raise InterruptedError(errno.EINTR, "interrupted")
+            data, self.data = self.data[:size], self.data[size:]
+            return self.read_type(data)
+
+    assert IOBase().readline(0) == b""
+    source = Source()
+    line = source.readline()
+    assert type(line) is bytes and line == b"ab\n"
+    assert source.calls == [("peek", 1), ("read", 3)]
+    assert source.data == b"cd"
+
+    for method in ("peek", "read"):
+        source = Source()
+        setattr(source, method + "_type", bytearray)
+        with assert_raises(
+            OSError,
+            _msg=f"{method}() should have returned a bytes object, not 'bytearray'",
+        ):
+            source.readline()
+        if method == "peek":
+            assert source.calls == [("peek", 1)]
+
+    source = Source()
+    source.interrupt_read = True
+    assert source.readline(2) == b"ab"
+    assert source.calls == [("peek", 1), ("read", 2), ("peek", 1), ("read", 2)]
+
+    stream = IOBase()
+    stream.close()
+    with assert_raises(ValueError):
+        stream.writelines(42)
+
+    class Sink(IOBase):
+        def __init__(self):
+            self.calls = []
+
+        def write(self, data):
+            self.calls.append(data)
+            if len(self.calls) == 1:
+                raise InterruptedError(errno.EINTR, "interrupted")
+            return len(data)
+
+    sink = Sink()
+    sink.writelines([b"a", b"b"])
+    assert sink.calls == [b"a", b"a", b"b"]
+
+
+test_iobase_line_callbacks()
+
+
 def test_buffered_stream_capabilities():
     from _io import BufferedRandom, BufferedReader, BufferedRWPair, BufferedWriter
 

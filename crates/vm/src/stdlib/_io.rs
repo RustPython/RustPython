@@ -211,6 +211,15 @@ mod _io {
         }
     }
 
+    fn readline_bytes(obj: PyObjectRef, method: &str, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+        obj.downcast().map_err(|obj| {
+            vm.new_os_error(format!(
+                "{method}() should have returned a bytes object, not '{:.200}'",
+                obj.class().name(),
+            ))
+        })
+    }
+
     /// Check if an error is an OSError with errno == EINTR.
     /// If so, call check_signals() and return Ok(None) to indicate retry.
     /// Otherwise, return Ok(Some(val)) for success or Err for other errors.
@@ -629,15 +638,32 @@ mod _io {
             vm: &VirtualMachine,
         ) -> PyResult<Vec<u8>> {
             let size = size.to_usize();
-            let read = instance.get_attr("read", vm)?;
+            let peek = vm.get_attribute_opt(&instance, "peek")?;
             let mut res = Vec::new();
             while size.is_none_or(|s| res.len() < s) {
-                let read_res = ArgBytesLike::try_from_object(vm, read.call((1,), vm)?)?;
-                if read_res.with_ref(|b| b.is_empty()) {
+                let mut nread = 1;
+                if let Some(peek) = &peek {
+                    let Some(ahead) = trap_eintr(peek.call((1,), vm), vm)? else {
+                        continue;
+                    };
+                    let ahead = readline_bytes(ahead, "peek", vm)?;
+                    let bytes = ahead.as_bytes();
+                    if !bytes.is_empty() {
+                        let count = size.map_or(bytes.len(), |s| bytes.len().min(s - res.len()));
+                        nread = memchr::memchr(b'\n', &bytes[..count]).map_or(count, |idx| idx + 1);
+                    }
+                }
+                let read = vm.call_method(&instance, "read", (nread,));
+                let Some(read) = trap_eintr(read, vm)? else {
+                    continue;
+                };
+                let read = readline_bytes(read, "read", vm)?;
+                let bytes = read.as_bytes();
+                if bytes.is_empty() {
                     break;
                 }
-                read_res.with_ref(|b| res.extend_from_slice(b));
-                if res.ends_with(b"\n") {
+                res.extend_from_slice(bytes);
+                if bytes.ends_with(b"\n") {
                     break;
                 }
             }
@@ -673,12 +699,19 @@ mod _io {
         #[pymethod]
         fn writelines(
             instance: PyObjectRef,
-            lines: ArgIterable,
+            lines: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            check_closed(&instance, vm)?;
-            for line in lines.iter(vm)? {
-                vm.call_method(&instance, "write", (line?,))?;
+            if let Some(closed) = vm.get_attribute_opt(&instance, "closed")?
+                && closed.try_to_bool(vm)?
+            {
+                return Err(vm.new_value_error("I/O operation on closed file."));
+            }
+            for line in lines.get_iter(vm)?.into_iter::<PyObjectRef>(vm) {
+                let line = line?;
+                while trap_eintr(vm.call_method(&instance, "write", (line.as_object(),)), vm)?
+                    .is_none()
+                {}
             }
             Ok(())
         }
