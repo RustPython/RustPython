@@ -756,6 +756,18 @@ mod _io {
         Ok(())
     }
 
+    /// I/O count callbacks use PyNumber_AsSsize_t with ValueError on range overflow.
+    fn io_count(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<isize> {
+        let index = value.try_index(vm)?;
+        index.as_bigint().to_isize().ok_or_else(|| {
+            let name = value.class().slot_name();
+            vm.new_value_error(format!(
+                "cannot fit '{}' into an index-sized integer",
+                &name[..name.floor_char_boundary(200.min(name.len()))]
+            ))
+        })
+    }
+
     #[pyattr]
     #[pyclass(name = "_RawIOBase", base = _IOBase)]
     #[derive(Debug, Default)]
@@ -768,10 +780,12 @@ mod _io {
         fn read(zelf: PyObjectRef, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
             if let Some(size) = size.to_usize() {
                 let b = PyByteArray::from(vm.new_zeroed_bytes(size)?).into_ref(&vm.ctx);
-                let n = <Option<isize>>::try_from_object(
-                    vm,
-                    vm.call_method(&zelf, "readinto", (b.clone(),))?,
-                )?;
+                let res = vm.call_method(&zelf, "readinto", (b.clone(),))?;
+                let n = if vm.is_none(&res) {
+                    None
+                } else {
+                    Some(io_count(res, vm)?)
+                };
                 Ok(match n {
                     None => vm.ctx.none(),
                     Some(n) => {
@@ -1263,7 +1277,9 @@ mod _io {
             if vm.is_none(&res) {
                 return Ok(None);
             }
-            let n = isize::try_from_object(vm, res)?;
+            // Like bufferedio's writer, a conversion failure is reported as
+            // an invalid length (-1), without preserving the conversion error.
+            let n = io_count(res, vm).unwrap_or(-1);
             if n < 0 || n as usize > len {
                 return Err(vm.new_os_error(format!(
                     "raw write() returned invalid length {n} (should have been between 0 and {len})"
@@ -1573,19 +1589,16 @@ mod _io {
             if vm.is_none(&res) {
                 return Ok(None);
             }
-            // Try to convert to int; if it fails, treat as -1 and chain the TypeError
-            let (n, type_error) = match isize::try_from_object(vm, res) {
-                Ok(n) => (n, None),
-                Err(e) => (-1, Some(e)),
-            };
+            let n = io_count(res, vm).map_err(|cause| {
+                let err = vm.new_os_error("raw readinto() failed");
+                err.set_cause(Some(cause.clone()));
+                err.set_context(Some(cause));
+                err
+            })?;
             if n < 0 || n as usize > len {
-                let os_error = vm.new_os_error(format!(
+                return Err(vm.new_os_error(format!(
                     "raw readinto() returned invalid length {n} (should have been between 0 and {len})"
-                ));
-                if let Some(cause) = type_error {
-                    os_error.set_cause(Some(cause));
-                }
-                return Err(os_error);
+                )));
             }
             if n > 0 && self.abs_pos != -1 {
                 self.abs_pos += n as Offset
