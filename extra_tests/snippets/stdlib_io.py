@@ -485,6 +485,92 @@ test_buffered_stream_capabilities()
 test_buffered_pair_isatty_forwarding()
 
 
+def test_buffered_peek_flush_failure():
+    from _io import BufferedRandom
+
+    class Raw(BytesIO):
+        def __init__(self):
+            super().__init__(b"abcd")
+            self.failure_at = None
+            self.failure = OSError("raw flush failed")
+
+        def write(self, data):
+            if self.failure_at == "write":
+                raise self.failure
+            return super().write(data)
+
+        def seek(self, offset, whence=0):
+            if self.failure_at == "seek":
+                raise self.failure
+            return super().seek(offset, whence)
+
+        def readinto(self, buffer):
+            assert self.failure_at is None, "peek read past a failed flush"
+            return super().readinto(buffer)
+
+    for failure_at in ("write", "seek"):
+        raw = Raw()
+        with BufferedRandom(raw, 4) as stream:
+            assert stream.write(b"X") == 1
+            raw.failure_at = failure_at
+            try:
+                with assert_raises(OSError) as error:
+                    stream.peek()
+                assert error.exception is raw.failure
+            finally:
+                raw.failure_at = None
+            stream.flush()
+            stream.seek(0)
+            assert stream.read() == b"Xbcd"
+
+
+def test_buffered_validation_order():
+    from _io import BufferedRandom, BufferedWriter, UnsupportedOperation
+
+    for wrapper in (BufferedReader, BufferedWriter, BufferedRandom):
+        with wrapper(BytesIO(b"abcd"), 4) as stream:
+            if wrapper is BufferedReader:
+                with assert_raises(UnsupportedOperation):
+                    stream.truncate(1)
+        with assert_raises(ValueError) as error:
+            stream.truncate(1)
+        assert str(error.exception) == "truncate of closed file"
+
+        raw = BytesIO()
+        stream = wrapper(raw, 4)
+        assert stream.detach() is raw
+        raw.close()
+        with assert_raises(ValueError) as error:
+            stream.seek(0, 99)
+        assert str(error.exception) == "raw stream has been detached"
+
+        uninitialized = wrapper.__new__(wrapper)
+        with assert_raises(ValueError) as error:
+            uninitialized.seek(0, 99)
+        assert str(error.exception) == "I/O operation on uninitialized object"
+
+    for wrapper in (BufferedReader, BufferedRandom):
+        with wrapper(BytesIO(b"abcd"), 4) as stream:
+            with assert_raises(TypeError) as error:
+                stream.read1(None)
+            assert (
+                str(error.exception)
+                == "'NoneType' object cannot be interpreted as an integer"
+            )
+            for method in (stream.peek, stream.read1):
+                with assert_raises(OverflowError) as error:
+                    method(sys.maxsize + 1)
+                assert (
+                    str(error.exception)
+                    == "Python int too large to convert to C ssize_t"
+                )
+            assert stream.read1() == b"abcd"
+
+
+test_buffered_peek_flush_failure()
+test_buffered_validation_order()
+
+
 def test_fileio_warning_preserves_source():
     import tempfile
     import warnings

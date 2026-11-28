@@ -290,12 +290,27 @@ mod _io {
         .transpose()
     }
 
+    #[derive(Clone, Copy)]
+    struct BufferedSize(PySsize);
+
+    impl TryFromObject for BufferedSize {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            obj.try_index(vm)?.as_ssize_t(vm).map(Self)
+        }
+    }
+
     // peek ignores the value and returns the buffer.
-    #[derive(Clone, Copy, FromArgs)]
+    #[derive(FromArgs)]
     #[allow(dead_code)]
     struct PeekSize {
-        #[pyarg(positional, default)]
-        size: isize,
+        #[pyarg(positional, default = BufferedSize(0), py_default = "0")]
+        size: BufferedSize,
+    }
+
+    #[derive(FromArgs)]
+    struct Read1Size {
+        #[pyarg(positional, default = BufferedSize(-1), py_default = "-1")]
+        size: BufferedSize,
     }
 
     #[derive(FromArgs)]
@@ -1950,12 +1965,12 @@ mod _io {
             whence: WhenceArg,
             vm: &VirtualMachine,
         ) -> PyResult<Offset> {
+            let mut data = zelf.lock(vm)?;
+            let raw_obj = data.check_init(zelf.raw_cell(), vm)?;
             let whence = whence.whence;
             if !validate_whence(whence) {
                 return Err(vm.new_value_error(format!("whence value {whence} unsupported")));
             }
-            let mut data = zelf.lock(vm)?;
-            let raw_obj = data.check_init(zelf.raw_cell(), vm)?;
             ensure_unclosed(raw_obj, "seek of closed file", vm)?;
             check_seekable(raw_obj, vm)?;
             let target = get_offset(&target, vm)?;
@@ -1980,6 +1995,7 @@ mod _io {
             let pos = pos.pos.unwrap_or_else(|| vm.ctx.none());
             let mut data = zelf.lock(vm)?;
             let raw_obj = data.check_init(zelf.raw_cell(), vm)?;
+            ensure_unclosed(raw_obj, "truncate of closed file", vm)?;
             if !data.writable() {
                 return Err(new_unsupported_operation("truncate", vm));
             }
@@ -2195,18 +2211,18 @@ mod _io {
             ensure_unclosed(raw, "peek of closed file", vm)?;
 
             if data.writable() {
-                let _ = data.flush_rewind(raw_cell, vm);
+                data.flush_rewind(raw_cell, vm)?;
             }
             data.peek(raw_cell, vm)
         }
 
         #[pymethod]
-        fn read1(zelf: &Py<Self>, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn read1(zelf: &Py<Self>, size: Read1Size, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let mut data = zelf.reader().lock(vm)?;
             let raw_cell = zelf.reader().raw_cell();
             let raw = data.check_init(raw_cell, vm)?;
             ensure_unclosed(raw, "read of closed file", vm)?;
-            let n = size.to_usize().unwrap_or(data.buffer.len());
+            let n = size.size.0.to_usize().unwrap_or(data.buffer.len());
             if n == 0 {
                 return Ok(Vec::new());
             }
