@@ -2749,7 +2749,7 @@ mod _io {
         errors: Option<PyUtf8StrRef>,
         // Omitted leaves newline unchanged. None selects universal newlines.
         #[pyarg(named, optional, py_default = "None")]
-        newline: OptionalOption<Newlines>,
+        newline: OptionalOption<PyStrRef>,
         #[pyarg(named, optional)]
         line_buffering: Option<PyObjectRef>,
         #[pyarg(named, optional)]
@@ -3521,7 +3521,9 @@ mod _io {
 
         fn bool_from_index(value: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
             let int = value.try_index(vm)?;
-            let value: i32 = int.try_to_primitive(vm)?;
+            let value: core::ffi::c_long = int
+                .try_to_primitive(vm)
+                .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))?;
             Ok(value != 0)
         }
 
@@ -3724,69 +3726,60 @@ mod _io {
                 text_buffer(&self.buffer, vm)?
             };
             check_closed(&buffer, vm)?;
-            let mut encoding = textio_encoding(&self.encoding, vm)?;
-            let (mut errors, mut newline) = {
-                let data = self.lock(vm)?;
-                (data.errors.clone(), data.newline)
+            let change_codec = args.encoding.is_some()
+                || args.errors.is_some()
+                || matches!(args.newline, OptionalArg::Present(_));
+            if change_codec && self.lock(vm)?.decoded_chars.is_some() {
+                return Err(new_unsupported_operation(
+                    "It is not possible to set the encoding or newline of stream after the first read",
+                    vm,
+                ));
+            }
+            let newline = match args.newline {
+                OptionalArg::Present(Some(nl)) => Some(Newlines::try_from_object(vm, nl.into())?),
+                OptionalArg::Present(None) => Some(Newlines::default()),
+                OptionalArg::Missing => None,
             };
-            let mut encoding_changed = false;
-            let mut errors_changed = false;
-            let mut newline_changed = false;
-            let mut line_buffering = None;
-            let mut write_through = None;
+            let line_buffering = args
+                .line_buffering
+                .as_deref()
+                .map(|value| TextIOWrapper::bool_from_index(value, vm))
+                .transpose()?
+                .unwrap_or_else(|| self.line_buffering.load(Ordering::Relaxed));
+            let write_through = args
+                .write_through
+                .as_deref()
+                .map(|value| TextIOWrapper::bool_from_index(value, vm))
+                .transpose()?
+                .unwrap_or_else(|| self.write_through.load(Ordering::Relaxed));
 
-            if let Some(enc) = args.encoding {
-                if enc.as_pystr().contains_nuls() && enc.as_str().starts_with("locale") {
-                    cold_path();
-                    return Err(vm.new_lookup_error(format!("unknown encoding: {enc}")));
-                }
-                let resolved = TextIOWrapper::resolve_encoding(Some(enc), vm)?;
-                encoding_changed = resolved.as_str() != encoding.as_str();
-                encoding = resolved;
-            }
+            vm.call_method(self.as_object(), "flush", ())?;
+            self.lock(vm)?.b2cratio = 0.0;
 
-            if let Some(errs) = args.errors {
-                TextIOWrapper::validate_errors(&errs, vm)?;
-                errors_changed = errs.as_str() != errors.as_str();
-                errors = errs;
-            } else if encoding_changed {
-                errors = identifier_utf8!(vm, strict).to_owned();
-                errors_changed = true;
-            }
-
-            if let OptionalArg::Present(nl) = args.newline {
-                let nl = nl.unwrap_or_default();
-                newline_changed = nl != newline;
-                newline = nl;
-            }
-
-            if let Some(value) = args.line_buffering {
-                line_buffering = Some(TextIOWrapper::bool_from_index(&value, vm)?);
-            }
-            if let Some(value) = args.write_through {
-                write_through = Some(TextIOWrapper::bool_from_index(&value, vm)?);
-            }
-
-            {
-                let data = self.lock(vm)?;
-                if (encoding_changed || newline_changed)
-                    && data.decoder.is_some()
-                    && (data.decoded_chars.is_some()
-                        || data.snapshot.is_some()
-                        || data.decoded_chars_used.chars != 0)
-                {
-                    return Err(new_unsupported_operation(
-                        "cannot reconfigure encoding or newline after reading from the stream",
-                        vm,
-                    ));
-                }
-            }
-            self.write_pending(vm)?;
-            let buffer = text_buffer(&self.buffer, vm)?;
-            vm.call_method(&buffer, "flush", ())?;
-
-            if encoding_changed || errors_changed || newline_changed {
-                self.write_pending(vm)?;
+            if change_codec {
+                let (current_errors, current_newline) = {
+                    let data = self.lock(vm)?;
+                    (data.errors.clone(), data.newline)
+                };
+                let errors = match args.errors {
+                    Some(errs) => {
+                        TextIOWrapper::validate_errors(&errs, vm)?;
+                        errs
+                    }
+                    None if args.encoding.is_some() => identifier_utf8!(vm, strict).to_owned(),
+                    None => current_errors,
+                };
+                let encoding = match args.encoding {
+                    Some(enc) => {
+                        if enc.as_pystr().contains_nuls() && enc.as_str().starts_with("locale") {
+                            cold_path();
+                            return Err(vm.new_lookup_error(format!("unknown encoding: {enc}")));
+                        }
+                        TextIOWrapper::resolve_encoding(Some(enc), vm)?
+                    }
+                    None => textio_encoding(&self.encoding, vm)?,
+                };
+                let newline = newline.unwrap_or(current_newline);
                 let buffer = text_buffer(&self.buffer, vm)?;
                 let (encoder, decoder) =
                     TextIOWrapper::find_coder(&buffer, encoding.as_str(), &errors, newline, vm)?;
@@ -3817,12 +3810,8 @@ mod _io {
                 }
             }
 
-            if let Some(line_buffering) = line_buffering {
-                self.line_buffering.store(line_buffering, Ordering::Relaxed);
-            }
-            if let Some(write_through) = write_through {
-                self.write_through.store(write_through, Ordering::Relaxed);
-            }
+            self.line_buffering.store(line_buffering, Ordering::Relaxed);
+            self.write_through.store(write_through, Ordering::Relaxed);
             Ok(())
         }
 
